@@ -59,10 +59,15 @@ Backend reads:
 
 ## Notes
 - API keys are stored encrypted in the backend (AES-GCM).
-- Strategy engine is implemented; execution/Upbit integration is still stubbed.
+- Public Upbit market data is integrated; execution (real trades) is still stubbed.
+  - Paper trading mode simulates fills using the strategy engine.
 
 ## Kubernetes
 See `k8s/README.md` for Kustomize overlays and apply steps.
 
 ## Strategy
 See `docs/STRATEGY.md` for the v1 signal logic.
+
+## Paper trading endpoints
+- `GET /api/paper/summary`
+- `POST /api/paper/reset`

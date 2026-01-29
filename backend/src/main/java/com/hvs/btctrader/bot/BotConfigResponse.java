@@ -20,6 +20,7 @@ public record BotConfigResponse(
 		BigDecimal maxDailyDrawdownPct,
 		BigDecimal maxWeeklyDrawdownPct,
 		int autoPickTopN,
+		String manualMarkets,
 		Instant createdAt
 ) {
 	public static BotConfigResponse from(BotConfig config) {
@@ -34,6 +35,7 @@ public record BotConfigResponse(
 				config.getMaxDailyDrawdownPct(),
 				config.getMaxWeeklyDrawdownPct(),
 				config.getAutoPickTopN(),
+				config.getManualMarkets(),
 				config.getCreatedAt()
 		);
 	}

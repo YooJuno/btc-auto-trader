@@ -46,6 +46,8 @@ public class BotConfigRequest {
 	@Max(20)
 	private int autoPickTopN = 5;
 
+	private String manualMarkets;
+
 	public String getName() {
 		return name;
 	}
@@ -116,5 +118,13 @@ public class BotConfigRequest {
 
 	public void setAutoPickTopN(int autoPickTopN) {
 		this.autoPickTopN = autoPickTopN;
+	}
+
+	public String getManualMarkets() {
+		return manualMarkets;
+	}
+
+	public void setManualMarkets(String manualMarkets) {
+		this.manualMarkets = manualMarkets;
 	}
 }

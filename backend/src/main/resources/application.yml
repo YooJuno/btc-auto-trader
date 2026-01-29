@@ -26,6 +26,17 @@ app:
     ttlMinutes: 120
   crypto:
     key: ${APP_ENC_KEY:}
+  upbit:
+    baseUrl: ${UPBIT_BASE_URL:https://api.upbit.com}
+    marketPrefix: ${UPBIT_MARKET_PREFIX:KRW-}
+    candleUnit: ${UPBIT_CANDLE_UNIT:1}
+    candleCount: ${UPBIT_CANDLE_COUNT:120}
+    tickerChunkSize: ${UPBIT_TICKER_CHUNK:100}
+  engine:
+    enabled: ${ENGINE_ENABLED:false}
+    intervalMs: ${ENGINE_INTERVAL_MS:60000}
+  paper:
+    initialCash: ${PAPER_INITIAL_CASH:1000000}
 
 logging:
   level:

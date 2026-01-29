@@ -71,6 +71,7 @@ public class BotConfigController {
 		config.setMaxDailyDrawdownPct(request.getMaxDailyDrawdownPct());
 		config.setMaxWeeklyDrawdownPct(request.getMaxWeeklyDrawdownPct());
 		config.setAutoPickTopN(request.getAutoPickTopN());
+		config.setManualMarkets(request.getManualMarkets());
 
 		BotConfig saved = botConfigRepository.save(config);
 		return BotConfigResponse.from(saved);

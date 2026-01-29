@@ -39,7 +39,10 @@ This module defines the first-pass trading algorithm used by the engine. It is *
 - Strategy engine: `backend/src/main/java/com/hvs/btctrader/strategy/StrategyEngine.java`
 - Indicators: `backend/src/main/java/com/hvs/btctrader/strategy/IndicatorService.java`
 - Auto-selection scoring: `backend/src/main/java/com/hvs/btctrader/strategy/AutoSelector.java`
+- Market data fetch: `backend/src/main/java/com/hvs/btctrader/market/UpbitMarketDataService.java`
 
 ## Notes
 - Spot-only logic; SELL signals assume an existing position.
 - Real execution must check balances and open orders.
+- Paper trading uses these signals for simulated fills.
+- Market recommendations use Upbit public ticker + candles.

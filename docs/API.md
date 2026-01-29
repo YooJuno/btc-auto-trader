@@ -21,8 +21,22 @@
 
 - `POST /api/bot-configs`
   - auth: Bearer token
-  - body: `{ name, baseMarket, selectionMode, strategyMode, riskPreset, maxPositions, maxDailyDrawdownPct, maxWeeklyDrawdownPct, autoPickTopN }`
+  - body: `{ name, baseMarket, selectionMode, strategyMode, riskPreset, maxPositions, maxDailyDrawdownPct, maxWeeklyDrawdownPct, autoPickTopN, manualMarkets }`
+  - `manualMarkets` format: `KRW-BTC,KRW-ETH` or `BTC,ETH` (prefix auto-applied)
 
 - `GET /api/bot-configs/active`
   - auth: Bearer token
   - returns: latest config for user
+
+## Market
+- `GET /api/market/recommendations?topN=5`
+  - auth: Bearer token
+  - returns: list of recommended markets with scores
+
+## Paper trading
+- `GET /api/paper/summary`
+  - auth: Bearer token
+  - returns: cash, equity, positions
+- `POST /api/paper/reset`
+  - auth: Bearer token
+  - body: `{ initialCash }`

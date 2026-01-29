@@ -8,6 +8,11 @@
 ## Environment
 - `JWT_SECRET` must be long and random for production.
 - `APP_ENC_KEY` must be a Base64-encoded 32-byte key (AES-256-GCM).
+- `ENGINE_ENABLED` enables the strategy scheduler.
+- `ENGINE_INTERVAL_MS` controls strategy tick interval.
+- `PAPER_INITIAL_CASH` sets the paper account starting balance.
+- `UPBIT_BASE_URL` defaults to `https://api.upbit.com`.
+- `UPBIT_MARKET_PREFIX` defaults to `KRW-`.
 
 ## Single-server to multi-server
 When you move from home PC to public access:

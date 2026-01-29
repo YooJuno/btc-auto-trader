@@ -69,6 +69,9 @@ public class BotConfig extends BaseEntity {
 	@Column(nullable = false)
 	private int autoPickTopN = 5;
 
+	@Column(length = 2048)
+	private String manualMarkets;
+
 	public UUID getId() {
 		return id;
 	}
@@ -163,5 +166,13 @@ public class BotConfig extends BaseEntity {
 
 	public void setAutoPickTopN(int autoPickTopN) {
 		this.autoPickTopN = autoPickTopN;
+	}
+
+	public String getManualMarkets() {
+		return manualMarkets;
+	}
+
+	public void setManualMarkets(String manualMarkets) {
+		this.manualMarkets = manualMarkets;
 	}
 }
