@@ -31,11 +31,14 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
     radial-gradient(circle at 15% 15%, rgba(255, 180, 94, 0.2), transparent 45%),
     radial-gradient(circle at 80% 20%, rgba(87, 217, 198, 0.18), transparent 40%),
     radial-gradient(circle at 40% 85%, rgba(255, 146, 84, 0.15), transparent 50%),
     linear-gradient(120deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 40%, transparent 100%),
     #0a0f14;
+  background-size: 120px 120px, 120px 120px, auto, auto, auto, auto, auto;
   background-attachment: fixed;
 }
 

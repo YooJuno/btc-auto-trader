@@ -161,6 +161,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [streamStatus, setStreamStatus] = useState<'idle' | 'live' | 'error'>('idle')
   const [lastUpdated, setLastUpdated] = useState('')
+  const [marketFilter, setMarketFilter] = useState('')
 
   const [configName, setConfigName] = useState('KRW Standard')
   const [market, setMarket] = useState('KRW')
@@ -484,6 +485,14 @@ function App() {
   const displaySummary = paperSummary ?? emptySummary
   const displayPerformance = performance ?? emptyPerformance
 
+  const filteredRecommendations = useMemo(() => {
+    const term = marketFilter.trim().toUpperCase()
+    if (!term) {
+      return displayRecommendations
+    }
+    return displayRecommendations.filter((coin) => coin.market.toUpperCase().includes(term))
+  }, [marketFilter, displayRecommendations])
+
   const signalTape = useMemo(() => {
     return displayRecommendations.slice(0, 4).map((coin) => ({
       market: coin.market,
@@ -506,7 +515,21 @@ function App() {
             <p className="brand-subtitle">KRW-first / Strategy lab / Paper trading</p>
           </div>
         </div>
-        <div className="topbar-right">
+        <nav className="topnav">
+          <button className="nav-pill active" type="button">Overview</button>
+          <button className="nav-pill" type="button">Signals</button>
+          <button className="nav-pill" type="button">Portfolio</button>
+          <button className="nav-pill" type="button">Risk</button>
+        </nav>
+        <div className="top-actions">
+          <label className="search-box">
+            <span>Search</span>
+            <input
+              value={marketFilter}
+              onChange={(event) => setMarketFilter(event.target.value)}
+              placeholder="KRW-BTC"
+            />
+          </label>
           <span className={`stream-chip ${streamStatus}`}>{streamLabel}</span>
           <span className={`status-chip ${isAuthed ? 'online' : 'offline'}`}>
             {isAuthed ? 'API Connected' : 'Demo Mode'}
@@ -519,50 +542,31 @@ function App() {
         </div>
       </header>
 
-      <section className="hero">
-        <div className="hero-copy">
-          <p className="hero-kicker">Auto 전략 & 시그널 인덱스</p>
-          <h1>실시간 시세 기반 자동 추천을 한 화면에서</h1>
-          <p className="hero-desc">
-            스트림 추천, 리스크 관리, 모의매매 성과를 한 곳에서 관리하세요. 모드별 기본 전략을 유지하면서
-            필요한 곳만 미세 조정할 수 있습니다.
-          </p>
-          <div className="hero-meta">
-            <div>
-              <span>Selection</span>
-              <strong>{selectionLabel}</strong>
-            </div>
-            <div>
-              <span>Strategy</span>
-              <strong>{strategyMode}</strong>
-            </div>
-            <div>
-              <span>Risk</span>
-              <strong>{riskBadge}</strong>
-            </div>
-          </div>
+      <section className="command-strip">
+        <div className="strip-card">
+          <span>Stream</span>
+          <strong>{streamLabel}</strong>
+          <p>{lastUpdated ? `최근 업데이트 ${lastUpdated}` : '업데이트 대기중'}</p>
         </div>
-        <div className="hero-cards">
-          <div className="hero-card">
-            <p>Live stream</p>
-            <strong>{streamLabel}</strong>
-            <span>{lastUpdated ? `최근 업데이트 ${lastUpdated}` : '업데이트 대기중'}</span>
-          </div>
-          <div className="hero-card">
-            <p>Paper equity</p>
-            <strong>\ {formatMoney(displaySummary.equity)}</strong>
-            <span>{summaryNote || `보유 포지션 ${positionCount}개`}</span>
-          </div>
-          <div className="hero-card">
-            <p>Auto picks</p>
-            <strong>Top {autoPickTopN}</strong>
-            <span>시장 기준 {market}</span>
-          </div>
+        <div className="strip-card">
+          <span>Paper equity</span>
+          <strong>\ {formatMoney(displaySummary.equity)}</strong>
+          <p>{summaryNote || `보유 포지션 ${positionCount}개`}</p>
+        </div>
+        <div className="strip-card">
+          <span>Risk guard</span>
+          <strong>{riskBadge}</strong>
+          <p>Daily {dailyDd}% · Weekly {weeklyDd}%</p>
+        </div>
+        <div className="strip-card">
+          <span>Auto picks</span>
+          <strong>Top {autoPickTopN}</strong>
+          <p>{selectionLabel} · {market}</p>
         </div>
       </section>
 
-      <main className="dashboard-grid">
-        <section className="panel login-panel">
+      <main className="terminal-grid">
+        <section className="panel access-panel">
           <div className="panel-header">
             <h2>Access</h2>
             <span className="pill">Account</span>
@@ -846,23 +850,27 @@ function App() {
             </div>
           </div>
           <div className="recommendation-list">
-            {displayRecommendations.map((coin, index) => (
-              <div key={`${coin.market}-${index}`} className="recommendation-card">
-                <div className="recommendation-main">
-                  <div className="rank">#{index + 1}</div>
-                  <div>
-                    <h3>{coin.market}</h3>
-                    <span>Score {(coin.score * 100).toFixed(1)}</span>
+            {filteredRecommendations.length === 0 ? (
+              <p className="empty">검색 결과가 없습니다.</p>
+            ) : (
+              filteredRecommendations.map((coin, index) => (
+                <div key={`${coin.market}-${index}`} className="recommendation-card">
+                  <div className="recommendation-main">
+                    <div className="rank">#{index + 1}</div>
+                    <div>
+                      <h3>{coin.market}</h3>
+                      <span>Score {(coin.score * 100).toFixed(1)}</span>
+                    </div>
+                  </div>
+                  <div className="recommendation-meta">
+                    <span>\ {formatMoney(coin.lastPrice)}</span>
+                    <span>Vol {coin.volatilityPct.toFixed(2)}%</span>
+                    <span>Trend {coin.trendStrengthPct.toFixed(2)}%</span>
+                    <span>24h {formatMoney(coin.volume24h)}</span>
                   </div>
                 </div>
-                <div className="recommendation-meta">
-                  <span>\ {formatMoney(coin.lastPrice)}</span>
-                  <span>Vol {coin.volatilityPct.toFixed(2)}%</span>
-                  <span>Trend {coin.trendStrengthPct.toFixed(2)}%</span>
-                  <span>24h {formatMoney(coin.volume24h)}</span>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </section>
 
