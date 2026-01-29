@@ -32,6 +32,86 @@ npm install
 npm run dev
 ```
 
+## Local setup (Linux / macOS / Windows)
+공통으로 필요한 것:
+- Java 17+ (Spring Boot)
+- Node.js 18+ (Frontend)
+- Git (권장)
+- Docker (Postgres를 컨테이너로 띄울 경우)
+
+아래는 운영체제별 권장 설치 흐름입니다. 정확한 설치는 각 공식 설치 프로그램을 사용하세요.
+
+### Linux (Ubuntu/Debian 기준)
+1) Java 17+ 설치 (OpenJDK 권장)
+2) Node.js 18+ 설치 (nvm 사용 권장)
+3) Docker Engine + Docker Compose 설치
+4) `docker compose up -d`로 Postgres 실행 후 백엔드/프론트 실행
+
+예시 명령 (Ubuntu/Debian):
+```bash
+sudo apt update
+sudo apt install -y git curl ca-certificates openjdk-17-jdk
+
+# nvm 설치 후 Node 18 LTS
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+export NVM_DIR="$HOME/.nvm"
+source "$NVM_DIR/nvm.sh"
+nvm install 18
+nvm use 18
+
+# Docker + Compose plugin
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo $VERSION_CODENAME) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER
+```
+
+### macOS
+1) Java 17+ 설치 (Temurin 또는 OpenJDK 권장)
+2) Node.js 18+ 설치 (nvm 또는 공식 installer)
+3) Docker Desktop 설치
+4) `docker compose up -d`로 Postgres 실행 후 백엔드/프론트 실행
+
+예시 명령 (Homebrew 사용 시):
+```bash
+brew update
+brew install git node openjdk@17
+brew install --cask docker
+echo 'export PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### Windows
+1) Java 17+ 설치 (Temurin 또는 OpenJDK 권장)
+2) Node.js 18+ 설치 (공식 installer)
+3) Docker Desktop 설치
+4) `docker compose up -d`로 Postgres 실행 후 백엔드/프론트 실행
+
+예시 명령 (winget 사용 시, PowerShell):
+```powershell
+winget install EclipseAdoptium.Temurin.17.JDK
+winget install OpenJS.NodeJS.LTS
+winget install Git.Git
+winget install Docker.DockerDesktop
+```
+
+### 설치 확인 체크리스트
+```bash
+java -version
+node -v
+npm -v
+git --version
+docker --version
+docker compose version
+```
+
+> Windows에서 Docker 성능이 중요하면 WSL2 사용을 권장합니다.
+
 ## Production (Docker Compose)
 ```bash
 cd infra
