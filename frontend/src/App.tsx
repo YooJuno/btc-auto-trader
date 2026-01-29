@@ -72,44 +72,26 @@ type MarketStreamEvent = {
   recommendations: Recommendation[]
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? ''
-
-const demoRecommendations: Recommendation[] = [
-  { market: 'KRW-BTC', score: 0.92, lastPrice: 88500000, volume24h: 42000000000, volatilityPct: 2.1, trendStrengthPct: 0.6 },
-  { market: 'KRW-ETH', score: 0.87, lastPrice: 3720000, volume24h: 18000000000, volatilityPct: 2.4, trendStrengthPct: 0.4 },
-  { market: 'KRW-SOL', score: 0.83, lastPrice: 155000, volume24h: 9200000000, volatilityPct: 3.2, trendStrengthPct: 0.9 },
-  { market: 'KRW-XRP', score: 0.8, lastPrice: 960, volume24h: 7500000000, volatilityPct: 1.8, trendStrengthPct: -0.3 },
-  { market: 'KRW-ADA', score: 0.77, lastPrice: 820, volume24h: 4300000000, volatilityPct: 2.0, trendStrengthPct: 0.2 },
-]
-
-const demoSummary: PaperSummary = {
-  cashBalance: 620000,
-  equity: 1015000,
-  realizedPnl: 22000,
-  unrealizedPnl: -7000,
-  positions: [
-    { market: 'KRW-BTC', quantity: 0.0042, entryPrice: 87200000, lastPrice: 88500000, unrealizedPnl: 5460, unrealizedPnlPct: 1.49 },
-    { market: 'KRW-SOL', quantity: 1.9, entryPrice: 162000, lastPrice: 155000, unrealizedPnl: -13300, unrealizedPnlPct: -4.32 },
-  ],
+type SignalTag = {
+  label: string
+  tone: 'up' | 'down' | 'flat' | 'warn'
 }
 
-const demoPerformance: PaperPerformance = {
-  totalReturnPct: 3.2,
-  maxDrawdownPct: 2.8,
-  daily: [
-    { label: '01-23', equity: 980000, returnPct: -0.4 },
-    { label: '01-24', equity: 988000, returnPct: 0.82 },
-    { label: '01-25', equity: 1004000, returnPct: 1.62 },
-    { label: '01-26', equity: 1022000, returnPct: 1.79 },
-    { label: '01-27', equity: 1015000, returnPct: -0.69 },
-    { label: '01-28', equity: 1030000, returnPct: 1.48 },
-    { label: '01-29', equity: 1015000, returnPct: -1.46 },
-  ],
-  weekly: [
-    { label: '01-06', equity: 965000, returnPct: 0 },
-    { label: '01-13', equity: 995000, returnPct: 3.11 },
-    { label: '01-20', equity: 1015000, returnPct: 2.01 },
-  ],
+const API_BASE = import.meta.env.VITE_API_BASE ?? ''
+
+const emptySummary: PaperSummary = {
+  cashBalance: 0,
+  equity: 0,
+  realizedPnl: 0,
+  unrealizedPnl: 0,
+  positions: [],
+}
+
+const emptyPerformance: PaperPerformance = {
+  totalReturnPct: 0,
+  maxDrawdownPct: 0,
+  daily: [],
+  weekly: [],
 }
 
 function formatMoney(value: number) {
@@ -135,6 +117,19 @@ function toNumberOrNull(value: number | ''): number | null {
   return value
 }
 
+function signalTag(coin: Recommendation): SignalTag {
+  if (coin.volatilityPct >= 5) {
+    return { label: 'VOLATILE', tone: 'warn' }
+  }
+  if (coin.trendStrengthPct >= 0.5) {
+    return { label: 'TREND UP', tone: 'up' }
+  }
+  if (coin.trendStrengthPct <= -0.5) {
+    return { label: 'TREND DOWN', tone: 'down' }
+  }
+  return { label: 'RANGE', tone: 'flat' }
+}
+
 async function apiFetch<T>(path: string, token?: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -157,9 +152,12 @@ function App() {
   const [tenantName, setTenantName] = useState('')
   const [authError, setAuthError] = useState('')
   const [defaults, setDefaults] = useState<BotDefaults | null>(null)
-  const [recommendations, setRecommendations] = useState<Recommendation[]>(demoRecommendations)
-  const [paperSummary, setPaperSummary] = useState<PaperSummary>(demoSummary)
-  const [performance, setPerformance] = useState<PaperPerformance>(demoPerformance)
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([])
+  const [paperSummary, setPaperSummary] = useState<PaperSummary>(emptySummary)
+  const [performance, setPerformance] = useState<PaperPerformance>(emptyPerformance)
+  const [recoStatus, setRecoStatus] = useState<'empty' | 'live' | 'error'>('empty')
+  const [summaryStatus, setSummaryStatus] = useState<'empty' | 'live' | 'error'>('empty')
+  const [performanceStatus, setPerformanceStatus] = useState<'empty' | 'live' | 'error'>('empty')
   const [loading, setLoading] = useState(false)
   const [streamStatus, setStreamStatus] = useState<'idle' | 'live' | 'error'>('idle')
   const [lastUpdated, setLastUpdated] = useState('')
@@ -220,6 +218,7 @@ function App() {
           return
         }
         setRecommendations(payload.recommendations)
+        setRecoStatus('live')
         const timestamp = payload.timestamp ? new Date(payload.timestamp) : new Date()
         if (!Number.isNaN(timestamp.valueOf())) {
           setLastUpdated(timestamp.toLocaleTimeString('ko-KR'))
@@ -241,10 +240,14 @@ function App() {
         return
       }
       setStreamStatus('error')
+      setRecoStatus((prev) => (prev === 'live' ? 'error' : 'empty'))
       source.close()
       if (isAuthed) {
         apiFetch<Recommendation[]>(`/api/market/recommendations?topN=${autoPickTopN}`, token)
-          .then(setRecommendations)
+          .then((data) => {
+            setRecommendations(data)
+            setRecoStatus('live')
+          })
           .catch(() => null)
       }
     }
@@ -262,11 +265,21 @@ function App() {
 
     const fetchAll = () => {
       apiFetch<PaperSummary>('/api/paper/summary', token)
-        .then(setPaperSummary)
-        .catch(() => null)
+        .then((data) => {
+          setPaperSummary(data)
+          setSummaryStatus('live')
+        })
+        .catch(() => {
+          setSummaryStatus((prev) => (prev === 'live' ? 'error' : 'empty'))
+        })
       apiFetch<PaperPerformance>('/api/paper/performance?days=7&weeks=4', token)
-        .then(setPerformance)
-        .catch(() => null)
+        .then((data) => {
+          setPerformance(data)
+          setPerformanceStatus('live')
+        })
+        .catch(() => {
+          setPerformanceStatus((prev) => (prev === 'live' ? 'error' : 'empty'))
+        })
     }
 
     fetchAll()
@@ -311,6 +324,13 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem('token')
     setToken('')
+    setRecommendations([])
+    setPaperSummary(emptySummary)
+    setPerformance(emptyPerformance)
+    setRecoStatus('empty')
+    setSummaryStatus('empty')
+    setPerformanceStatus('empty')
+    setLastUpdated('')
   }
 
   const handleApplyDefaults = () => {
@@ -410,6 +430,7 @@ function App() {
         body: JSON.stringify({ initialCash: 1000000 }),
       })
       setPaperSummary(updated)
+      setSummaryStatus('live')
     } catch (error) {
       setAuthError('리셋 실패')
     } finally {
@@ -429,8 +450,51 @@ function App() {
     return 'Connecting'
   }, [streamStatus])
 
+  const recommendationNote = useMemo(() => {
+    if (recoStatus === 'error') return '서버 연결 끊김'
+    if (recoStatus === 'empty') return '서버 연결 대기'
+    return ''
+  }, [recoStatus])
+
+  const summaryNote = useMemo(() => {
+    if (summaryStatus === 'error') return '서버 연결 끊김'
+    if (summaryStatus === 'empty') return '서버 연결 대기'
+    return ''
+  }, [summaryStatus])
+
+  const performanceNote = useMemo(() => {
+    if (performanceStatus === 'error') return '서버 연결 끊김'
+    if (performanceStatus === 'empty') return '서버 연결 대기'
+    return ''
+  }, [performanceStatus])
+
+  const placeholderRecommendations = useMemo(() => {
+    const count = Math.max(1, autoPickTopN)
+    return Array.from({ length: count }, () => ({
+      market: '--',
+      score: 0,
+      lastPrice: 0,
+      volume24h: 0,
+      volatilityPct: 0,
+      trendStrengthPct: 0,
+    }))
+  }, [autoPickTopN])
+
+  const displayRecommendations = recommendations.length > 0 ? recommendations : placeholderRecommendations
+  const displaySummary = paperSummary ?? emptySummary
+  const displayPerformance = performance ?? emptyPerformance
+
+  const signalTape = useMemo(() => {
+    return displayRecommendations.slice(0, 4).map((coin) => ({
+      market: coin.market,
+      price: coin.lastPrice,
+      score: coin.score,
+      tag: signalTag(coin),
+    }))
+  }, [displayRecommendations])
+
   const selectionLabel = useMemo(() => (selectionMode === 'MANUAL' ? 'Manual' : 'Auto'), [selectionMode])
-  const positionCount = paperSummary.positions.length
+  const positionCount = displaySummary.positions.length
 
   return (
     <div className="app-shell">
@@ -486,8 +550,8 @@ function App() {
           </div>
           <div className="hero-card">
             <p>Paper equity</p>
-            <strong>\ {formatMoney(paperSummary.equity)}</strong>
-            <span>보유 포지션 {positionCount}개</span>
+            <strong>\ {formatMoney(displaySummary.equity)}</strong>
+            <span>{summaryNote || `보유 포지션 ${positionCount}개`}</span>
           </div>
           <div className="hero-card">
             <p>Auto picks</p>
@@ -773,6 +837,7 @@ function App() {
               <h2>Market Radar</h2>
               <p className="panel-subtitle">
                 거래대금, 추세, 변동성 기반 자동 추천 {lastUpdated ? `/ 최근 업데이트 ${lastUpdated}` : ''}
+                {recommendationNote ? ` / ${recommendationNote}` : ''}
               </p>
             </div>
             <div className="chip-row">
@@ -781,8 +846,8 @@ function App() {
             </div>
           </div>
           <div className="recommendation-list">
-            {recommendations.map((coin, index) => (
-              <div key={coin.market} className="recommendation-card">
+            {displayRecommendations.map((coin, index) => (
+              <div key={`${coin.market}-${index}`} className="recommendation-card">
                 <div className="recommendation-main">
                   <div className="rank">#{index + 1}</div>
                   <div>
@@ -801,26 +866,55 @@ function App() {
           </div>
         </section>
 
+        <section className="panel signal-panel">
+          <div className="panel-header">
+            <h2>Signal Tape</h2>
+            <span className="pill">Live feed</span>
+          </div>
+          {recommendationNote && <p className="panel-subtitle">{recommendationNote}</p>}
+          <div className="signal-list">
+            {signalTape.map((item, index) => (
+              <div key={`${item.market}-${index}`} className="signal-item">
+                <div>
+                  <p>{item.market}</p>
+                  <strong>\ {formatMoney(item.price)}</strong>
+                </div>
+                <div className="signal-right">
+                  <span className={`signal-badge ${item.tag.tone}`}>{item.tag.label}</span>
+                  <span className="signal-score">{(item.score * 100).toFixed(0)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="signal-footer">
+            <span>Mode</span>
+            <strong>{strategyMode}</strong>
+            <span>Selection</span>
+            <strong>{selectionLabel}</strong>
+          </div>
+        </section>
+
         <section className="panel paper-panel">
           <div className="panel-header">
             <h2>Paper Portfolio</h2>
-            <span className="pill">Equity \ {formatMoney(paperSummary.equity)}</span>
+            <span className="pill">Equity \ {formatMoney(displaySummary.equity)}</span>
           </div>
+          {summaryNote && <p className="panel-subtitle">{summaryNote}</p>}
           <div className="stats-grid">
             <div>
               <p>Cash</p>
-              <strong>\ {formatMoney(paperSummary.cashBalance)}</strong>
+              <strong>\ {formatMoney(displaySummary.cashBalance)}</strong>
             </div>
             <div>
               <p>Unrealized</p>
-              <strong className={paperSummary.unrealizedPnl >= 0 ? 'positive' : 'negative'}>
-                {formatPct((paperSummary.unrealizedPnl / Math.max(paperSummary.equity, 1)) * 100)}
+              <strong className={displaySummary.unrealizedPnl >= 0 ? 'positive' : 'negative'}>
+                {formatPct((displaySummary.unrealizedPnl / Math.max(displaySummary.equity, 1)) * 100)}
               </strong>
             </div>
             <div>
               <p>Realized</p>
-              <strong className={paperSummary.realizedPnl >= 0 ? 'positive' : 'negative'}>
-                \ {formatMoney(paperSummary.realizedPnl)}
+              <strong className={displaySummary.realizedPnl >= 0 ? 'positive' : 'negative'}>
+                \ {formatMoney(displaySummary.realizedPnl)}
               </strong>
             </div>
           </div>
@@ -831,7 +925,7 @@ function App() {
               <span>Last</span>
               <span>PnL</span>
             </div>
-            {paperSummary.positions.map((pos) => (
+            {displaySummary.positions.map((pos) => (
               <div key={pos.market} className="positions-row">
                 <span>{pos.market}</span>
                 <span>\ {formatMoney(pos.entryPrice)}</span>
@@ -839,29 +933,36 @@ function App() {
                 <span className={pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}>{formatPct(pos.unrealizedPnlPct)}</span>
               </div>
             ))}
-            {paperSummary.positions.length === 0 && <p className="empty">No open positions</p>}
+            {displaySummary.positions.length === 0 && <p className="empty">No open positions</p>}
           </div>
         </section>
 
         <section className="panel performance-panel">
           <div className="panel-header">
             <h2>Performance</h2>
-            <span className="pill">Return {formatPct(performance.totalReturnPct)}</span>
+            <span className="pill">Return {formatPct(displayPerformance.totalReturnPct)}</span>
           </div>
-          <p className="panel-subtitle">Max DD {formatPct(performance.maxDrawdownPct)} · 최근 7일</p>
+          <p className="panel-subtitle">
+            Max DD {formatPct(displayPerformance.maxDrawdownPct)} · 최근 7일
+            {performanceNote ? ` / ${performanceNote}` : ''}
+          </p>
           <div className="performance-chart">
-            {performance.daily.map((point) => (
-              <div key={point.label} className="performance-row">
-                <span>{point.label}</span>
-                <div className="bar-track">
-                  <div
-                    className={`bar ${point.returnPct >= 0 ? 'positive' : 'negative'}`}
-                    style={{ width: `${Math.min(Math.abs(point.returnPct) * 6, 100)}%` }}
-                  />
+            {displayPerformance.daily.length === 0 ? (
+              <p className="empty">성과 데이터 수신 대기중</p>
+            ) : (
+              displayPerformance.daily.map((point) => (
+                <div key={point.label} className="performance-row">
+                  <span>{point.label}</span>
+                  <div className="bar-track">
+                    <div
+                      className={`bar ${point.returnPct >= 0 ? 'positive' : 'negative'}`}
+                      style={{ width: `${Math.min(Math.abs(point.returnPct) * 6, 100)}%` }}
+                    />
+                  </div>
+                  <span>{formatPct(point.returnPct)}</span>
                 </div>
-                <span>{formatPct(point.returnPct)}</span>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </section>
       </main>
