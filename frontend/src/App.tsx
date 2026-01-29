@@ -844,29 +844,6 @@ function App() {
         </div>
       </header>
 
-      <section className="command-strip">
-        <div className="strip-card">
-          <span>Stream</span>
-          <strong>{streamLabel}</strong>
-          <p>{lastUpdated ? `최근 업데이트 ${lastUpdated}` : '업데이트 대기중'}</p>
-        </div>
-        <div className="strip-card">
-          <span>Paper equity</span>
-          <strong>\ {formatMoney(displaySummary.equity)}</strong>
-          <p>{summaryNote || `보유 포지션 ${positionCount}개`}</p>
-        </div>
-        <div className="strip-card">
-          <span>Risk guard</span>
-          <strong>{operationLabel}</strong>
-          <p>{riskBadge} · Daily {dailyDd}% · Weekly {weeklyDd}%</p>
-        </div>
-        <div className="strip-card">
-          <span>Auto picks</span>
-          <strong>Top {autoPickTopN}</strong>
-          <p>{selectionLabel} · {market}</p>
-        </div>
-      </section>
-
       <main className={`terminal-grid view-${activeView}`}>
         <section className="panel strategy-panel">
           <div className="panel-header">
