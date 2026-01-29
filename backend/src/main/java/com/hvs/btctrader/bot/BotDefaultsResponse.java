@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import com.hvs.btctrader.enums.MarketType;
+import com.hvs.btctrader.enums.OperationMode;
 import com.hvs.btctrader.enums.RiskPreset;
 import com.hvs.btctrader.enums.SelectionMode;
 import com.hvs.btctrader.enums.StrategyMode;
@@ -13,6 +14,7 @@ public record BotDefaultsResponse(
 		SelectionMode defaultSelectionMode,
 		StrategyMode defaultStrategyMode,
 		RiskPreset defaultRiskPreset,
+		OperationMode defaultOperationMode,
 		int defaultMaxPositions,
 		BigDecimal defaultDailyDrawdownPct,
 		BigDecimal defaultWeeklyDrawdownPct,
@@ -32,6 +34,7 @@ public record BotDefaultsResponse(
 		List<MarketType> availableMarkets,
 		List<SelectionMode> availableSelectionModes,
 		List<StrategyMode> availableStrategyModes,
-		List<RiskPreset> availableRiskPresets
+		List<RiskPreset> availableRiskPresets,
+		List<OperationMode> availableOperationModes
 ) {
 }

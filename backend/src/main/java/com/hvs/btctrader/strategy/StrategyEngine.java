@@ -6,6 +6,7 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 
 import com.hvs.btctrader.bot.BotConfig;
+import com.hvs.btctrader.enums.OperationMode;
 import com.hvs.btctrader.enums.RiskPreset;
 import com.hvs.btctrader.enums.StrategyMode;
 
@@ -128,28 +129,29 @@ public class StrategyEngine {
 
 	private StrategyParameters parametersForConfig(BotConfig config) {
 		StrategyParameters base = StrategyDefaults.forMode(config.getStrategyMode());
-		int emaFast = pickInt(config.getEmaFast(), base.emaFast(), 2, 200);
-		int emaSlow = pickInt(config.getEmaSlow(), base.emaSlow(), 5, 400);
+		StrategyParameters tuned = applyOperationMode(base, config.getOperationMode());
+		int emaFast = pickInt(config.getEmaFast(), tuned.emaFast(), 2, 200);
+		int emaSlow = pickInt(config.getEmaSlow(), tuned.emaSlow(), 5, 400);
 		if (emaSlow <= emaFast) {
-			emaSlow = Math.max(emaFast + 1, base.emaSlow());
+			emaSlow = Math.max(emaFast + 1, tuned.emaSlow());
 		}
-		int rsiPeriod = pickInt(config.getRsiPeriod(), base.rsiPeriod(), 5, 60);
-		int atrPeriod = pickInt(config.getAtrPeriod(), base.atrPeriod(), 5, 60);
-		int bbPeriod = pickInt(config.getBbPeriod(), base.bbPeriod(), 10, 60);
-		double bbStdDev = pickDouble(config.getBbStdDev(), base.bbStdDev(), 0.5, 5.0);
-		double trendThreshold = pickDouble(config.getTrendThreshold(), base.trendThreshold(), 0.001, 0.05);
-		double volatilityHigh = pickDouble(config.getVolatilityHigh(), base.volatilityHigh(), 0.01, 0.2);
-		int trendRsiBuyMin = pickInt(config.getTrendRsiBuyMin(), base.trendRsiBuyMin(), 10, 90);
-		int trendRsiSellMax = pickInt(config.getTrendRsiSellMax(), base.trendRsiSellMax(), 10, 90);
+		int rsiPeriod = pickInt(config.getRsiPeriod(), tuned.rsiPeriod(), 5, 60);
+		int atrPeriod = pickInt(config.getAtrPeriod(), tuned.atrPeriod(), 5, 60);
+		int bbPeriod = pickInt(config.getBbPeriod(), tuned.bbPeriod(), 10, 60);
+		double bbStdDev = pickDouble(config.getBbStdDev(), tuned.bbStdDev(), 0.5, 5.0);
+		double trendThreshold = pickDouble(config.getTrendThreshold(), tuned.trendThreshold(), 0.001, 0.05);
+		double volatilityHigh = pickDouble(config.getVolatilityHigh(), tuned.volatilityHigh(), 0.01, 0.2);
+		int trendRsiBuyMin = pickInt(config.getTrendRsiBuyMin(), tuned.trendRsiBuyMin(), 10, 90);
+		int trendRsiSellMax = pickInt(config.getTrendRsiSellMax(), tuned.trendRsiSellMax(), 10, 90);
 		if (trendRsiBuyMin <= trendRsiSellMax) {
-			trendRsiBuyMin = base.trendRsiBuyMin();
-			trendRsiSellMax = base.trendRsiSellMax();
+			trendRsiBuyMin = tuned.trendRsiBuyMin();
+			trendRsiSellMax = tuned.trendRsiSellMax();
 		}
-		int rangeRsiBuyMax = pickInt(config.getRangeRsiBuyMax(), base.rangeRsiBuyMax(), 5, 70);
-		int rangeRsiSellMin = pickInt(config.getRangeRsiSellMin(), base.rangeRsiSellMin(), 50, 95);
+		int rangeRsiBuyMax = pickInt(config.getRangeRsiBuyMax(), tuned.rangeRsiBuyMax(), 5, 70);
+		int rangeRsiSellMin = pickInt(config.getRangeRsiSellMin(), tuned.rangeRsiSellMin(), 50, 95);
 		if (rangeRsiBuyMax >= rangeRsiSellMin) {
-			rangeRsiBuyMax = base.rangeRsiBuyMax();
-			rangeRsiSellMin = base.rangeRsiSellMin();
+			rangeRsiBuyMax = tuned.rangeRsiBuyMax();
+			rangeRsiSellMin = tuned.rangeRsiSellMin();
 		}
 		return new StrategyParameters(
 				emaFast,
@@ -185,6 +187,46 @@ public class StrategyEngine {
 			return fallback;
 		}
 		return override;
+	}
+
+	private StrategyParameters applyOperationMode(StrategyParameters base, OperationMode mode) {
+		if (mode == null || mode == OperationMode.STABLE) {
+			return new StrategyParameters(
+					base.emaFast(),
+					base.emaSlow(),
+					base.rsiPeriod(),
+					base.atrPeriod(),
+					base.bbPeriod(),
+					base.bbStdDev(),
+					clamp(base.trendThreshold() * 1.15, 0.001, 0.05),
+					clamp(base.volatilityHigh() * 0.85, 0.01, 0.2),
+					clampInt(base.trendRsiBuyMin() + 2, 10, 90),
+					clampInt(base.trendRsiSellMax() - 2, 10, 90),
+					clampInt(base.rangeRsiBuyMax() - 2, 5, 70),
+					clampInt(base.rangeRsiSellMin() + 2, 50, 95)
+			);
+		}
+		if (mode == OperationMode.ATTACK) {
+			return new StrategyParameters(
+					base.emaFast(),
+					base.emaSlow(),
+					base.rsiPeriod(),
+					base.atrPeriod(),
+					base.bbPeriod(),
+					base.bbStdDev(),
+					clamp(base.trendThreshold() * 0.85, 0.001, 0.05),
+					clamp(base.volatilityHigh() * 1.2, 0.01, 0.2),
+					clampInt(base.trendRsiBuyMin() - 2, 10, 90),
+					clampInt(base.trendRsiSellMax() + 2, 10, 90),
+					clampInt(base.rangeRsiBuyMax() + 2, 5, 70),
+					clampInt(base.rangeRsiSellMin() - 2, 50, 95)
+			);
+		}
+		return base;
+	}
+
+	private int clampInt(int value, int min, int max) {
+		return Math.max(min, Math.min(max, value));
 	}
 
 	private double trendConfidence(double trendStrength, double threshold, double rsi, boolean isBuy) {

@@ -6,6 +6,7 @@ type BotDefaults = {
   defaultSelectionMode: string
   defaultStrategyMode: string
   defaultRiskPreset: string
+  defaultOperationMode: string
   defaultMaxPositions: number
   defaultDailyDrawdownPct: number
   defaultWeeklyDrawdownPct: number
@@ -26,6 +27,7 @@ type BotDefaults = {
   availableSelectionModes: string[]
   availableStrategyModes: string[]
   availableRiskPresets: string[]
+  availableOperationModes: string[]
 }
 
 type Recommendation = {
@@ -70,6 +72,11 @@ type PaperPerformance = {
 type MarketStreamEvent = {
   timestamp: string
   recommendations: Recommendation[]
+}
+
+type MarketCandlePoint = {
+  timestamp: string
+  close: number
 }
 
 type SignalTag = {
@@ -117,6 +124,23 @@ function toNumberOrNull(value: number | ''): number | null {
   return value
 }
 
+function buildSparkline(points: MarketCandlePoint[]): string {
+  if (points.length < 2) {
+    return ''
+  }
+  const values = points.map((point) => point.close)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  return values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * 100
+      const y = 32 - ((value - min) / range) * 32
+      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
+    })
+    .join(' ')
+}
+
 function signalTag(coin: Recommendation): SignalTag {
   if (coin.volatilityPct >= 5) {
     return { label: 'VOLATILE', tone: 'warn' }
@@ -149,7 +173,6 @@ function App() {
   const [token, setToken] = useState<string>(() => localStorage.getItem('token') ?? '')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [tenantName, setTenantName] = useState('')
   const [authError, setAuthError] = useState('')
   const [defaults, setDefaults] = useState<BotDefaults | null>(null)
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
@@ -162,12 +185,17 @@ function App() {
   const [streamStatus, setStreamStatus] = useState<'idle' | 'live' | 'error'>('idle')
   const [lastUpdated, setLastUpdated] = useState('')
   const [marketFilter, setMarketFilter] = useState('')
+  const [activeView, setActiveView] = useState<'overview' | 'portfolio' | 'config'>('overview')
+  const [loginOpen, setLoginOpen] = useState(false)
+  const [registerOpen, setRegisterOpen] = useState(false)
+  const [sparklines, setSparklines] = useState<Record<string, MarketCandlePoint[]>>({})
 
   const [configName, setConfigName] = useState('KRW Standard')
   const [market, setMarket] = useState('KRW')
   const [selectionMode, setSelectionMode] = useState('AUTO')
   const [strategyMode, setStrategyMode] = useState('AUTO')
   const [riskPreset, setRiskPreset] = useState('STANDARD')
+  const [operationMode, setOperationMode] = useState('STABLE')
   const [maxPositions, setMaxPositions] = useState(3)
   const [dailyDd, setDailyDd] = useState(3)
   const [weeklyDd, setWeeklyDd] = useState(8)
@@ -198,6 +226,7 @@ function App() {
         setSelectionMode(data.defaultSelectionMode)
         setStrategyMode(data.defaultStrategyMode)
         setRiskPreset(data.defaultRiskPreset)
+        setOperationMode(data.defaultOperationMode ?? 'STABLE')
         setMaxPositions(data.defaultMaxPositions)
         setDailyDd(data.defaultDailyDrawdownPct)
         setWeeklyDd(data.defaultWeeklyDrawdownPct)
@@ -298,8 +327,10 @@ function App() {
       })
       localStorage.setItem('token', response.token)
       setToken(response.token)
+      setLoginOpen(false)
+      setRegisterOpen(false)
     } catch (error) {
-      setAuthError('로그인 실패. 데모 데이터로 표시합니다.')
+      setAuthError('로그인 실패. 이메일과 비밀번호를 확인해주세요.')
     } finally {
       setLoading(false)
     }
@@ -311,12 +342,14 @@ function App() {
     try {
       const response = await apiFetch<{ token: string }>('/api/auth/register', undefined, {
         method: 'POST',
-        body: JSON.stringify({ tenantName, email, password }),
+        body: JSON.stringify({ tenantName: derivedTenantName, email, password }),
       })
       localStorage.setItem('token', response.token)
       setToken(response.token)
+      setLoginOpen(false)
+      setRegisterOpen(false)
     } catch (error) {
-      setAuthError('회원가입 실패. 입력값을 확인하세요.')
+      setAuthError('회원가입 실패. 입력값을 확인해주세요.')
     } finally {
       setLoading(false)
     }
@@ -332,6 +365,8 @@ function App() {
     setSummaryStatus('empty')
     setPerformanceStatus('empty')
     setLastUpdated('')
+    setLoginOpen(false)
+    setRegisterOpen(false)
   }
 
   const handleApplyDefaults = () => {
@@ -380,6 +415,7 @@ function App() {
         selectionMode,
         strategyMode,
         riskPreset,
+        operationMode,
         maxPositions,
         maxDailyDrawdownPct: dailyDd,
         maxWeeklyDrawdownPct: weeklyDd,
@@ -413,7 +449,7 @@ function App() {
         body: JSON.stringify(payload),
       })
     } catch (error) {
-      setAuthError('설정 저장 실패. API를 확인하세요.')
+      setAuthError('설정 저장 실패. API 연결을 확인해주세요.')
     } finally {
       setLoading(false)
     }
@@ -493,6 +529,14 @@ function App() {
     return displayRecommendations.filter((coin) => coin.market.toUpperCase().includes(term))
   }, [marketFilter, displayRecommendations])
 
+  const maxRecommendationsToShow = Math.min(5, autoPickTopN)
+  const visibleRecommendations = filteredRecommendations.slice(0, maxRecommendationsToShow)
+  const hiddenRecommendations = Math.max(0, filteredRecommendations.length - visibleRecommendations.length)
+
+  const maxPositionsToShow = 3
+  const visiblePositions = displaySummary.positions.slice(0, maxPositionsToShow)
+  const hiddenPositions = Math.max(0, displaySummary.positions.length - visiblePositions.length)
+
   const signalTape = useMemo(() => {
     return displayRecommendations.slice(0, 4).map((coin) => ({
       market: coin.market,
@@ -502,8 +546,88 @@ function App() {
     }))
   }, [displayRecommendations])
 
-  const selectionLabel = useMemo(() => (selectionMode === 'MANUAL' ? 'Manual' : 'Auto'), [selectionMode])
+  const chartSeries = useMemo(() => {
+    if (displayPerformance.daily.length === 0) {
+      return []
+    }
+    return displayPerformance.daily.slice(-7)
+  }, [displayPerformance.daily])
+
+  const chartData = useMemo(() => {
+    if (chartSeries.length === 0) {
+      return null
+    }
+    const values = chartSeries.map((point) => point.equity)
+    const min = Math.min(...values)
+    const max = Math.max(...values)
+    const range = max - min || 1
+    const points = chartSeries.map((point, index) => {
+      const x = chartSeries.length === 1 ? 0 : (index / (chartSeries.length - 1)) * 100
+      const y = 60 - ((point.equity - min) / range) * 60
+      return { x, y, value: point.equity }
+    })
+    const line = points
+      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+      .join(' ')
+    const area = `${line} L ${points[points.length - 1].x.toFixed(2)} 60 L 0 60 Z`
+    return {
+      min,
+      max,
+      last: points[points.length - 1],
+      line,
+      area,
+    }
+  }, [chartSeries])
+
+  const performanceBars = useMemo(() => displayPerformance.daily.slice(-5), [displayPerformance.daily])
+
+  const selectionLabel = useMemo(() => (selectionMode === 'MANUAL' ? '수동' : '자동'), [selectionMode])
+  const operationLabel = useMemo(() => (operationMode === 'ATTACK' ? '공격' : '안정'), [operationMode])
   const positionCount = displaySummary.positions.length
+  const operationOptions = defaults?.availableOperationModes?.length
+    ? defaults.availableOperationModes
+    : ['STABLE', 'ATTACK']
+  const derivedTenantName = useMemo(() => {
+    const base = email.split('@')[0]?.trim() || 'default'
+    const sanitized = base.replace(/[^a-zA-Z0-9-_]/g, '')
+    return sanitized || 'default'
+  }, [email])
+
+  const operationLabelFor = (mode: string) => {
+    if (mode === 'ATTACK') return '공격'
+    if (mode === 'STABLE') return '안정'
+    return mode
+  }
+
+  const sparklineMarkets = useMemo(() => {
+    const unique = new Set<string>()
+    visibleRecommendations.forEach((coin) => {
+      if (coin.market && coin.market !== '--') {
+        unique.add(coin.market)
+      }
+    })
+    return Array.from(unique)
+  }, [visibleRecommendations])
+
+  const sparklineKey = useMemo(() => sparklineMarkets.join('|'), [sparklineMarkets])
+
+  useEffect(() => {
+    if (sparklineMarkets.length === 0) {
+      return
+    }
+    let cancelled = false
+    sparklineMarkets.forEach((market) => {
+      apiFetch<MarketCandlePoint[]>(`/api/market/candles?market=${encodeURIComponent(market)}&limit=30`)
+        .then((data) => {
+          if (cancelled) return
+          setSparklines((prev) => ({ ...prev, [market]: data }))
+        })
+        .catch(() => null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [sparklineKey, sparklineMarkets])
 
   return (
     <div className="app-shell">
@@ -516,10 +640,27 @@ function App() {
           </div>
         </div>
         <nav className="topnav">
-          <button className="nav-pill active" type="button">Overview</button>
-          <button className="nav-pill" type="button">Signals</button>
-          <button className="nav-pill" type="button">Portfolio</button>
-          <button className="nav-pill" type="button">Risk</button>
+          <button
+            className={`nav-pill ${activeView === 'overview' ? 'active' : ''}`}
+            type="button"
+            onClick={() => setActiveView('overview')}
+          >
+            Overview
+          </button>
+          <button
+            className={`nav-pill ${activeView === 'portfolio' ? 'active' : ''}`}
+            type="button"
+            onClick={() => setActiveView('portfolio')}
+          >
+            Portfolio
+          </button>
+          <button
+            className={`nav-pill ${activeView === 'config' ? 'active' : ''}`}
+            type="button"
+            onClick={() => setActiveView('config')}
+          >
+            Config
+          </button>
         </nav>
         <div className="top-actions">
           <label className="search-box">
@@ -534,6 +675,30 @@ function App() {
           <span className={`status-chip ${isAuthed ? 'online' : 'offline'}`}>
             {isAuthed ? 'API Connected' : 'Demo Mode'}
           </span>
+          {!isAuthed && (
+            <button
+              className="primary small login-button"
+              onClick={() => {
+                setAuthError('')
+                setRegisterOpen(false)
+                setLoginOpen(true)
+              }}
+            >
+              로그인
+            </button>
+          )}
+          {!isAuthed && (
+            <button
+              className="ghost small login-button"
+              onClick={() => {
+                setAuthError('')
+                setLoginOpen(false)
+                setRegisterOpen(true)
+              }}
+            >
+              회원가입
+            </button>
+          )}
           {isAuthed && (
             <button className="ghost" onClick={handleLogout}>
               로그아웃
@@ -555,8 +720,8 @@ function App() {
         </div>
         <div className="strip-card">
           <span>Risk guard</span>
-          <strong>{riskBadge}</strong>
-          <p>Daily {dailyDd}% · Weekly {weeklyDd}%</p>
+          <strong>{operationLabel}</strong>
+          <p>{riskBadge} · Daily {dailyDd}% · Weekly {weeklyDd}%</p>
         </div>
         <div className="strip-card">
           <span>Auto picks</span>
@@ -565,38 +730,7 @@ function App() {
         </div>
       </section>
 
-      <main className="terminal-grid">
-        <section className="panel access-panel">
-          <div className="panel-header">
-            <h2>Access</h2>
-            <span className="pill">Account</span>
-          </div>
-          <p className="panel-subtitle">로그인 후 실시간 추천과 모의매매 성과가 연결됩니다.</p>
-          <div className="form-grid">
-            <label>
-              Email
-              <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
-            </label>
-            <label>
-              Password
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="8+ characters" />
-            </label>
-            <label>
-              Tenant
-              <input value={tenantName} onChange={(e) => setTenantName(e.target.value)} placeholder="brand" />
-            </label>
-          </div>
-          {authError && <div className="alert">{authError}</div>}
-          <div className="button-row">
-            <button className="primary" onClick={handleLogin} disabled={loading}>
-              로그인
-            </button>
-            <button className="ghost" onClick={handleRegister} disabled={loading}>
-              회원가입
-            </button>
-          </div>
-        </section>
-
+      <main className={`terminal-grid view-${activeView}`}>
         <section className="panel strategy-panel">
           <div className="panel-header">
             <h2>Strategy Builder</h2>
@@ -649,6 +783,21 @@ function App() {
                 )}
               </select>
             </label>
+            <div className="mode-toggle">
+              <span>Operation mode</span>
+              <div className="mode-buttons">
+                {operationOptions.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={`mode-pill ${operationMode === mode ? 'active' : ''}`}
+                    onClick={() => setOperationMode(mode)}
+                  >
+                    {operationLabelFor(mode)}
+                  </button>
+                ))}
+              </div>
+            </div>
             <label>
               Risk preset
               <select value={riskPreset} onChange={(e) => setRiskPreset(e.target.value)}>
@@ -853,23 +1002,41 @@ function App() {
             {filteredRecommendations.length === 0 ? (
               <p className="empty">검색 결과가 없습니다.</p>
             ) : (
-              filteredRecommendations.map((coin, index) => (
-                <div key={`${coin.market}-${index}`} className="recommendation-card">
-                  <div className="recommendation-main">
-                    <div className="rank">#{index + 1}</div>
-                    <div>
-                      <h3>{coin.market}</h3>
-                      <span>Score {(coin.score * 100).toFixed(1)}</span>
+              <>
+                {visibleRecommendations.map((coin, index) => {
+                  const sparkPoints = sparklines[coin.market] ?? []
+                  const sparkPath = sparkPoints.length > 1 ? buildSparkline(sparkPoints) : ''
+                  const sparkTone =
+                    sparkPoints.length > 1 && sparkPoints[sparkPoints.length - 1].close >= sparkPoints[0].close ? 'up' : 'down'
+                  return (
+                    <div key={`${coin.market}-${index}`} className="recommendation-card">
+                      <div className="recommendation-main">
+                        <div className="rank">#{index + 1}</div>
+                        <div>
+                          <h3>{coin.market}</h3>
+                          <span>Score {(coin.score * 100).toFixed(1)}</span>
+                        </div>
+                      </div>
+                      <div className="recommendation-meta">
+                        <span>\ {formatMoney(coin.lastPrice)}</span>
+                        <span>Vol {coin.volatilityPct.toFixed(2)}%</span>
+                        <span>Trend {coin.trendStrengthPct.toFixed(2)}%</span>
+                        <span>24h {formatMoney(coin.volume24h)}</span>
+                        <div className={`sparkline ${sparkPath ? sparkTone : 'idle'}`}>
+                          {sparkPath ? (
+                            <svg viewBox="0 0 100 32" preserveAspectRatio="none">
+                              <path d={sparkPath} fill="none" strokeWidth="2" />
+                            </svg>
+                          ) : (
+                            <span>차트 대기</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="recommendation-meta">
-                    <span>\ {formatMoney(coin.lastPrice)}</span>
-                    <span>Vol {coin.volatilityPct.toFixed(2)}%</span>
-                    <span>Trend {coin.trendStrengthPct.toFixed(2)}%</span>
-                    <span>24h {formatMoney(coin.volume24h)}</span>
-                  </div>
-                </div>
-              ))
+                  )
+                })}
+                {hiddenRecommendations > 0 && <p className="more-note">외 {hiddenRecommendations}개 표시</p>}
+              </>
             )}
           </div>
         </section>
@@ -895,14 +1062,14 @@ function App() {
             ))}
           </div>
           <div className="signal-footer">
-            <span>Mode</span>
+            <span>전략</span>
             <strong>{strategyMode}</strong>
-            <span>Selection</span>
+            <span>선택</span>
             <strong>{selectionLabel}</strong>
           </div>
         </section>
 
-        <section className="panel paper-panel">
+        <section className="panel portfolio-panel">
           <div className="panel-header">
             <h2>Paper Portfolio</h2>
             <span className="pill">Equity \ {formatMoney(displaySummary.equity)}</span>
@@ -933,7 +1100,7 @@ function App() {
               <span>Last</span>
               <span>PnL</span>
             </div>
-            {displaySummary.positions.map((pos) => (
+            {visiblePositions.map((pos) => (
               <div key={pos.market} className="positions-row">
                 <span>{pos.market}</span>
                 <span>\ {formatMoney(pos.entryPrice)}</span>
@@ -941,7 +1108,8 @@ function App() {
                 <span className={pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}>{formatPct(pos.unrealizedPnlPct)}</span>
               </div>
             ))}
-            {displaySummary.positions.length === 0 && <p className="empty">No open positions</p>}
+            {displaySummary.positions.length === 0 && <p className="empty">보유 포지션 없음</p>}
+            {hiddenPositions > 0 && <p className="more-note">외 {hiddenPositions}개 보유중</p>}
           </div>
         </section>
 
@@ -955,25 +1123,152 @@ function App() {
             {performanceNote ? ` / ${performanceNote}` : ''}
           </p>
           <div className="performance-chart">
-            {displayPerformance.daily.length === 0 ? (
-              <p className="empty">성과 데이터 수신 대기중</p>
-            ) : (
-              displayPerformance.daily.map((point) => (
-                <div key={point.label} className="performance-row">
-                  <span>{point.label}</span>
-                  <div className="bar-track">
-                    <div
-                      className={`bar ${point.returnPct >= 0 ? 'positive' : 'negative'}`}
-                      style={{ width: `${Math.min(Math.abs(point.returnPct) * 6, 100)}%` }}
-                    />
+            {chartData ? (
+              <>
+                <div className="performance-visual">
+                  <div className="chart-wrapper">
+                    <svg className="chart-svg" viewBox="0 0 100 60" preserveAspectRatio="none">
+                      <defs>
+                        <pattern id="chartGrid" width="10" height="10" patternUnits="userSpaceOnUse">
+                          <path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255, 255, 255, 0.08)" strokeWidth="0.4" />
+                        </pattern>
+                        <linearGradient id="chartLine" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stopColor="#ffbf6b" stopOpacity="0.9" />
+                          <stop offset="100%" stopColor="#57d9c6" stopOpacity="0.9" />
+                        </linearGradient>
+                        <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="rgba(255, 191, 107, 0.35)" />
+                          <stop offset="100%" stopColor="rgba(10, 15, 20, 0.05)" />
+                        </linearGradient>
+                      </defs>
+                      <rect width="100" height="60" fill="url(#chartGrid)" />
+                      <path d={chartData.area} fill="url(#chartFill)" />
+                      <path d={chartData.line} fill="none" stroke="url(#chartLine)" strokeWidth="1.8" />
+                      <circle cx={chartData.last.x} cy={chartData.last.y} r="3" fill="rgba(255, 191, 107, 0.25)" />
+                      <circle cx={chartData.last.x} cy={chartData.last.y} r="1.4" fill="#ffbf6b" />
+                    </svg>
                   </div>
-                  <span>{formatPct(point.returnPct)}</span>
+                  <div className="chart-legend">
+                    <div>
+                      <span>최근</span>
+                      <strong>\ {formatMoney(chartData.last.value)}</strong>
+                    </div>
+                    <div>
+                      <span>최저</span>
+                      <strong>\ {formatMoney(chartData.min)}</strong>
+                    </div>
+                    <div>
+                      <span>최고</span>
+                      <strong>\ {formatMoney(chartData.max)}</strong>
+                    </div>
+                  </div>
                 </div>
-              ))
+                <div className="performance-bars">
+                  {performanceBars.map((point) => (
+                    <div key={point.label} className="performance-row">
+                      <span>{point.label}</span>
+                      <div className="bar-track">
+                        <div
+                          className={`bar ${point.returnPct >= 0 ? 'positive' : 'negative'}`}
+                          style={{ width: `${Math.min(Math.abs(point.returnPct) * 6, 100)}%` }}
+                        />
+                      </div>
+                      <span>{formatPct(point.returnPct)}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="empty">성과 데이터 수신 대기중</p>
             )}
           </div>
         </section>
       </main>
+
+      {loginOpen && (
+        <div className="modal-backdrop" onClick={() => setLoginOpen(false)}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>로그인</h3>
+                <p>실시간 추천과 모의매매 성과를 연결합니다.</p>
+              </div>
+              <button className="ghost small" onClick={() => setLoginOpen(false)}>
+                닫기
+              </button>
+            </div>
+            <div className="form-grid">
+              <label>
+                Email
+                <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+              </label>
+              <label>
+                Password
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="8+ characters" />
+              </label>
+            </div>
+            {authError && <div className="alert">{authError}</div>}
+            <div className="button-row">
+              <button className="primary" onClick={handleLogin} disabled={loading}>
+                로그인
+              </button>
+              <button
+                className="ghost"
+                onClick={() => {
+                  setAuthError('')
+                  setLoginOpen(false)
+                  setRegisterOpen(true)
+                }}
+                disabled={loading}
+              >
+                회원가입으로
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {registerOpen && (
+        <div className="modal-backdrop" onClick={() => setRegisterOpen(false)}>
+          <div className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>회원가입</h3>
+                <p>이메일로 자동 테넌트를 생성합니다. (예: {derivedTenantName})</p>
+              </div>
+              <button className="ghost small" onClick={() => setRegisterOpen(false)}>
+                닫기
+              </button>
+            </div>
+            <div className="form-grid">
+              <label>
+                Email
+                <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+              </label>
+              <label>
+                Password
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="8+ characters" />
+              </label>
+            </div>
+            {authError && <div className="alert">{authError}</div>}
+            <div className="button-row">
+              <button className="primary" onClick={handleRegister} disabled={loading}>
+                회원가입
+              </button>
+              <button
+                className="ghost"
+                onClick={() => {
+                  setAuthError('')
+                  setRegisterOpen(false)
+                  setLoginOpen(true)
+                }}
+                disabled={loading}
+              >
+                로그인으로
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

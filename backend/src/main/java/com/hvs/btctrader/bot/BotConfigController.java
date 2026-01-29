@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.hvs.btctrader.auth.JwtUser;
 import com.hvs.btctrader.enums.MarketType;
+import com.hvs.btctrader.enums.OperationMode;
 import com.hvs.btctrader.enums.RiskPreset;
 import com.hvs.btctrader.enums.SelectionMode;
 import com.hvs.btctrader.enums.StrategyMode;
@@ -44,6 +45,7 @@ public class BotConfigController {
 				SelectionMode.AUTO,
 				StrategyMode.AUTO,
 				RiskPreset.STANDARD,
+				OperationMode.STABLE,
 				3,
 				BigDecimal.valueOf(3.0),
 				BigDecimal.valueOf(8.0),
@@ -63,7 +65,8 @@ public class BotConfigController {
 				Arrays.asList(MarketType.values()),
 				Arrays.asList(SelectionMode.values()),
 				Arrays.asList(StrategyMode.values()),
-				Arrays.asList(RiskPreset.values())
+				Arrays.asList(RiskPreset.values()),
+				Arrays.asList(OperationMode.values())
 		);
 	}
 
@@ -82,6 +85,7 @@ public class BotConfigController {
 		config.setSelectionMode(request.getSelectionMode());
 		config.setStrategyMode(request.getStrategyMode());
 		config.setRiskPreset(request.getRiskPreset());
+		config.setOperationMode(request.getOperationMode());
 		config.setMaxPositions(request.getMaxPositions());
 		config.setMaxDailyDrawdownPct(request.getMaxDailyDrawdownPct());
 		config.setMaxWeeklyDrawdownPct(request.getMaxWeeklyDrawdownPct());

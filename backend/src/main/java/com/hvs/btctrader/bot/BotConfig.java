@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import com.hvs.btctrader.common.BaseEntity;
 import com.hvs.btctrader.enums.MarketType;
+import com.hvs.btctrader.enums.OperationMode;
 import com.hvs.btctrader.enums.RiskPreset;
 import com.hvs.btctrader.enums.SelectionMode;
 import com.hvs.btctrader.enums.StrategyMode;
@@ -56,6 +57,10 @@ public class BotConfig extends BaseEntity {
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false)
 	private RiskPreset riskPreset = RiskPreset.STANDARD;
+
+	@Enumerated(EnumType.STRING)
+	@Column(nullable = false)
+	private OperationMode operationMode = OperationMode.STABLE;
 
 	@Column(nullable = false)
 	private int maxPositions = 3;
@@ -170,6 +175,14 @@ public class BotConfig extends BaseEntity {
 
 	public void setRiskPreset(RiskPreset riskPreset) {
 		this.riskPreset = riskPreset;
+	}
+
+	public OperationMode getOperationMode() {
+		return operationMode;
+	}
+
+	public void setOperationMode(OperationMode operationMode) {
+		this.operationMode = operationMode;
 	}
 
 	public int getMaxPositions() {

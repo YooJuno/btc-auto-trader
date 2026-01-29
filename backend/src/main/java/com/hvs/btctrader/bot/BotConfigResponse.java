@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.hvs.btctrader.enums.MarketType;
+import com.hvs.btctrader.enums.OperationMode;
 import com.hvs.btctrader.enums.RiskPreset;
 import com.hvs.btctrader.enums.SelectionMode;
 import com.hvs.btctrader.enums.StrategyMode;
@@ -16,6 +17,7 @@ public record BotConfigResponse(
 		SelectionMode selectionMode,
 		StrategyMode strategyMode,
 		RiskPreset riskPreset,
+		OperationMode operationMode,
 		int maxPositions,
 		BigDecimal maxDailyDrawdownPct,
 		BigDecimal maxWeeklyDrawdownPct,
@@ -43,6 +45,7 @@ public record BotConfigResponse(
 				config.getSelectionMode(),
 				config.getStrategyMode(),
 				config.getRiskPreset(),
+				config.getOperationMode(),
 				config.getMaxPositions(),
 				config.getMaxDailyDrawdownPct(),
 				config.getMaxWeeklyDrawdownPct(),

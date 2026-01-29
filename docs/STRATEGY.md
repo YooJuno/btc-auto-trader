@@ -22,6 +22,12 @@ This module defines the first-pass trading algorithm used by the engine. It is *
   - Range BUY: <= 30~35
   - Range SELL: >= 65~70
 
+## Operation mode
+- STABLE: tighten trend threshold, lower volatility cap, stricter RSI gates.
+- ATTACK: loosen trend threshold, raise volatility cap, more permissive RSI gates.
+
+Operation mode tuning is applied before any explicit overrides.
+
 ## Optional overrides (BotConfig)
 You can override the default parameters per bot config:
 - `emaFast`, `emaSlow` (EMA windows)

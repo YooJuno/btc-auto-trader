@@ -3,6 +3,7 @@ package com.hvs.btctrader.bot;
 import java.math.BigDecimal;
 
 import com.hvs.btctrader.enums.MarketType;
+import com.hvs.btctrader.enums.OperationMode;
 import com.hvs.btctrader.enums.RiskPreset;
 import com.hvs.btctrader.enums.SelectionMode;
 import com.hvs.btctrader.enums.StrategyMode;
@@ -29,6 +30,9 @@ public class BotConfigRequest {
 
 	@NotNull
 	private RiskPreset riskPreset = RiskPreset.STANDARD;
+
+	@NotNull
+	private OperationMode operationMode = OperationMode.STABLE;
 
 	@Min(1)
 	@Max(10)
@@ -134,6 +138,14 @@ public class BotConfigRequest {
 
 	public void setRiskPreset(RiskPreset riskPreset) {
 		this.riskPreset = riskPreset;
+	}
+
+	public OperationMode getOperationMode() {
+		return operationMode;
+	}
+
+	public void setOperationMode(OperationMode operationMode) {
+		this.operationMode = operationMode;
 	}
 
 	public int getMaxPositions() {

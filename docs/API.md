@@ -17,11 +17,11 @@
 ## Bot configs
 - `GET /api/bot-configs/defaults`
   - public
-  - returns: default presets and available options
+  - returns: default presets and available options (includes `defaultOperationMode`, `availableOperationModes`)
 
 - `POST /api/bot-configs`
   - auth: Bearer token
-  - body: `{ name, baseMarket, selectionMode, strategyMode, riskPreset, maxPositions, maxDailyDrawdownPct, maxWeeklyDrawdownPct, autoPickTopN, manualMarkets, emaFast?, emaSlow?, rsiPeriod?, atrPeriod?, bbPeriod?, bbStdDev?, trendThreshold?, volatilityHigh?, trendRsiBuyMin?, trendRsiSellMax?, rangeRsiBuyMax?, rangeRsiSellMin? }`
+  - body: `{ name, baseMarket, selectionMode, strategyMode, riskPreset, operationMode, maxPositions, maxDailyDrawdownPct, maxWeeklyDrawdownPct, autoPickTopN, manualMarkets, emaFast?, emaSlow?, rsiPeriod?, atrPeriod?, bbPeriod?, bbStdDev?, trendThreshold?, volatilityHigh?, trendRsiBuyMin?, trendRsiSellMax?, rangeRsiBuyMax?, rangeRsiSellMin? }`
   - `manualMarkets` format: `KRW-BTC,KRW-ETH` or `BTC,ETH` (prefix auto-applied)
   - advanced fields are optional overrides (leave empty to use defaults)
 
@@ -36,6 +36,9 @@
 - `GET /api/market/stream?topN=5`
   - public (SSE)
   - returns: streaming `MarketStreamEvent` with timestamp + recommendations
+- `GET /api/market/candles?market=KRW-BTC&limit=30`
+  - public
+  - returns: list of `{ timestamp, close }` for sparklines
 
 ## Paper trading
 - `GET /api/paper/summary`
