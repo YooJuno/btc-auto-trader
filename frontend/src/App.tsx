@@ -190,7 +190,8 @@ function App() {
   const [streamStatus, setStreamStatus] = useState<'idle' | 'live' | 'reconnecting' | 'error'>('idle')
   const [lastUpdated, setLastUpdated] = useState('')
   const [marketFilter, setMarketFilter] = useState('')
-  const [activeView, setActiveView] = useState<'overview' | 'portfolio' | 'config'>('overview')
+  const [focusedMarket, setFocusedMarket] = useState('')
+  const [activeView, setActiveView] = useState<'dashboard' | 'holdings' | 'automation' | 'settings'>('dashboard')
   const [loginOpen, setLoginOpen] = useState(false)
   const [registerOpen, setRegisterOpen] = useState(false)
   const [sparklines, setSparklines] = useState<Record<string, MarketCandlePoint[]>>({})
@@ -547,21 +548,29 @@ function App() {
   const displaySummary = paperSummary ?? emptySummary
   const displayPerformance = performance ?? emptyPerformance
 
+  const normalizedFilter = useMemo(() => marketFilter.trim().toUpperCase(), [marketFilter])
+
   const filteredRecommendations = useMemo(() => {
-    const term = marketFilter.trim().toUpperCase()
+    const term = normalizedFilter
     if (!term) {
       return displayRecommendations
     }
     return displayRecommendations.filter((coin) => coin.market.toUpperCase().includes(term))
-  }, [marketFilter, displayRecommendations])
+  }, [normalizedFilter, displayRecommendations])
 
   const maxRecommendationsToShow = Math.min(5, autoPickTopN)
   const visibleRecommendations = filteredRecommendations.slice(0, maxRecommendationsToShow)
   const hiddenRecommendations = Math.max(0, filteredRecommendations.length - visibleRecommendations.length)
 
   const maxPositionsToShow = 6
-  const visiblePositions = displaySummary.positions.slice(0, maxPositionsToShow)
-  const hiddenPositions = Math.max(0, displaySummary.positions.length - visiblePositions.length)
+  const filteredPositions = useMemo(() => {
+    if (!normalizedFilter) {
+      return displaySummary.positions
+    }
+    return displaySummary.positions.filter((pos) => pos.market.toUpperCase().includes(normalizedFilter))
+  }, [displaySummary.positions, normalizedFilter])
+  const visiblePositions = filteredPositions.slice(0, maxPositionsToShow)
+  const hiddenPositions = Math.max(0, filteredPositions.length - visiblePositions.length)
 
   const signalTape = useMemo(() => {
     return displayRecommendations.slice(0, 4).map((coin) => ({
@@ -606,12 +615,26 @@ function App() {
   }, [chartSeries])
 
   const preferredChartMarket = useMemo(() => {
+    if (focusedMarket) {
+      return focusedMarket
+    }
     if (displaySummary.positions.length > 0) {
       return displaySummary.positions[0].market
     }
     const reco = displayRecommendations.find((item) => item.market && item.market !== '--')
     return reco?.market ?? ''
-  }, [displaySummary.positions, displayRecommendations])
+  }, [displaySummary.positions, displayRecommendations, focusedMarket])
+
+  const searchOptions = useMemo(() => {
+    const set = new Set<string>()
+    displayRecommendations.forEach((item) => {
+      if (item.market && item.market !== '--') {
+        set.add(item.market)
+      }
+    })
+    displaySummary.positions.forEach((pos) => set.add(pos.market))
+    return Array.from(set).sort()
+  }, [displayRecommendations, displaySummary.positions])
 
   useEffect(() => {
     if (chartMode !== 'candles') {
@@ -731,35 +754,55 @@ function App() {
         </div>
         <nav className="topnav">
           <button
-            className={`nav-pill ${activeView === 'overview' ? 'active' : ''}`}
+            className={`nav-pill ${activeView === 'dashboard' ? 'active' : ''}`}
             type="button"
-            onClick={() => setActiveView('overview')}
+            onClick={() => setActiveView('dashboard')}
           >
-            Overview
+            Dashboard
           </button>
           <button
-            className={`nav-pill ${activeView === 'portfolio' ? 'active' : ''}`}
+            className={`nav-pill ${activeView === 'holdings' ? 'active' : ''}`}
             type="button"
-            onClick={() => setActiveView('portfolio')}
+            onClick={() => setActiveView('holdings')}
           >
-            Portfolio
+            Holdings
           </button>
           <button
-            className={`nav-pill ${activeView === 'config' ? 'active' : ''}`}
+            className={`nav-pill ${activeView === 'automation' ? 'active' : ''}`}
             type="button"
-            onClick={() => setActiveView('config')}
+            onClick={() => setActiveView('automation')}
           >
-            Config
+            Automation
+          </button>
+          <button
+            className={`nav-pill ${activeView === 'settings' ? 'active' : ''}`}
+            type="button"
+            onClick={() => setActiveView('settings')}
+          >
+            Settings
           </button>
         </nav>
         <div className="top-actions">
           <label className="search-box">
-            <span>Search</span>
+            <span>Search market</span>
             <input
+              list="market-options"
               value={marketFilter}
-              onChange={(event) => setMarketFilter(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value.toUpperCase()
+                setMarketFilter(value)
+                if (searchOptions.includes(value)) {
+                  setFocusedMarket(value)
+                  setChartMode('candles')
+                }
+              }}
               placeholder="KRW-BTC"
             />
+            <datalist id="market-options">
+              {searchOptions.map((item) => (
+                <option key={item} value={item} />
+              ))}
+            </datalist>
           </label>
           <span className={`stream-chip ${streamStatus}`}>{streamLabel}</span>
           <span
@@ -1212,7 +1255,7 @@ function App() {
                 </span>
               </div>
             ))}
-            {displaySummary.positions.length === 0 && <p className="empty">보유 포지션 없음</p>}
+            {filteredPositions.length === 0 && <p className="empty">보유 포지션 없음</p>}
             {hiddenPositions > 0 && <p className="more-note">외 {hiddenPositions}개 보유중</p>}
           </div>
         </section>
@@ -1228,6 +1271,19 @@ function App() {
               </p>
             </div>
             <div className="chip-row">
+              {focusedMarket && (
+                <span className="pill focus-pill">
+                  Focus {focusedMarket}
+                  <button
+                    type="button"
+                    className="clear-pill"
+                    onClick={() => setFocusedMarket('')}
+                    aria-label="Clear focused market"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
               <button
                 className={`pill button-pill ${chartMode === 'equity' ? 'active' : ''}`}
                 type="button"

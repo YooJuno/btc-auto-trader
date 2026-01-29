@@ -127,6 +127,18 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 
 Frontend will be exposed on ports 80/443 via Caddy. Backend runs behind `/api`.
 
+## Local Blue/Green (Traefik)
+For home hosting with Jenkins, use the blue/green compose + Traefik.
+
+```bash
+docker compose -f infra/docker-compose.bluegreen.yml up -d traefik
+./scripts/deploy-bluegreen-local.sh --backend-image btc-backend:latest --frontend-image btc-frontend:latest
+```
+
+Notes:
+- Using a public IP directly only supports HTTP. HTTPS requires a domain or DDNS.
+- Forward port 80 from your router to the Mac running Docker.
+
 ## Production (Docker Compose + Registry images)
 ```bash
 cd infra

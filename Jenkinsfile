@@ -5,7 +5,7 @@ pipeline {
     string(name: 'REGISTRY', defaultValue: '', description: 'Container registry (e.g. ghcr.io/owner)')
     string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Docker image tag')
     string(name: 'DOCKER_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins credentials id for registry login')
-    choice(name: 'DEPLOY_TARGET', choices: ['none', 'compose', 'k8s'], description: 'Deployment target')
+    choice(name: 'DEPLOY_TARGET', choices: ['none', 'compose', 'k8s', 'local-bluegreen'], description: 'Deployment target')
     string(name: 'SSH_HOST', defaultValue: '', description: 'Compose deploy host')
     string(name: 'SSH_USER', defaultValue: 'ubuntu', description: 'Compose deploy user')
     string(name: 'SSH_PORT', defaultValue: '22', description: 'Compose deploy SSH port')
@@ -24,6 +24,8 @@ pipeline {
     string(name: 'KUSTOMIZE_OVERLAY', defaultValue: 'k8s/overlays/prod', description: 'Kustomize overlay path')
     string(name: 'K8S_SECRETS_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins secret file id for kustomize secrets.env')
     string(name: 'K8S_ROLLOUT_TIMEOUT', defaultValue: '120s', description: 'Rollout status timeout')
+    string(name: 'LOCAL_COMPOSE_FILE', defaultValue: 'infra/docker-compose.bluegreen.yml', description: 'Local blue/green compose file')
+    string(name: 'LOCAL_HEALTH_URL', defaultValue: 'http://localhost/api/actuator/health', description: 'Local healthcheck URL')
   }
   stages {
     stage('Backend: test & build') {
@@ -162,6 +164,15 @@ pipeline {
                 }
               }
             }
+          }
+
+          if (params.DEPLOY_TARGET == 'local-bluegreen') {
+            if (!isUnix()) {
+              error 'local-bluegreen deploy expects a Unix agent (macOS/Linux).'
+            }
+            sh "./scripts/deploy-bluegreen-local.sh --backend-image ${backendImage} --frontend-image ${frontendImage}" +
+              " --compose-file ${params.LOCAL_COMPOSE_FILE} --health-url ${params.LOCAL_HEALTH_URL}" +
+              " --health-retries ${params.HEALTHCHECK_RETRIES} --health-interval ${params.HEALTHCHECK_INTERVAL}"
           }
 
           if (params.DEPLOY_TARGET == 'k8s') {

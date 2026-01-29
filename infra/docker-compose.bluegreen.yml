@@ -1,0 +1,36 @@
+services:
+  traefik:
+    image: traefik:v2.11
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro
+    restart: unless-stopped
+
+  backend-blue:
+    image: ${BACKEND_IMAGE_BLUE:-btc-backend:blue}
+    env_file:
+      - ./../backend/.env
+    restart: unless-stopped
+
+  backend-green:
+    image: ${BACKEND_IMAGE_GREEN:-btc-backend:green}
+    env_file:
+      - ./../backend/.env
+    restart: unless-stopped
+
+  frontend-blue:
+    image: ${FRONTEND_IMAGE_BLUE:-btc-frontend:blue}
+    restart: unless-stopped
+
+  frontend-green:
+    image: ${FRONTEND_IMAGE_GREEN:-btc-frontend:green}
+    restart: unless-stopped
