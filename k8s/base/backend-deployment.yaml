@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: ghcr.io/your-org/btc-backend:latest
+          image: btc-backend:latest
           ports:
             - containerPort: 8080
           env:

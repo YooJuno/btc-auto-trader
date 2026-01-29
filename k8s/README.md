@@ -1,18 +1,37 @@
-# Kubernetes manifests
+# Kubernetes (Kustomize)
 
-These manifests are a starting point for running the app on Kubernetes. They assume you will use a private registry and an Ingress controller (nginx).
+This folder is organized into a base and overlays for multiple environments.
 
-## Apply order (example)
-1) `kubectl apply -f k8s/secrets.example.yaml` (edit values first)
-2) `kubectl apply -f k8s/postgres-statefulset.yaml`
-3) `kubectl apply -f k8s/postgres-service.yaml`
-4) `kubectl apply -f k8s/backend-deployment.yaml`
-5) `kubectl apply -f k8s/backend-service.yaml`
-6) `kubectl apply -f k8s/frontend-deployment.yaml`
-7) `kubectl apply -f k8s/frontend-service.yaml`
-8) `kubectl apply -f k8s/ingress.yaml`
+## Structure
+- `k8s/base`: core Deployments/Services/StatefulSet
+- `k8s/overlays/dev`: dev overlay
+- `k8s/overlays/prod`: prod overlay (includes ingress)
+
+## Usage
+1) Copy secrets file and edit values
+
+```bash
+cp k8s/overlays/dev/secrets.env.example k8s/overlays/dev/secrets.env
+cp k8s/overlays/prod/secrets.env.example k8s/overlays/prod/secrets.env
+```
+
+2) Apply overlay
+
+```bash
+kubectl apply -k k8s/overlays/dev
+# or
+kubectl apply -k k8s/overlays/prod
+```
+
+## Images
+Base uses image names `btc-backend:latest` and `btc-frontend:latest`.
+Update them via:
+
+```bash
+kubectl set image deployment/btc-backend backend=<registry>/btc-backend:<tag>
+kubectl set image deployment/btc-frontend frontend=<registry>/btc-frontend:<tag>
+```
 
 ## Notes
-- In production, prefer a managed Postgres and remove the in-cluster StatefulSet.
-- Update container image names to your registry.
-- Configure TLS in the ingress once you have a domain.
+- For production, consider managed Postgres and remove the in-cluster StatefulSet.
+- Add TLS by using cert-manager and annotating `k8s/overlays/prod/ingress.yaml`.

@@ -39,7 +39,15 @@ cp .env.prod.example .env.prod
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
-Frontend will be exposed on port 80. Backend runs behind Nginx at `/api`.
+Frontend will be exposed on ports 80/443 via Caddy. Backend runs behind `/api`.
+
+## Production (Docker Compose + Registry images)
+```bash
+cd infra
+cp .env.prod.example .env.prod
+# set BACKEND_IMAGE / FRONTEND_IMAGE to your registry images
+docker compose -f docker-compose.prod.registry.yml --env-file .env.prod up -d
+```
 
 ## Environment variables
 Backend reads:
@@ -52,3 +60,6 @@ Backend reads:
 ## Notes
 - API keys are stored encrypted in the backend (AES-GCM).
 - Strategy engine and execution logic are stubbed for now.
+
+## Kubernetes
+See `k8s/README.md` for Kustomize overlays and apply steps.

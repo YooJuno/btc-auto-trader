@@ -22,9 +22,29 @@ cp .env.prod.example .env.prod
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
 ```
 
+## HTTPS (Caddy)
+- `infra/Caddyfile` handles HTTPS automatically with Let's Encrypt.
+- Set `DOMAIN` in `infra/.env.prod` to a real DNS name pointing to the server.
+- Ports 80/443 must be open on the server firewall.
+
+## Docker Compose (registry images)
+```bash
+cd infra
+cp .env.prod.example .env.prod
+# set BACKEND_IMAGE / FRONTEND_IMAGE to your registry images
+docker compose -f docker-compose.prod.registry.yml --env-file .env.prod up -d
+```
+
 ## Jenkins + Kubernetes (future)
 - Jenkinsfile is included at repo root for build/test and Docker image builds.
-- Kubernetes manifests are under `k8s/` and should be treated as a starting point.
+- Kubernetes manifests use Kustomize under `k8s/` with base + overlays.
+
+### Jenkins deploy parameters
+- `DEPLOY_TARGET`: `none` | `compose` | `k8s`
+- `REGISTRY`: container registry (e.g. `ghcr.io/owner`)
+- `IMAGE_TAG`: image tag to build/push/deploy
+- Compose deploy: set `SSH_HOST`, `SSH_USER`, `SSH_PORT`, `SSH_CREDENTIALS_ID`, `REMOTE_APP_DIR`
+- K8s deploy: set `KUBE_CONTEXT`, `K8S_NAMESPACE`, `KUSTOMIZE_OVERLAY`
 
 ## Security checklist
 - Never store exchange keys in frontend.

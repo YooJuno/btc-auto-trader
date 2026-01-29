@@ -13,8 +13,7 @@ services:
       - db_data:/var/lib/postgresql/data
 
   backend:
-    build:
-      context: ../backend
+    image: ${BACKEND_IMAGE:-btc-backend:latest}
     depends_on:
       - db
     environment:
@@ -26,8 +25,7 @@ services:
       PORT: 8080
 
   frontend:
-    build:
-      context: ../frontend
+    image: ${FRONTEND_IMAGE:-btc-frontend:latest}
     depends_on:
       - backend
 

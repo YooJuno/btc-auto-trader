@@ -37,6 +37,9 @@ infra/.env.*
 !infra/.env.example
 !infra/.env.prod.example
 
+# Kubernetes secrets
+k8s/**/secrets.env
+
 # Java / Gradle / Spring
 backend/build/
 backend/target/
