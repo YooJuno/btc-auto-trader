@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - ../../base
   - ingress.yaml
+  - cluster-issuer.yaml
 
 secretGenerator:
   - name: btc-secrets

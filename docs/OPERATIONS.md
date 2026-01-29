@@ -35,6 +35,23 @@ cp .env.prod.example .env.prod
 docker compose -f docker-compose.prod.registry.yml --env-file .env.prod up -d
 ```
 
+## Remote deploy script (SSH + Compose)
+Use the helper script to sync infra files and deploy via SSH.
+
+```bash
+./scripts/deploy-compose-remote.sh --host 1.2.3.4 \
+  --backend-image ghcr.io/you/btc-backend:latest \
+  --frontend-image ghcr.io/you/btc-frontend:latest
+```
+
+PowerShell example:
+
+```powershell
+.\scripts\deploy-compose-remote.ps1 -Host 1.2.3.4 `
+  -BackendImage ghcr.io/you/btc-backend:latest `
+  -FrontendImage ghcr.io/you/btc-frontend:latest
+```
+
 ## Jenkins + Kubernetes (future)
 - Jenkinsfile is included at repo root for build/test and Docker image builds.
 - Kubernetes manifests use Kustomize under `k8s/` with base + overlays.
@@ -45,6 +62,10 @@ docker compose -f docker-compose.prod.registry.yml --env-file .env.prod up -d
 - `IMAGE_TAG`: image tag to build/push/deploy
 - Compose deploy: set `SSH_HOST`, `SSH_USER`, `SSH_PORT`, `SSH_CREDENTIALS_ID`, `REMOTE_APP_DIR`
 - K8s deploy: set `KUBE_CONTEXT`, `K8S_NAMESPACE`, `KUSTOMIZE_OVERLAY`
+
+### Kubernetes TLS
+- Install cert-manager before applying the prod overlay.
+- Update `k8s/overlays/prod/cluster-issuer.yaml` with your email.
 
 ## Security checklist
 - Never store exchange keys in frontend.

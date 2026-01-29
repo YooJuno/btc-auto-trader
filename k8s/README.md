@@ -23,6 +23,11 @@ kubectl apply -k k8s/overlays/dev
 kubectl apply -k k8s/overlays/prod
 ```
 
+## TLS with cert-manager
+- Install cert-manager in the cluster (see official docs).
+- Update `k8s/overlays/prod/cluster-issuer.yaml` with your email.
+- Update `k8s/overlays/prod/ingress.yaml` host to your domain.
+
 ## Images
 Base uses image names `btc-backend:latest` and `btc-frontend:latest`.
 Update them via:
