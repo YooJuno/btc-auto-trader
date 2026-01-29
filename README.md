@@ -59,7 +59,10 @@ Backend reads:
 
 ## Notes
 - API keys are stored encrypted in the backend (AES-GCM).
-- Strategy engine and execution logic are stubbed for now.
+- Strategy engine is implemented; execution/Upbit integration is still stubbed.
 
 ## Kubernetes
 See `k8s/README.md` for Kustomize overlays and apply steps.
+
+## Strategy
+See `docs/STRATEGY.md` for the v1 signal logic.
