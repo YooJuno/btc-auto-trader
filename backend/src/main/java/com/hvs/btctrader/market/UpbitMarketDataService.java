@@ -6,7 +6,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -69,11 +68,6 @@ public class UpbitMarketDataService {
 		if (tickers.isEmpty()) {
 			return List.of();
 		}
-		Map<String, UpbitTicker> tickerByMarket = new HashMap<>();
-		for (UpbitTicker ticker : tickers) {
-			tickerByMarket.put(ticker.market(), ticker);
-		}
-
 		int candidateCount = Math.max(topN * 4, topN);
 		List<UpbitTicker> topByVolume = tickers.stream()
 				.sorted(Comparator.comparingDouble(UpbitTicker::accTradePrice24h).reversed())
