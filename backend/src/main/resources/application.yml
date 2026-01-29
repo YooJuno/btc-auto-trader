@@ -28,10 +28,15 @@ app:
     key: ${APP_ENC_KEY:}
   upbit:
     baseUrl: ${UPBIT_BASE_URL:https://api.upbit.com}
+    wsUrl: ${UPBIT_WS_URL:wss://api.upbit.com/websocket/v1}
     marketPrefix: ${UPBIT_MARKET_PREFIX:KRW-}
     candleUnit: ${UPBIT_CANDLE_UNIT:1}
     candleCount: ${UPBIT_CANDLE_COUNT:120}
     tickerChunkSize: ${UPBIT_TICKER_CHUNK:100}
+    wsEnabled: ${UPBIT_WS_ENABLED:false}
+    wsTopN: ${UPBIT_WS_TOPN:30}
+    wsRefreshMs: ${UPBIT_WS_REFRESH_MS:300000}
+    wsMaxAgeSec: ${UPBIT_WS_MAX_AGE_SEC:30}
   engine:
     enabled: ${ENGINE_ENABLED:false}
     intervalMs: ${ENGINE_INTERVAL_MS:60000}

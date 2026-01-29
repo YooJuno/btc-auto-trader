@@ -29,13 +29,15 @@ public class UpbitMarketDataService {
 	private final IndicatorService indicatorService;
 	private final AutoSelector autoSelector;
 	private final AppProperties properties;
+	private final UpbitTickerCache tickerCache;
 
 	public UpbitMarketDataService(UpbitClient upbitClient, IndicatorService indicatorService,
-			AutoSelector autoSelector, AppProperties properties) {
+			AutoSelector autoSelector, AppProperties properties, UpbitTickerCache tickerCache) {
 		this.upbitClient = upbitClient;
 		this.indicatorService = indicatorService;
 		this.autoSelector = autoSelector;
 		this.properties = properties;
+		this.tickerCache = tickerCache;
 	}
 
 	public List<MarketRecommendation> recommendTop(int topN) {
@@ -68,6 +70,8 @@ public class UpbitMarketDataService {
 		if (tickers.isEmpty()) {
 			return List.of();
 		}
+		Map<String, UpbitTicker> tickerByMarket = tickers.stream()
+				.collect(Collectors.toMap(UpbitTicker::market, ticker -> ticker, (a, b) -> a));
 		int candidateCount = Math.max(topN * 4, topN);
 		List<UpbitTicker> topByVolume = tickers.stream()
 				.sorted(Comparator.comparingDouble(UpbitTicker::accTradePrice24h).reversed())
@@ -80,8 +84,19 @@ public class UpbitMarketDataService {
 			if (candles.size() < 20) {
 				continue;
 			}
+			UpbitTicker baseTicker = tickerByMarket.getOrDefault(ticker.market(), ticker);
+			UpbitTicker finalTicker = tickerCache.getFresh(baseTicker.market(), properties.getUpbit().getWsMaxAgeSec())
+					.map(live -> new UpbitTicker(
+							live.market(),
+							live.tradePrice(),
+							live.highPrice(),
+							live.lowPrice(),
+							live.accTradePrice24h(),
+							live.accTradeVolume24h()
+					))
+					.orElse(baseTicker);
 			List<Double> closes = candles.stream().map(Candle::close).toList();
-			double lastPrice = ticker.tradePrice();
+			double lastPrice = finalTicker.tradePrice();
 			double atr = indicatorService.atr(candles, 14);
 			double emaFast = indicatorService.ema(closes, 12);
 			double emaSlow = indicatorService.ema(closes, 26);
@@ -91,9 +106,9 @@ public class UpbitMarketDataService {
 					: ((emaFast - emaSlow) / lastPrice) * 100.0;
 
 			MarketSnapshot snapshot = new MarketSnapshot(
-					ticker.market(),
+					finalTicker.market(),
 					lastPrice,
-					ticker.accTradePrice24h(),
+					finalTicker.accTradePrice24h(),
 					0.0,
 					volatilityPct,
 					trendStrengthPct
@@ -102,6 +117,23 @@ public class UpbitMarketDataService {
 		}
 
 		return snapshots;
+	}
+
+	public List<String> topMarketsByVolume(int topN) {
+		List<UpbitMarket> markets = upbitClient.getMarkets(true).stream()
+				.filter(market -> market.market().startsWith(properties.getUpbit().getMarketPrefix()))
+				.filter(market -> !"CAUTION".equalsIgnoreCase(market.marketWarning()))
+				.toList();
+		if (markets.isEmpty()) {
+			return List.of();
+		}
+		List<String> marketIds = markets.stream().map(UpbitMarket::market).toList();
+		List<UpbitTicker> tickers = fetchTickers(marketIds);
+		return tickers.stream()
+				.sorted(Comparator.comparingDouble(UpbitTicker::accTradePrice24h).reversed())
+				.limit(topN)
+				.map(UpbitTicker::market)
+				.toList();
 	}
 
 	public List<Candle> candlesForMarket(String market) {

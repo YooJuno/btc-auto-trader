@@ -74,10 +74,15 @@ public class AppProperties {
 
 	public static class Upbit {
 		private String baseUrl = "https://api.upbit.com";
+		private String wsUrl = "wss://api.upbit.com/websocket/v1";
 		private String marketPrefix = "KRW-";
 		private int candleUnit = 1;
 		private int candleCount = 120;
 		private int tickerChunkSize = 100;
+		private boolean wsEnabled = false;
+		private int wsTopN = 30;
+		private long wsRefreshMs = 300000;
+		private long wsMaxAgeSec = 30;
 
 		public String getBaseUrl() {
 			return baseUrl;
@@ -85,6 +90,14 @@ public class AppProperties {
 
 		public void setBaseUrl(String baseUrl) {
 			this.baseUrl = baseUrl;
+		}
+
+		public String getWsUrl() {
+			return wsUrl;
+		}
+
+		public void setWsUrl(String wsUrl) {
+			this.wsUrl = wsUrl;
 		}
 
 		public String getMarketPrefix() {
@@ -117,6 +130,38 @@ public class AppProperties {
 
 		public void setTickerChunkSize(int tickerChunkSize) {
 			this.tickerChunkSize = tickerChunkSize;
+		}
+
+		public boolean isWsEnabled() {
+			return wsEnabled;
+		}
+
+		public void setWsEnabled(boolean wsEnabled) {
+			this.wsEnabled = wsEnabled;
+		}
+
+		public int getWsTopN() {
+			return wsTopN;
+		}
+
+		public void setWsTopN(int wsTopN) {
+			this.wsTopN = wsTopN;
+		}
+
+		public long getWsRefreshMs() {
+			return wsRefreshMs;
+		}
+
+		public void setWsRefreshMs(long wsRefreshMs) {
+			this.wsRefreshMs = wsRefreshMs;
+		}
+
+		public long getWsMaxAgeSec() {
+			return wsMaxAgeSec;
+		}
+
+		public void setWsMaxAgeSec(long wsMaxAgeSec) {
+			this.wsMaxAgeSec = wsMaxAgeSec;
 		}
 	}
 

@@ -1,25 +1,25 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Unbounded:wght@500;700&display=swap');
 
 :root {
-  font-family: 'Space Grotesk', 'Helvetica Neue', sans-serif;
+  font-family: 'Plus Jakarta Sans', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #f6f5f0;
-  background-color: #0b0d12;
+  color: #f7f5ef;
+  background-color: #0b0d13;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  --font-display: 'Fraunces', serif;
-  --text-primary: #f6f5f0;
-  --text-secondary: #d6d4c9;
-  --text-muted: rgba(246, 245, 240, 0.6);
-  --surface: rgba(18, 21, 32, 0.85);
-  --accent: #ffc36a;
-  --accent-strong: #ff8e3c;
-  --success: #60e686;
-  --danger: #ff5f57;
+  --font-display: 'Unbounded', sans-serif;
+  --text-primary: #f7f5ef;
+  --text-secondary: #d9d6cc;
+  --text-muted: rgba(247, 245, 239, 0.6);
+  --surface: rgba(17, 20, 31, 0.86);
+  --accent: #ffcb7a;
+  --accent-strong: #ff934f;
+  --success: #7ef2a4;
+  --warning: #ff7a72;
 }
 
 * {
@@ -29,9 +29,11 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(circle at top, rgba(255, 195, 106, 0.15), transparent 40%),
-    radial-gradient(circle at 20% 20%, rgba(120, 177, 255, 0.18), transparent 42%),
-    #0b0d12;
+  background:
+    radial-gradient(circle at 15% 15%, rgba(255, 196, 116, 0.18), transparent 40%),
+    radial-gradient(circle at 80% 20%, rgba(120, 180, 255, 0.18), transparent 35%),
+    radial-gradient(circle at 40% 90%, rgba(255, 145, 98, 0.12), transparent 45%),
+    #0b0d13;
 }
 
 #root {

@@ -15,6 +15,7 @@ import com.hvs.btctrader.config.AppProperties;
 import com.hvs.btctrader.enums.SelectionMode;
 import com.hvs.btctrader.market.MarketRecommendation;
 import com.hvs.btctrader.market.UpbitMarketDataService;
+import com.hvs.btctrader.market.UpbitTickerCache;
 import com.hvs.btctrader.paper.PaperTradingService;
 import com.hvs.btctrader.strategy.Candle;
 import com.hvs.btctrader.strategy.StrategyDecision;
@@ -30,19 +31,22 @@ public class StrategyScheduler {
 	private final PaperTradingService paperTradingService;
 	private final UpbitClient upbitClient;
 	private final AppProperties properties;
+	private final UpbitTickerCache tickerCache;
 
 	public StrategyScheduler(BotConfigRepository botConfigRepository,
 			UpbitMarketDataService marketDataService,
 			StrategyEngine strategyEngine,
 			PaperTradingService paperTradingService,
 			UpbitClient upbitClient,
-			AppProperties properties) {
+			AppProperties properties,
+			UpbitTickerCache tickerCache) {
 		this.botConfigRepository = botConfigRepository;
 		this.marketDataService = marketDataService;
 		this.strategyEngine = strategyEngine;
 		this.paperTradingService = paperTradingService;
 		this.upbitClient = upbitClient;
 		this.properties = properties;
+		this.tickerCache = tickerCache;
 	}
 
 	@Scheduled(fixedDelayString = "${app.engine.intervalMs:60000}")
@@ -70,6 +74,7 @@ public class StrategyScheduler {
 				paperTradingService.updateLastPrice(config.getOwner().getId().toString(), market, price);
 				paperTradingService.applySignal(config, market, price, decision);
 			}
+			paperTradingService.recordEquity(config.getOwner().getId().toString());
 		}
 	}
 
@@ -99,9 +104,19 @@ public class StrategyScheduler {
 		if (markets.isEmpty()) {
 			return prices;
 		}
-		List<UpbitTicker> tickers = upbitClient.getTickers(markets);
-		for (UpbitTicker ticker : tickers) {
-			prices.put(ticker.market(), ticker.tradePrice());
+		List<String> missing = new ArrayList<>();
+		for (String market : markets) {
+			tickerCache.getFresh(market, properties.getUpbit().getWsMaxAgeSec())
+					.ifPresentOrElse(
+							live -> prices.put(market, live.tradePrice()),
+							() -> missing.add(market)
+					);
+		}
+		if (!missing.isEmpty()) {
+			List<UpbitTicker> tickers = upbitClient.getTickers(missing);
+			for (UpbitTicker ticker : tickers) {
+				prices.put(ticker.market(), ticker.tradePrice());
+			}
 		}
 		return prices;
 	}

@@ -19,9 +19,11 @@ import com.hvs.btctrader.strategy.StrategyDecision;
 public class PaperTradingService {
 	private final Map<String, PaperAccount> accounts = new ConcurrentHashMap<>();
 	private final AppProperties properties;
+	private final PaperPerformanceService performanceService;
 
-	public PaperTradingService(AppProperties properties) {
+	public PaperTradingService(AppProperties properties, PaperPerformanceService performanceService) {
 		this.properties = properties;
+		this.performanceService = performanceService;
 	}
 
 	public PaperAccount accountFor(String userId) {
@@ -36,7 +38,17 @@ public class PaperTradingService {
 		for (PaperPosition position : account.getPositions().values()) {
 			positions.add(PaperPositionView.from(position));
 		}
+		performanceService.record(userId, equity);
 		return new PaperSummary(account.getCashBalance(), equity, account.getRealizedPnl(), unrealized, positions);
+	}
+
+	public void recordEquity(String userId) {
+		PaperAccount account = accountFor(userId);
+		performanceService.record(userId, computeEquity(account));
+	}
+
+	public PaperPerformanceResponse performance(String userId, int days, int weeks) {
+		return performanceService.build(userId, days, weeks);
 	}
 
 	public PaperSummary reset(String userId, double initialCash) {

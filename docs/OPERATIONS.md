@@ -13,6 +13,10 @@
 - `PAPER_INITIAL_CASH` sets the paper account starting balance.
 - `UPBIT_BASE_URL` defaults to `https://api.upbit.com`.
 - `UPBIT_MARKET_PREFIX` defaults to `KRW-`.
+- `UPBIT_WS_ENABLED` enables Upbit WebSocket ticker stream.
+- `UPBIT_WS_TOPN` controls number of tickers to subscribe.
+- `UPBIT_WS_REFRESH_MS` refreshes subscription list.
+- `UPBIT_WS_MAX_AGE_SEC` max age for using cached live price.
 
 ## Single-server to multi-server
 When you move from home PC to public access:

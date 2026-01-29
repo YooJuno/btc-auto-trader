@@ -12,6 +12,16 @@ This module defines the first-pass trading algorithm used by the engine. It is *
 - ATR (14)
 - Bollinger Bands (20, 2.0)
 
+## Parameters by mode
+- AUTO/DAY: EMA 12/26, trend threshold 0.5%, volatility cap 6%
+- SCALP: EMA 9/21, trend threshold 0.3%, volatility cap 7%
+- SWING: EMA 20/50, trend threshold 0.8%, volatility cap 5%
+- RSI thresholds:
+  - Trend BUY: >= 52~55
+  - Trend SELL: <= 45~48
+  - Range BUY: <= 30~35
+  - Range SELL: >= 65~70
+
 ## Market regime
 - **TREND_UP / TREND_DOWN**: EMA spread above threshold and volatility below cap
 - **RANGE**: EMA spread below threshold
@@ -46,3 +56,4 @@ This module defines the first-pass trading algorithm used by the engine. It is *
 - Real execution must check balances and open orders.
 - Paper trading uses these signals for simulated fills.
 - Market recommendations use Upbit public ticker + candles.
+- Optional WebSocket tickers are used for fresher prices when enabled.

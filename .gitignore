@@ -32,6 +32,7 @@ backend/.env.*
 !backend/.env.example
 frontend/.env
 frontend/.env.*
+!frontend/.env.example
 infra/.env
 infra/.env.*
 !infra/.env.example

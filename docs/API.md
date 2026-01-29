@@ -40,3 +40,6 @@
 - `POST /api/paper/reset`
   - auth: Bearer token
   - body: `{ initialCash }`
+- `GET /api/paper/performance?days=7&weeks=4`
+  - auth: Bearer token
+  - returns: daily/weekly equity + returns
