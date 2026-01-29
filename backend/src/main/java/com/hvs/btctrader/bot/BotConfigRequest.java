@@ -48,6 +48,54 @@ public class BotConfigRequest {
 
 	private String manualMarkets;
 
+	@Min(2)
+	@Max(200)
+	private Integer emaFast;
+
+	@Min(5)
+	@Max(400)
+	private Integer emaSlow;
+
+	@Min(5)
+	@Max(60)
+	private Integer rsiPeriod;
+
+	@Min(5)
+	@Max(60)
+	private Integer atrPeriod;
+
+	@Min(10)
+	@Max(60)
+	private Integer bbPeriod;
+
+	@DecimalMin("0.5")
+	@DecimalMax("5.0")
+	private Double bbStdDev;
+
+	@DecimalMin("0.001")
+	@DecimalMax("0.05")
+	private Double trendThreshold;
+
+	@DecimalMin("0.01")
+	@DecimalMax("0.2")
+	private Double volatilityHigh;
+
+	@Min(10)
+	@Max(90)
+	private Integer trendRsiBuyMin;
+
+	@Min(10)
+	@Max(90)
+	private Integer trendRsiSellMax;
+
+	@Min(5)
+	@Max(70)
+	private Integer rangeRsiBuyMax;
+
+	@Min(50)
+	@Max(95)
+	private Integer rangeRsiSellMin;
+
 	public String getName() {
 		return name;
 	}
@@ -126,5 +174,101 @@ public class BotConfigRequest {
 
 	public void setManualMarkets(String manualMarkets) {
 		this.manualMarkets = manualMarkets;
+	}
+
+	public Integer getEmaFast() {
+		return emaFast;
+	}
+
+	public void setEmaFast(Integer emaFast) {
+		this.emaFast = emaFast;
+	}
+
+	public Integer getEmaSlow() {
+		return emaSlow;
+	}
+
+	public void setEmaSlow(Integer emaSlow) {
+		this.emaSlow = emaSlow;
+	}
+
+	public Integer getRsiPeriod() {
+		return rsiPeriod;
+	}
+
+	public void setRsiPeriod(Integer rsiPeriod) {
+		this.rsiPeriod = rsiPeriod;
+	}
+
+	public Integer getAtrPeriod() {
+		return atrPeriod;
+	}
+
+	public void setAtrPeriod(Integer atrPeriod) {
+		this.atrPeriod = atrPeriod;
+	}
+
+	public Integer getBbPeriod() {
+		return bbPeriod;
+	}
+
+	public void setBbPeriod(Integer bbPeriod) {
+		this.bbPeriod = bbPeriod;
+	}
+
+	public Double getBbStdDev() {
+		return bbStdDev;
+	}
+
+	public void setBbStdDev(Double bbStdDev) {
+		this.bbStdDev = bbStdDev;
+	}
+
+	public Double getTrendThreshold() {
+		return trendThreshold;
+	}
+
+	public void setTrendThreshold(Double trendThreshold) {
+		this.trendThreshold = trendThreshold;
+	}
+
+	public Double getVolatilityHigh() {
+		return volatilityHigh;
+	}
+
+	public void setVolatilityHigh(Double volatilityHigh) {
+		this.volatilityHigh = volatilityHigh;
+	}
+
+	public Integer getTrendRsiBuyMin() {
+		return trendRsiBuyMin;
+	}
+
+	public void setTrendRsiBuyMin(Integer trendRsiBuyMin) {
+		this.trendRsiBuyMin = trendRsiBuyMin;
+	}
+
+	public Integer getTrendRsiSellMax() {
+		return trendRsiSellMax;
+	}
+
+	public void setTrendRsiSellMax(Integer trendRsiSellMax) {
+		this.trendRsiSellMax = trendRsiSellMax;
+	}
+
+	public Integer getRangeRsiBuyMax() {
+		return rangeRsiBuyMax;
+	}
+
+	public void setRangeRsiBuyMax(Integer rangeRsiBuyMax) {
+		this.rangeRsiBuyMax = rangeRsiBuyMax;
+	}
+
+	public Integer getRangeRsiSellMin() {
+		return rangeRsiSellMin;
+	}
+
+	public void setRangeRsiSellMin(Integer rangeRsiSellMin) {
+		this.rangeRsiSellMin = rangeRsiSellMin;
 	}
 }

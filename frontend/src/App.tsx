@@ -10,6 +10,18 @@ type BotDefaults = {
   defaultDailyDrawdownPct: number
   defaultWeeklyDrawdownPct: number
   defaultAutoPickTopN: number
+  defaultEmaFast: number
+  defaultEmaSlow: number
+  defaultRsiPeriod: number
+  defaultAtrPeriod: number
+  defaultBbPeriod: number
+  defaultBbStdDev: number
+  defaultTrendThreshold: number
+  defaultVolatilityHigh: number
+  defaultTrendRsiBuyMin: number
+  defaultTrendRsiSellMax: number
+  defaultRangeRsiBuyMax: number
+  defaultRangeRsiSellMin: number
   availableMarkets: string[]
   availableSelectionModes: string[]
   availableStrategyModes: string[]
@@ -53,6 +65,11 @@ type PaperPerformance = {
   maxDrawdownPct: number
   daily: PerformancePoint[]
   weekly: PerformancePoint[]
+}
+
+type MarketStreamEvent = {
+  timestamp: string
+  recommendations: Recommendation[]
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? ''
@@ -103,6 +120,21 @@ function formatPct(value: number) {
   return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
 }
 
+function parseNumberInput(value: string): number | '' {
+  if (value.trim() === '') {
+    return ''
+  }
+  const parsed = Number(value)
+  return Number.isNaN(parsed) ? '' : parsed
+}
+
+function toNumberOrNull(value: number | ''): number | null {
+  if (value === '' || Number.isNaN(value)) {
+    return null
+  }
+  return value
+}
+
 async function apiFetch<T>(path: string, token?: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -129,6 +161,8 @@ function App() {
   const [paperSummary, setPaperSummary] = useState<PaperSummary>(demoSummary)
   const [performance, setPerformance] = useState<PaperPerformance>(demoPerformance)
   const [loading, setLoading] = useState(false)
+  const [streamStatus, setStreamStatus] = useState<'idle' | 'live' | 'error'>('idle')
+  const [lastUpdated, setLastUpdated] = useState('')
 
   const [configName, setConfigName] = useState('KRW Standard')
   const [market, setMarket] = useState('KRW')
@@ -140,6 +174,20 @@ function App() {
   const [weeklyDd, setWeeklyDd] = useState(8)
   const [autoPickTopN, setAutoPickTopN] = useState(5)
   const [manualMarkets, setManualMarkets] = useState('')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+
+  const [emaFast, setEmaFast] = useState<number | ''>('')
+  const [emaSlow, setEmaSlow] = useState<number | ''>('')
+  const [rsiPeriod, setRsiPeriod] = useState<number | ''>('')
+  const [atrPeriod, setAtrPeriod] = useState<number | ''>('')
+  const [bbPeriod, setBbPeriod] = useState<number | ''>('')
+  const [bbStdDev, setBbStdDev] = useState<number | ''>('')
+  const [trendThreshold, setTrendThreshold] = useState<number | ''>('')
+  const [volatilityHigh, setVolatilityHigh] = useState<number | ''>('')
+  const [trendRsiBuyMin, setTrendRsiBuyMin] = useState<number | ''>('')
+  const [trendRsiSellMax, setTrendRsiSellMax] = useState<number | ''>('')
+  const [rangeRsiBuyMax, setRangeRsiBuyMax] = useState<number | ''>('')
+  const [rangeRsiSellMin, setRangeRsiSellMin] = useState<number | ''>('')
 
   const isAuthed = Boolean(token)
 
@@ -160,14 +208,59 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const streamUrl = `${API_BASE}/api/market/stream?topN=${autoPickTopN}`
+    let closed = false
+    const source = new EventSource(streamUrl)
+    setStreamStatus('idle')
+
+    const handleStream = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as MarketStreamEvent
+        if (!payload || !payload.recommendations) {
+          return
+        }
+        setRecommendations(payload.recommendations)
+        const timestamp = payload.timestamp ? new Date(payload.timestamp) : new Date()
+        if (!Number.isNaN(timestamp.valueOf())) {
+          setLastUpdated(timestamp.toLocaleTimeString('ko-KR'))
+        }
+      } catch (error) {
+        // ignore parse errors
+      }
+    }
+
+    source.addEventListener('recommendations', handleStream as EventListener)
+    source.onmessage = handleStream
+    source.onopen = () => {
+      if (!closed) {
+        setStreamStatus('live')
+      }
+    }
+    source.onerror = () => {
+      if (closed) {
+        return
+      }
+      setStreamStatus('error')
+      source.close()
+      if (isAuthed) {
+        apiFetch<Recommendation[]>(`/api/market/recommendations?topN=${autoPickTopN}`, token)
+          .then(setRecommendations)
+          .catch(() => null)
+      }
+    }
+
+    return () => {
+      closed = true
+      source.close()
+    }
+  }, [autoPickTopN, isAuthed, token])
+
+  useEffect(() => {
     if (!isAuthed) {
       return
     }
 
     const fetchAll = () => {
-      apiFetch<Recommendation[]>(`/api/market/recommendations?topN=${autoPickTopN}`, token)
-        .then(setRecommendations)
-        .catch(() => null)
       apiFetch<PaperSummary>('/api/paper/summary', token)
         .then(setPaperSummary)
         .catch(() => null)
@@ -179,7 +272,7 @@ function App() {
     fetchAll()
     const interval = setInterval(fetchAll, 30000)
     return () => clearInterval(interval)
-  }, [isAuthed, token, autoPickTopN])
+  }, [isAuthed, token])
 
   const handleLogin = async () => {
     setAuthError('')
@@ -220,6 +313,39 @@ function App() {
     setToken('')
   }
 
+  const handleApplyDefaults = () => {
+    if (!defaults) {
+      return
+    }
+    setEmaFast(defaults.defaultEmaFast)
+    setEmaSlow(defaults.defaultEmaSlow)
+    setRsiPeriod(defaults.defaultRsiPeriod)
+    setAtrPeriod(defaults.defaultAtrPeriod)
+    setBbPeriod(defaults.defaultBbPeriod)
+    setBbStdDev(defaults.defaultBbStdDev)
+    setTrendThreshold(defaults.defaultTrendThreshold)
+    setVolatilityHigh(defaults.defaultVolatilityHigh)
+    setTrendRsiBuyMin(defaults.defaultTrendRsiBuyMin)
+    setTrendRsiSellMax(defaults.defaultTrendRsiSellMax)
+    setRangeRsiBuyMax(defaults.defaultRangeRsiBuyMax)
+    setRangeRsiSellMin(defaults.defaultRangeRsiSellMin)
+  }
+
+  const handleClearOverrides = () => {
+    setEmaFast('')
+    setEmaSlow('')
+    setRsiPeriod('')
+    setAtrPeriod('')
+    setBbPeriod('')
+    setBbStdDev('')
+    setTrendThreshold('')
+    setVolatilityHigh('')
+    setTrendRsiBuyMin('')
+    setTrendRsiSellMax('')
+    setRangeRsiBuyMax('')
+    setRangeRsiSellMin('')
+  }
+
   const handleSaveConfig = async () => {
     if (!isAuthed) {
       setAuthError('로그인이 필요합니다.')
@@ -227,20 +353,43 @@ function App() {
     }
     setLoading(true)
     try {
+      const payload: Record<string, unknown> = {
+        name: configName,
+        baseMarket: market,
+        selectionMode,
+        strategyMode,
+        riskPreset,
+        maxPositions,
+        maxDailyDrawdownPct: dailyDd,
+        maxWeeklyDrawdownPct: weeklyDd,
+        autoPickTopN,
+        manualMarkets,
+      }
+
+      const overrides = {
+        emaFast: toNumberOrNull(emaFast),
+        emaSlow: toNumberOrNull(emaSlow),
+        rsiPeriod: toNumberOrNull(rsiPeriod),
+        atrPeriod: toNumberOrNull(atrPeriod),
+        bbPeriod: toNumberOrNull(bbPeriod),
+        bbStdDev: toNumberOrNull(bbStdDev),
+        trendThreshold: toNumberOrNull(trendThreshold),
+        volatilityHigh: toNumberOrNull(volatilityHigh),
+        trendRsiBuyMin: toNumberOrNull(trendRsiBuyMin),
+        trendRsiSellMax: toNumberOrNull(trendRsiSellMax),
+        rangeRsiBuyMax: toNumberOrNull(rangeRsiBuyMax),
+        rangeRsiSellMin: toNumberOrNull(rangeRsiSellMin),
+      }
+
+      Object.entries(overrides).forEach(([key, value]) => {
+        if (value !== null) {
+          payload[key] = value
+        }
+      })
+
       await apiFetch('/api/bot-configs', token, {
         method: 'POST',
-        body: JSON.stringify({
-          name: configName,
-          baseMarket: market,
-          selectionMode,
-          strategyMode,
-          riskPreset,
-          maxPositions,
-          maxDailyDrawdownPct: dailyDd,
-          maxWeeklyDrawdownPct: weeklyDd,
-          autoPickTopN,
-          manualMarkets,
-        }),
+        body: JSON.stringify(payload),
       })
     } catch (error) {
       setAuthError('설정 저장 실패. API를 확인하세요.')
@@ -274,6 +423,12 @@ function App() {
     return 'Standard'
   }, [riskPreset])
 
+  const streamLabel = useMemo(() => {
+    if (streamStatus === 'live') return 'Live'
+    if (streamStatus === 'error') return 'Offline'
+    return 'Connecting'
+  }, [streamStatus])
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -281,7 +436,7 @@ function App() {
           <div className="brand-logo">BT</div>
           <div>
             <p className="brand-title">BTC Auto Trader</p>
-            <p className="brand-subtitle">KRW-first ? Strategy lab ? Paper trading</p>
+            <p className="brand-subtitle">KRW-first / Strategy lab / Paper trading</p>
           </div>
         </div>
         <div className="topbar-right">
@@ -416,6 +571,143 @@ function App() {
               <input value={manualMarkets} onChange={(e) => setManualMarkets(e.target.value)} />
             </label>
           )}
+
+          <div className="advanced-section">
+            <div className="advanced-header">
+              <div>
+                <h3>Advanced tuning</h3>
+                <p className="hint">비워두면 기본 전략값을 사용합니다.</p>
+              </div>
+              <button className="ghost small" onClick={() => setAdvancedOpen((prev) => !prev)}>
+                {advancedOpen ? '숨기기' : '열기'}
+              </button>
+            </div>
+            {advancedOpen && (
+              <>
+                <div className="advanced-grid">
+                  <label>
+                    EMA fast
+                    <input
+                      type="number"
+                      value={emaFast}
+                      placeholder={`${defaults?.defaultEmaFast ?? 12}`}
+                      onChange={(e) => setEmaFast(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    EMA slow
+                    <input
+                      type="number"
+                      value={emaSlow}
+                      placeholder={`${defaults?.defaultEmaSlow ?? 26}`}
+                      onChange={(e) => setEmaSlow(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    RSI period
+                    <input
+                      type="number"
+                      value={rsiPeriod}
+                      placeholder={`${defaults?.defaultRsiPeriod ?? 14}`}
+                      onChange={(e) => setRsiPeriod(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    ATR period
+                    <input
+                      type="number"
+                      value={atrPeriod}
+                      placeholder={`${defaults?.defaultAtrPeriod ?? 14}`}
+                      onChange={(e) => setAtrPeriod(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    BB period
+                    <input
+                      type="number"
+                      value={bbPeriod}
+                      placeholder={`${defaults?.defaultBbPeriod ?? 20}`}
+                      onChange={(e) => setBbPeriod(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    BB std dev
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={bbStdDev}
+                      placeholder={`${defaults?.defaultBbStdDev ?? 2.0}`}
+                      onChange={(e) => setBbStdDev(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    Trend threshold (0.005 = 0.5%)
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={trendThreshold}
+                      placeholder={`${defaults?.defaultTrendThreshold ?? 0.005}`}
+                      onChange={(e) => setTrendThreshold(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    Volatility high (0.06 = 6%)
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={volatilityHigh}
+                      placeholder={`${defaults?.defaultVolatilityHigh ?? 0.06}`}
+                      onChange={(e) => setVolatilityHigh(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    Trend RSI buy min
+                    <input
+                      type="number"
+                      value={trendRsiBuyMin}
+                      placeholder={`${defaults?.defaultTrendRsiBuyMin ?? 52}`}
+                      onChange={(e) => setTrendRsiBuyMin(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    Trend RSI sell max
+                    <input
+                      type="number"
+                      value={trendRsiSellMax}
+                      placeholder={`${defaults?.defaultTrendRsiSellMax ?? 48}`}
+                      onChange={(e) => setTrendRsiSellMax(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    Range RSI buy max
+                    <input
+                      type="number"
+                      value={rangeRsiBuyMax}
+                      placeholder={`${defaults?.defaultRangeRsiBuyMax ?? 35}`}
+                      onChange={(e) => setRangeRsiBuyMax(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    Range RSI sell min
+                    <input
+                      type="number"
+                      value={rangeRsiSellMin}
+                      placeholder={`${defaults?.defaultRangeRsiSellMin ?? 65}`}
+                      onChange={(e) => setRangeRsiSellMin(parseNumberInput(e.target.value))}
+                    />
+                  </label>
+                </div>
+                <div className="advanced-actions">
+                  <button className="ghost small" onClick={handleApplyDefaults} type="button">
+                    기본값 채우기
+                  </button>
+                  <button className="ghost small" onClick={handleClearOverrides} type="button">
+                    비우기
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <div className="button-row">
             <button className="primary" onClick={handleSaveConfig} disabled={loading}>
               설정 저장
@@ -429,9 +721,14 @@ function App() {
         <section className="panel recommendation-panel">
           <div className="panel-header">
             <h2>Market Radar</h2>
-            <span className="pill">Top {autoPickTopN}</span>
+            <div className="chip-row">
+              <span className="pill">Top {autoPickTopN}</span>
+              <span className={`pill stream ${streamStatus}`}>{streamLabel}</span>
+            </div>
           </div>
-          <p className="panel-subtitle">거래대금, 추세, 변동성 기반 자동 추천</p>
+          <p className="panel-subtitle">
+            거래대금, 추세, 변동성 기반 자동 추천 {lastUpdated ? `· 최근 업데이트 ${lastUpdated}` : ''}
+          </p>
           <div className="recommendation-list">
             {recommendations.map((coin) => (
               <div key={coin.market} className="recommendation-card">
@@ -452,7 +749,7 @@ function App() {
         <section className="panel paper-panel">
           <div className="panel-header">
             <h2>Paper Portfolio</h2>
-            <span className="pill">Equity \{formatMoney(paperSummary.equity)}</span>
+            <span className="pill">Equity \ {formatMoney(paperSummary.equity)}</span>
           </div>
           <div className="stats-grid">
             <div>
@@ -462,7 +759,7 @@ function App() {
             <div>
               <p>Unrealized</p>
               <strong className={paperSummary.unrealizedPnl >= 0 ? 'positive' : 'negative'}>
-                {formatPct(paperSummary.unrealizedPnl / Math.max(paperSummary.equity, 1) * 100)}
+                {formatPct((paperSummary.unrealizedPnl / Math.max(paperSummary.equity, 1)) * 100)}
               </strong>
             </div>
             <div>

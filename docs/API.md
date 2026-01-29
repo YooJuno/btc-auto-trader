@@ -21,8 +21,9 @@
 
 - `POST /api/bot-configs`
   - auth: Bearer token
-  - body: `{ name, baseMarket, selectionMode, strategyMode, riskPreset, maxPositions, maxDailyDrawdownPct, maxWeeklyDrawdownPct, autoPickTopN, manualMarkets }`
+  - body: `{ name, baseMarket, selectionMode, strategyMode, riskPreset, maxPositions, maxDailyDrawdownPct, maxWeeklyDrawdownPct, autoPickTopN, manualMarkets, emaFast?, emaSlow?, rsiPeriod?, atrPeriod?, bbPeriod?, bbStdDev?, trendThreshold?, volatilityHigh?, trendRsiBuyMin?, trendRsiSellMax?, rangeRsiBuyMax?, rangeRsiSellMin? }`
   - `manualMarkets` format: `KRW-BTC,KRW-ETH` or `BTC,ETH` (prefix auto-applied)
+  - advanced fields are optional overrides (leave empty to use defaults)
 
 - `GET /api/bot-configs/active`
   - auth: Bearer token
@@ -32,6 +33,9 @@
 - `GET /api/market/recommendations?topN=5`
   - auth: Bearer token
   - returns: list of recommended markets with scores
+- `GET /api/market/stream?topN=5`
+  - public (SSE)
+  - returns: streaming `MarketStreamEvent` with timestamp + recommendations
 
 ## Paper trading
 - `GET /api/paper/summary`

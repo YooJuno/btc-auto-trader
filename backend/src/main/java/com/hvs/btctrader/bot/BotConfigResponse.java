@@ -21,6 +21,18 @@ public record BotConfigResponse(
 		BigDecimal maxWeeklyDrawdownPct,
 		int autoPickTopN,
 		String manualMarkets,
+		Integer emaFast,
+		Integer emaSlow,
+		Integer rsiPeriod,
+		Integer atrPeriod,
+		Integer bbPeriod,
+		Double bbStdDev,
+		Double trendThreshold,
+		Double volatilityHigh,
+		Integer trendRsiBuyMin,
+		Integer trendRsiSellMax,
+		Integer rangeRsiBuyMax,
+		Integer rangeRsiSellMin,
 		Instant createdAt
 ) {
 	public static BotConfigResponse from(BotConfig config) {
@@ -36,6 +48,18 @@ public record BotConfigResponse(
 				config.getMaxWeeklyDrawdownPct(),
 				config.getAutoPickTopN(),
 				config.getManualMarkets(),
+				config.getEmaFast(),
+				config.getEmaSlow(),
+				config.getRsiPeriod(),
+				config.getAtrPeriod(),
+				config.getBbPeriod(),
+				config.getBbStdDev(),
+				config.getTrendThreshold(),
+				config.getVolatilityHigh(),
+				config.getTrendRsiBuyMin(),
+				config.getTrendRsiSellMax(),
+				config.getRangeRsiBuyMax(),
+				config.getRangeRsiSellMin(),
 				config.getCreatedAt()
 		);
 	}

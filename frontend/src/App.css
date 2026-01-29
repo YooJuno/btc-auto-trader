@@ -125,12 +125,34 @@
   gap: 1rem;
 }
 
+.chip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
 .pill {
   padding: 0.4rem 0.9rem;
   border-radius: 999px;
   background: rgba(255, 211, 140, 0.18);
   color: var(--accent);
   font-weight: 600;
+}
+
+.pill.stream {
+  background: rgba(120, 180, 255, 0.18);
+  color: #a5c7ff;
+}
+
+.pill.stream.live {
+  background: rgba(90, 230, 140, 0.16);
+  color: var(--success);
+}
+
+.pill.stream.error {
+  background: rgba(255, 111, 111, 0.16);
+  color: var(--warning);
 }
 
 .form-grid,
@@ -145,6 +167,13 @@ label {
   gap: 0.45rem;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+.hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
 }
 
 input,
@@ -168,6 +197,32 @@ select {
   margin-top: 1.2rem;
 }
 
+.advanced-section {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+
+.advanced-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+.advanced-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+
 button {
   border: none;
   border-radius: 0.9rem;
@@ -175,6 +230,11 @@ button {
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+button.small {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
 }
 
 button.primary {

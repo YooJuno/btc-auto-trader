@@ -83,6 +83,8 @@ public class AppProperties {
 		private int wsTopN = 30;
 		private long wsRefreshMs = 300000;
 		private long wsMaxAgeSec = 30;
+		private long streamIntervalMs = 5000;
+		private long recommendationCacheMs = 15000;
 
 		public String getBaseUrl() {
 			return baseUrl;
@@ -162,6 +164,22 @@ public class AppProperties {
 
 		public void setWsMaxAgeSec(long wsMaxAgeSec) {
 			this.wsMaxAgeSec = wsMaxAgeSec;
+		}
+
+		public long getStreamIntervalMs() {
+			return streamIntervalMs;
+		}
+
+		public void setStreamIntervalMs(long streamIntervalMs) {
+			this.streamIntervalMs = streamIntervalMs;
+		}
+
+		public long getRecommendationCacheMs() {
+			return recommendationCacheMs;
+		}
+
+		public void setRecommendationCacheMs(long recommendationCacheMs) {
+			this.recommendationCacheMs = recommendationCacheMs;
 		}
 	}
 

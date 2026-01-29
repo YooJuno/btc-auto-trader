@@ -6,33 +6,38 @@ import java.time.temporal.WeekFields;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.NavigableMap;
-import java.util.TreeMap;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.UUID;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class PaperPerformanceService {
-	private final ConcurrentMap<String, NavigableMap<LocalDate, Double>> dailyEquity = new ConcurrentHashMap<>();
-	private final ConcurrentMap<String, NavigableMap<LocalDate, Double>> weeklyEquity = new ConcurrentHashMap<>();
+	private final PaperPerformanceRepository repository;
 
+	public PaperPerformanceService(PaperPerformanceRepository repository) {
+		this.repository = repository;
+	}
+
+	@Transactional
 	public void record(String userId, double equity) {
+		UUID userUuid = UUID.fromString(userId);
 		LocalDate today = LocalDate.now();
 		LocalDate weekStart = today.with(WeekFields.of(Locale.getDefault()).dayOfWeek(), 1);
-		dailyEquity.computeIfAbsent(userId, key -> java.util.Collections.synchronizedNavigableMap(new TreeMap<>()))
-				.put(today, equity);
-		weeklyEquity.computeIfAbsent(userId, key -> java.util.Collections.synchronizedNavigableMap(new TreeMap<>()))
-				.put(weekStart, equity);
+		upsert(userUuid, PeriodType.DAILY, today, equity);
+		upsert(userUuid, PeriodType.WEEKLY, weekStart, equity);
 	}
 
 	public PaperPerformanceResponse build(String userId, int days, int weeks) {
-		NavigableMap<LocalDate, Double> daily = dailyEquity.getOrDefault(userId, new TreeMap<>());
-		NavigableMap<LocalDate, Double> weekly = weeklyEquity.getOrDefault(userId, new TreeMap<>());
+		UUID userUuid = UUID.fromString(userId);
+		List<PaperPerformanceSnapshot> dailySnapshots =
+				repository.findByUserIdAndPeriodTypeOrderByPeriodDateAsc(userUuid, PeriodType.DAILY);
+		List<PaperPerformanceSnapshot> weeklySnapshots =
+				repository.findByUserIdAndPeriodTypeOrderByPeriodDateAsc(userUuid, PeriodType.WEEKLY);
 
-		List<PaperPerformancePoint> dailyPoints = buildPoints(daily, days, DateTimeFormatter.ofPattern("MM-dd"));
-		List<PaperPerformancePoint> weeklyPoints = buildPoints(weekly, weeks, DateTimeFormatter.ofPattern("MM-dd"));
+		List<PaperPerformancePoint> dailyPoints = buildPoints(dailySnapshots, days, DateTimeFormatter.ofPattern("MM-dd"));
+		List<PaperPerformancePoint> weeklyPoints = buildPoints(weeklySnapshots, weeks,
+				DateTimeFormatter.ofPattern("MM-dd"));
 
 		double totalReturn = calcTotalReturn(dailyPoints);
 		double maxDrawdown = calcMaxDrawdown(dailyPoints);
@@ -40,20 +45,30 @@ public class PaperPerformanceService {
 		return new PaperPerformanceResponse(totalReturn, maxDrawdown, dailyPoints, weeklyPoints);
 	}
 
-	private List<PaperPerformancePoint> buildPoints(NavigableMap<LocalDate, Double> map, int limit,
+	private void upsert(UUID userId, PeriodType periodType, LocalDate periodDate, double equity) {
+		PaperPerformanceSnapshot snapshot = repository
+				.findByUserIdAndPeriodTypeAndPeriodDate(userId, periodType, periodDate)
+				.orElseGet(PaperPerformanceSnapshot::new);
+		snapshot.setUserId(userId);
+		snapshot.setPeriodType(periodType);
+		snapshot.setPeriodDate(periodDate);
+		snapshot.setEquity(equity);
+		repository.save(snapshot);
+	}
+
+	private List<PaperPerformancePoint> buildPoints(List<PaperPerformanceSnapshot> snapshots, int limit,
 			DateTimeFormatter formatter) {
-		if (map.isEmpty() || limit <= 0) {
+		if (snapshots.isEmpty() || limit <= 0) {
 			return List.of();
 		}
-		List<LocalDate> dates = new ArrayList<>(map.navigableKeySet());
-		int startIndex = Math.max(0, dates.size() - limit);
+		int startIndex = Math.max(0, snapshots.size() - limit);
 		List<PaperPerformancePoint> points = new ArrayList<>();
 		double prev = 0.0;
-		for (int i = startIndex; i < dates.size(); i++) {
-			LocalDate date = dates.get(i);
-			double equity = map.get(date);
+		for (int i = startIndex; i < snapshots.size(); i++) {
+			PaperPerformanceSnapshot snapshot = snapshots.get(i);
+			double equity = snapshot.getEquity();
 			double returnPct = prev > 0.0 ? (equity - prev) / prev * 100.0 : 0.0;
-			points.add(new PaperPerformancePoint(date.format(formatter), equity, returnPct));
+			points.add(new PaperPerformancePoint(snapshot.getPeriodDate().format(formatter), equity, returnPct));
 			prev = equity;
 		}
 		return points;

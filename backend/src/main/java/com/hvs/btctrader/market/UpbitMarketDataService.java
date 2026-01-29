@@ -30,6 +30,8 @@ public class UpbitMarketDataService {
 	private final AutoSelector autoSelector;
 	private final AppProperties properties;
 	private final UpbitTickerCache tickerCache;
+	private volatile List<MarketRecommendation> cachedRecommendations = List.of();
+	private volatile long cachedAtMillis = 0L;
 
 	public UpbitMarketDataService(UpbitClient upbitClient, IndicatorService indicatorService,
 			AutoSelector autoSelector, AppProperties properties, UpbitTickerCache tickerCache) {
@@ -53,6 +55,24 @@ public class UpbitMarketDataService {
 			}
 		}
 		return recommendations;
+	}
+
+	public List<MarketRecommendation> recommendTopCached(int topN, long maxAgeMs) {
+		long now = System.currentTimeMillis();
+		List<MarketRecommendation> cached = cachedRecommendations;
+		if (maxAgeMs > 0 && cached.size() >= topN && now - cachedAtMillis <= maxAgeMs) {
+			return cached.subList(0, topN);
+		}
+		synchronized (this) {
+			if (maxAgeMs > 0 && cachedRecommendations.size() >= topN
+					&& now - cachedAtMillis <= maxAgeMs) {
+				return cachedRecommendations.subList(0, topN);
+			}
+			List<MarketRecommendation> fresh = recommendTop(topN);
+			cachedRecommendations = fresh;
+			cachedAtMillis = System.currentTimeMillis();
+			return fresh;
+		}
 	}
 
 	public List<MarketSnapshot> buildSnapshots(int topN) {

@@ -37,6 +37,8 @@ app:
     wsTopN: ${UPBIT_WS_TOPN:30}
     wsRefreshMs: ${UPBIT_WS_REFRESH_MS:300000}
     wsMaxAgeSec: ${UPBIT_WS_MAX_AGE_SEC:30}
+    streamIntervalMs: ${UPBIT_STREAM_INTERVAL_MS:5000}
+    recommendationCacheMs: ${UPBIT_RECOMMENDATION_CACHE_MS:15000}
   engine:
     enabled: ${ENGINE_ENABLED:false}
     intervalMs: ${ENGINE_INTERVAL_MS:60000}

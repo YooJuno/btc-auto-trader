@@ -22,6 +22,17 @@ This module defines the first-pass trading algorithm used by the engine. It is *
   - Range BUY: <= 30~35
   - Range SELL: >= 65~70
 
+## Optional overrides (BotConfig)
+You can override the default parameters per bot config:
+- `emaFast`, `emaSlow` (EMA windows)
+- `rsiPeriod`, `atrPeriod`, `bbPeriod`, `bbStdDev`
+- `trendThreshold` (fraction, e.g. `0.005` = 0.5%)
+- `volatilityHigh` (fraction, e.g. `0.06` = 6%)
+- `trendRsiBuyMin`, `trendRsiSellMax`
+- `rangeRsiBuyMax`, `rangeRsiSellMin`
+
+If overrides are missing or invalid, the engine falls back to the mode defaults.
+
 ## Market regime
 - **TREND_UP / TREND_DOWN**: EMA spread above threshold and volatility below cap
 - **RANGE**: EMA spread below threshold

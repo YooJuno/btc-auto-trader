@@ -18,11 +18,12 @@ public class StrategyEngine {
 	}
 
 	public StrategyDecision evaluate(BotConfig config, List<Candle> candles) {
-		return evaluate(config.getStrategyMode(), config.getRiskPreset(), config.getMaxPositions(), candles);
+		StrategyParameters params = parametersForConfig(config);
+		return evaluate(config.getStrategyMode(), config.getRiskPreset(), config.getMaxPositions(), params, candles);
 	}
 
-	public StrategyDecision evaluate(StrategyMode mode, RiskPreset riskPreset, int maxPositions, List<Candle> candles) {
-		StrategyParameters params = parametersForMode(mode);
+	public StrategyDecision evaluate(StrategyMode mode, RiskPreset riskPreset, int maxPositions,
+			StrategyParameters params, List<Candle> candles) {
 		int minBars = Math.max(params.emaSlow(), Math.max(params.bbPeriod(), Math.max(params.rsiPeriod(), params.atrPeriod()))) + 1;
 		if (candles == null || candles.size() < minBars) {
 			return hold("Not enough candle data", mode, riskPreset, maxPositions);
@@ -125,13 +126,65 @@ public class StrategyEngine {
 		);
 	}
 
-	private StrategyParameters parametersForMode(StrategyMode mode) {
-		return switch (mode) {
-			case SCALP -> new StrategyParameters(9, 21, 14, 14, 20, 2.0, 0.003, 0.07, 55, 45, 35, 65);
-			case SWING -> new StrategyParameters(20, 50, 14, 14, 20, 2.0, 0.008, 0.05, 52, 48, 30, 70);
-			case DAY -> new StrategyParameters(12, 26, 14, 14, 20, 2.0, 0.005, 0.06, 52, 48, 35, 65);
-			case AUTO -> new StrategyParameters(12, 26, 14, 14, 20, 2.0, 0.005, 0.06, 52, 48, 35, 65);
-		};
+	private StrategyParameters parametersForConfig(BotConfig config) {
+		StrategyParameters base = StrategyDefaults.forMode(config.getStrategyMode());
+		int emaFast = pickInt(config.getEmaFast(), base.emaFast(), 2, 200);
+		int emaSlow = pickInt(config.getEmaSlow(), base.emaSlow(), 5, 400);
+		if (emaSlow <= emaFast) {
+			emaSlow = Math.max(emaFast + 1, base.emaSlow());
+		}
+		int rsiPeriod = pickInt(config.getRsiPeriod(), base.rsiPeriod(), 5, 60);
+		int atrPeriod = pickInt(config.getAtrPeriod(), base.atrPeriod(), 5, 60);
+		int bbPeriod = pickInt(config.getBbPeriod(), base.bbPeriod(), 10, 60);
+		double bbStdDev = pickDouble(config.getBbStdDev(), base.bbStdDev(), 0.5, 5.0);
+		double trendThreshold = pickDouble(config.getTrendThreshold(), base.trendThreshold(), 0.001, 0.05);
+		double volatilityHigh = pickDouble(config.getVolatilityHigh(), base.volatilityHigh(), 0.01, 0.2);
+		int trendRsiBuyMin = pickInt(config.getTrendRsiBuyMin(), base.trendRsiBuyMin(), 10, 90);
+		int trendRsiSellMax = pickInt(config.getTrendRsiSellMax(), base.trendRsiSellMax(), 10, 90);
+		if (trendRsiBuyMin <= trendRsiSellMax) {
+			trendRsiBuyMin = base.trendRsiBuyMin();
+			trendRsiSellMax = base.trendRsiSellMax();
+		}
+		int rangeRsiBuyMax = pickInt(config.getRangeRsiBuyMax(), base.rangeRsiBuyMax(), 5, 70);
+		int rangeRsiSellMin = pickInt(config.getRangeRsiSellMin(), base.rangeRsiSellMin(), 50, 95);
+		if (rangeRsiBuyMax >= rangeRsiSellMin) {
+			rangeRsiBuyMax = base.rangeRsiBuyMax();
+			rangeRsiSellMin = base.rangeRsiSellMin();
+		}
+		return new StrategyParameters(
+				emaFast,
+				emaSlow,
+				rsiPeriod,
+				atrPeriod,
+				bbPeriod,
+				bbStdDev,
+				trendThreshold,
+				volatilityHigh,
+				trendRsiBuyMin,
+				trendRsiSellMax,
+				rangeRsiBuyMax,
+				rangeRsiSellMin
+		);
+	}
+
+	private int pickInt(Integer override, int fallback, int min, int max) {
+		if (override == null) {
+			return fallback;
+		}
+		if (override < min || override > max) {
+			return fallback;
+		}
+		return override;
+	}
+
+	private double pickDouble(Double override, double fallback, double min, double max) {
+		if (override == null) {
+			return fallback;
+		}
+		if (override < min || override > max) {
+			return fallback;
+		}
+		return override;
 	}
 
 	private double trendConfidence(double trendStrength, double threshold, double rsi, boolean isBuy) {

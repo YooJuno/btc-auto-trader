@@ -95,7 +95,10 @@ public class StrategyScheduler {
 		if (config.getSelectionMode() == SelectionMode.MANUAL) {
 			return parseManualMarkets(config.getManualMarkets());
 		}
-		List<MarketRecommendation> recommendations = marketDataService.recommendTop(config.getAutoPickTopN());
+		List<MarketRecommendation> recommendations = marketDataService.recommendTopCached(
+				config.getAutoPickTopN(),
+				properties.getUpbit().getRecommendationCacheMs()
+		);
 		return recommendations.stream().map(MarketRecommendation::market).toList();
 	}
 

@@ -18,6 +18,8 @@ import com.hvs.btctrader.enums.MarketType;
 import com.hvs.btctrader.enums.RiskPreset;
 import com.hvs.btctrader.enums.SelectionMode;
 import com.hvs.btctrader.enums.StrategyMode;
+import com.hvs.btctrader.strategy.StrategyDefaults;
+import com.hvs.btctrader.strategy.StrategyParameters;
 import com.hvs.btctrader.users.User;
 import com.hvs.btctrader.users.UserRepository;
 
@@ -36,6 +38,7 @@ public class BotConfigController {
 
 	@GetMapping("/defaults")
 	public BotDefaultsResponse defaults() {
+		StrategyParameters params = StrategyDefaults.forMode(StrategyMode.AUTO);
 		return new BotDefaultsResponse(
 				MarketType.KRW,
 				SelectionMode.AUTO,
@@ -45,6 +48,18 @@ public class BotConfigController {
 				BigDecimal.valueOf(3.0),
 				BigDecimal.valueOf(8.0),
 				5,
+				params.emaFast(),
+				params.emaSlow(),
+				params.rsiPeriod(),
+				params.atrPeriod(),
+				params.bbPeriod(),
+				params.bbStdDev(),
+				params.trendThreshold(),
+				params.volatilityHigh(),
+				params.trendRsiBuyMin(),
+				params.trendRsiSellMax(),
+				params.rangeRsiBuyMax(),
+				params.rangeRsiSellMin(),
 				Arrays.asList(MarketType.values()),
 				Arrays.asList(SelectionMode.values()),
 				Arrays.asList(StrategyMode.values()),
@@ -72,6 +87,18 @@ public class BotConfigController {
 		config.setMaxWeeklyDrawdownPct(request.getMaxWeeklyDrawdownPct());
 		config.setAutoPickTopN(request.getAutoPickTopN());
 		config.setManualMarkets(request.getManualMarkets());
+		config.setEmaFast(request.getEmaFast());
+		config.setEmaSlow(request.getEmaSlow());
+		config.setRsiPeriod(request.getRsiPeriod());
+		config.setAtrPeriod(request.getAtrPeriod());
+		config.setBbPeriod(request.getBbPeriod());
+		config.setBbStdDev(request.getBbStdDev());
+		config.setTrendThreshold(request.getTrendThreshold());
+		config.setVolatilityHigh(request.getVolatilityHigh());
+		config.setTrendRsiBuyMin(request.getTrendRsiBuyMin());
+		config.setTrendRsiSellMax(request.getTrendRsiSellMax());
+		config.setRangeRsiBuyMax(request.getRangeRsiBuyMax());
+		config.setRangeRsiSellMin(request.getRangeRsiSellMin());
 
 		BotConfig saved = botConfigRepository.save(config);
 		return BotConfigResponse.from(saved);
