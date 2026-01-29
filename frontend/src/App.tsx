@@ -285,7 +285,7 @@ function App() {
       localStorage.setItem('token', response.token)
       setToken(response.token)
     } catch (error) {
-      setAuthError('·Î±×ÀÎ ½ÇÆĞ. µ¥¸ğ µ¥ÀÌÅÍ·Î Ç¥½ÃÇÕ´Ï´Ù.')
+      setAuthError('ë¡œê·¸ì¸ ì‹¤íŒ¨. ë°ëª¨ ë°ì´í„°ë¡œ í‘œì‹œí•©ë‹ˆë‹¤.')
     } finally {
       setLoading(false)
     }
@@ -302,7 +302,7 @@ function App() {
       localStorage.setItem('token', response.token)
       setToken(response.token)
     } catch (error) {
-      setAuthError('È¸¿ø°¡ÀÔ ½ÇÆĞ. ÀÔ·Â°ªÀ» È®ÀÎÇÏ¼¼¿ä.')
+      setAuthError('íšŒì›ê°€ì… ì‹¤íŒ¨. ì…ë ¥ê°’ì„ í™•ì¸í•˜ì„¸ìš”.')
     } finally {
       setLoading(false)
     }
@@ -348,7 +348,7 @@ function App() {
 
   const handleSaveConfig = async () => {
     if (!isAuthed) {
-      setAuthError('·Î±×ÀÎÀÌ ÇÊ¿äÇÕ´Ï´Ù.')
+      setAuthError('ë¡œê·¸ì¸ì´ í•„ìš”í•©ë‹ˆë‹¤.')
       return
     }
     setLoading(true)
@@ -392,7 +392,7 @@ function App() {
         body: JSON.stringify(payload),
       })
     } catch (error) {
-      setAuthError('¼³Á¤ ÀúÀå ½ÇÆĞ. API¸¦ È®ÀÎÇÏ¼¼¿ä.')
+      setAuthError('ì„¤ì • ì €ì¥ ì‹¤íŒ¨. APIë¥¼ í™•ì¸í•˜ì„¸ìš”.')
     } finally {
       setLoading(false)
     }
@@ -400,7 +400,7 @@ function App() {
 
   const handleResetPaper = async () => {
     if (!isAuthed) {
-      setAuthError('·Î±×ÀÎÀÌ ÇÊ¿äÇÕ´Ï´Ù.')
+      setAuthError('ë¡œê·¸ì¸ì´ í•„ìš”í•©ë‹ˆë‹¤.')
       return
     }
     setLoading(true)
@@ -411,7 +411,7 @@ function App() {
       })
       setPaperSummary(updated)
     } catch (error) {
-      setAuthError('¸®¼Â ½ÇÆĞ')
+      setAuthError('ë¦¬ì…‹ ì‹¤íŒ¨')
     } finally {
       setLoading(false)
     }
@@ -429,6 +429,9 @@ function App() {
     return 'Connecting'
   }, [streamStatus])
 
+  const selectionLabel = useMemo(() => (selectionMode === 'MANUAL' ? 'Manual' : 'Auto'), [selectionMode])
+  const positionCount = paperSummary.positions.length
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -440,21 +443,67 @@ function App() {
           </div>
         </div>
         <div className="topbar-right">
+          <span className={`stream-chip ${streamStatus}`}>{streamLabel}</span>
           <span className={`status-chip ${isAuthed ? 'online' : 'offline'}`}>
             {isAuthed ? 'API Connected' : 'Demo Mode'}
           </span>
           {isAuthed && (
             <button className="ghost" onClick={handleLogout}>
-              ·Î±×¾Æ¿ô
+              ë¡œê·¸ì•„ì›ƒ
             </button>
           )}
         </div>
       </header>
 
+      <section className="hero">
+        <div className="hero-copy">
+          <p className="hero-kicker">Auto ì „ëµ & ì‹œê·¸ë„ ì¸ë±ìŠ¤</p>
+          <h1>ì‹¤ì‹œê°„ ì‹œì„¸ ê¸°ë°˜ ìë™ ì¶”ì²œì„ í•œ í™”ë©´ì—ì„œ</h1>
+          <p className="hero-desc">
+            ìŠ¤íŠ¸ë¦¼ ì¶”ì²œ, ë¦¬ìŠ¤í¬ ê´€ë¦¬, ëª¨ì˜ë§¤ë§¤ ì„±ê³¼ë¥¼ í•œ ê³³ì—ì„œ ê´€ë¦¬í•˜ì„¸ìš”. ëª¨ë“œë³„ ê¸°ë³¸ ì „ëµì„ ìœ ì§€í•˜ë©´ì„œ
+            í•„ìš”í•œ ê³³ë§Œ ë¯¸ì„¸ ì¡°ì •í•  ìˆ˜ ìˆìŠµë‹ˆë‹¤.
+          </p>
+          <div className="hero-meta">
+            <div>
+              <span>Selection</span>
+              <strong>{selectionLabel}</strong>
+            </div>
+            <div>
+              <span>Strategy</span>
+              <strong>{strategyMode}</strong>
+            </div>
+            <div>
+              <span>Risk</span>
+              <strong>{riskBadge}</strong>
+            </div>
+          </div>
+        </div>
+        <div className="hero-cards">
+          <div className="hero-card">
+            <p>Live stream</p>
+            <strong>{streamLabel}</strong>
+            <span>{lastUpdated ? `ìµœê·¼ ì—…ë°ì´íŠ¸ ${lastUpdated}` : 'ì—…ë°ì´íŠ¸ ëŒ€ê¸°ì¤‘'}</span>
+          </div>
+          <div className="hero-card">
+            <p>Paper equity</p>
+            <strong>\ {formatMoney(paperSummary.equity)}</strong>
+            <span>ë³´ìœ  í¬ì§€ì…˜ {positionCount}ê°œ</span>
+          </div>
+          <div className="hero-card">
+            <p>Auto picks</p>
+            <strong>Top {autoPickTopN}</strong>
+            <span>ì‹œì¥ ê¸°ì¤€ {market}</span>
+          </div>
+        </div>
+      </section>
+
       <main className="dashboard-grid">
         <section className="panel login-panel">
-          <h2>Access</h2>
-          <p className="panel-subtitle">·Î±×ÀÎ ÈÄ ½Ç½Ã°£ ÃßÃµ°ú ¸ğÀÇ¸Å¸Å ¼º°ú°¡ ¿¬°áµË´Ï´Ù.</p>
+          <div className="panel-header">
+            <h2>Access</h2>
+            <span className="pill">Account</span>
+          </div>
+          <p className="panel-subtitle">ë¡œê·¸ì¸ í›„ ì‹¤ì‹œê°„ ì¶”ì²œê³¼ ëª¨ì˜ë§¤ë§¤ ì„±ê³¼ê°€ ì—°ê²°ë©ë‹ˆë‹¤.</p>
           <div className="form-grid">
             <label>
               Email
@@ -472,10 +521,10 @@ function App() {
           {authError && <div className="alert">{authError}</div>}
           <div className="button-row">
             <button className="primary" onClick={handleLogin} disabled={loading}>
-              ·Î±×ÀÎ
+              ë¡œê·¸ì¸
             </button>
             <button className="ghost" onClick={handleRegister} disabled={loading}>
-              È¸¿ø°¡ÀÔ
+              íšŒì›ê°€ì…
             </button>
           </div>
         </section>
@@ -576,10 +625,10 @@ function App() {
             <div className="advanced-header">
               <div>
                 <h3>Advanced tuning</h3>
-                <p className="hint">ºñ¿öµÎ¸é ±âº» Àü·«°ªÀ» »ç¿ëÇÕ´Ï´Ù.</p>
+                <p className="hint">ë¹„ì›Œë‘ë©´ ê¸°ë³¸ ì „ëµê°’ì„ ì‚¬ìš©í•©ë‹ˆë‹¤.</p>
               </div>
               <button className="ghost small" onClick={() => setAdvancedOpen((prev) => !prev)}>
-                {advancedOpen ? '¼û±â±â' : '¿­±â'}
+                {advancedOpen ? 'ìˆ¨ê¸°ê¸°' : 'ì—´ê¸°'}
               </button>
             </div>
             {advancedOpen && (
@@ -699,10 +748,10 @@ function App() {
                 </div>
                 <div className="advanced-actions">
                   <button className="ghost small" onClick={handleApplyDefaults} type="button">
-                    ±âº»°ª Ã¤¿ì±â
+                    ê¸°ë³¸ê°’ ì±„ìš°ê¸°
                   </button>
                   <button className="ghost small" onClick={handleClearOverrides} type="button">
-                    ºñ¿ì±â
+                    ë¹„ìš°ê¸°
                   </button>
                 </div>
               </>
@@ -710,36 +759,42 @@ function App() {
           </div>
           <div className="button-row">
             <button className="primary" onClick={handleSaveConfig} disabled={loading}>
-              ¼³Á¤ ÀúÀå
+              ì„¤ì • ì €ì¥
             </button>
             <button className="ghost" onClick={handleResetPaper} disabled={loading}>
-              ¸ğÀÇ°èÁÂ ¸®¼Â
+              ëª¨ì˜ê³„ì¢Œ ë¦¬ì…‹
             </button>
           </div>
         </section>
 
         <section className="panel recommendation-panel">
           <div className="panel-header">
-            <h2>Market Radar</h2>
+            <div>
+              <h2>Market Radar</h2>
+              <p className="panel-subtitle">
+                ê±°ë˜ëŒ€ê¸ˆ, ì¶”ì„¸, ë³€ë™ì„± ê¸°ë°˜ ìë™ ì¶”ì²œ {lastUpdated ? `/ ìµœê·¼ ì—…ë°ì´íŠ¸ ${lastUpdated}` : ''}
+              </p>
+            </div>
             <div className="chip-row">
               <span className="pill">Top {autoPickTopN}</span>
               <span className={`pill stream ${streamStatus}`}>{streamLabel}</span>
             </div>
           </div>
-          <p className="panel-subtitle">
-            °Å·¡´ë±İ, Ãß¼¼, º¯µ¿¼º ±â¹İ ÀÚµ¿ ÃßÃµ {lastUpdated ? `¡¤ ÃÖ±Ù ¾÷µ¥ÀÌÆ® ${lastUpdated}` : ''}
-          </p>
           <div className="recommendation-list">
-            {recommendations.map((coin) => (
+            {recommendations.map((coin, index) => (
               <div key={coin.market} className="recommendation-card">
-                <div>
-                  <h3>{coin.market}</h3>
-                  <span>Score {(coin.score * 100).toFixed(1)}</span>
+                <div className="recommendation-main">
+                  <div className="rank">#{index + 1}</div>
+                  <div>
+                    <h3>{coin.market}</h3>
+                    <span>Score {(coin.score * 100).toFixed(1)}</span>
+                  </div>
                 </div>
                 <div className="recommendation-meta">
                   <span>\ {formatMoney(coin.lastPrice)}</span>
                   <span>Vol {coin.volatilityPct.toFixed(2)}%</span>
                   <span>Trend {coin.trendStrengthPct.toFixed(2)}%</span>
+                  <span>24h {formatMoney(coin.volume24h)}</span>
                 </div>
               </div>
             ))}
@@ -793,7 +848,7 @@ function App() {
             <h2>Performance</h2>
             <span className="pill">Return {formatPct(performance.totalReturnPct)}</span>
           </div>
-          <p className="panel-subtitle">Max DD {formatPct(performance.maxDrawdownPct)} ¡¤ ÃÖ±Ù 7ÀÏ</p>
+          <p className="panel-subtitle">Max DD {formatPct(performance.maxDrawdownPct)} Â· ìµœê·¼ 7ì¼</p>
           <div className="performance-chart">
             {performance.daily.map((point) => (
               <div key={point.label} className="performance-row">
