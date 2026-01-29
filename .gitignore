@@ -1,0 +1,49 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Logs
+logs/
+*.log
+
+# Node / React
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files (keep examples)
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/.env
+frontend/.env.*
+infra/.env
+infra/.env.*
+!infra/.env.example
+
+# Java / Gradle / Spring
+backend/build/
+backend/target/
+backend/.gradle/
+backend/out/
+*.class
+hs_err_pid*
+
+# Misc
+*.swp
+*.tmp

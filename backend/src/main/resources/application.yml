@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: btc-auto-trader
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/btctrader}
+    username: ${DB_USER:btctrader}
+    password: ${DB_PASSWORD:btctrader}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: ${PORT:8080}
+
+app:
+  jwt:
+    issuer: btc-auto-trader
+    secret: ${JWT_SECRET:dev-only-change-me}
+    ttlMinutes: 120
+  crypto:
+    key: ${APP_ENC_KEY:}
+
+logging:
+  level:
+    org.hibernate.SQL: warn
