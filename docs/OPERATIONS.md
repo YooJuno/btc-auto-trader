@@ -47,10 +47,15 @@ Use the helper script to sync infra files and deploy via SSH.
 PowerShell example:
 
 ```powershell
-.\scripts\deploy-compose-remote.ps1 -Host 1.2.3.4 `
+.\scripts\deploy-compose-remote.ps1 -TargetHost 1.2.3.4 `
   -BackendImage ghcr.io/you/btc-backend:latest `
   -FrontendImage ghcr.io/you/btc-frontend:latest
 ```
+
+Optional flags:
+- `--copy-env` or `-CopyEnv` to upload `.env.prod`
+- `--rollback-on-fail` or `-RollbackOnFail` for auto rollback
+- `--health-url`, `--frontend-url`, `--health-retries`, `--health-interval`
 
 ## Jenkins + Kubernetes (future)
 - Jenkinsfile is included at repo root for build/test and Docker image builds.
@@ -61,11 +66,26 @@ PowerShell example:
 - `REGISTRY`: container registry (e.g. `ghcr.io/owner`)
 - `IMAGE_TAG`: image tag to build/push/deploy
 - Compose deploy: set `SSH_HOST`, `SSH_USER`, `SSH_PORT`, `SSH_CREDENTIALS_ID`, `REMOTE_APP_DIR`
+- Compose env: set `ENV_FILE_CREDENTIALS_ID` to upload `.env.prod`
+- Health/rollback: `HEALTHCHECK_URL`, `FRONTEND_URL`, `HEALTHCHECK_RETRIES`, `HEALTHCHECK_INTERVAL`, `ROLLBACK_ON_FAIL`
 - K8s deploy: set `KUBE_CONTEXT`, `K8S_NAMESPACE`, `KUSTOMIZE_OVERLAY`
+- K8s secrets: set `K8S_SECRETS_CREDENTIALS_ID` to provide `secrets.env`
 
 ### Kubernetes TLS
 - Install cert-manager before applying the prod overlay.
 - Update `k8s/overlays/prod/cluster-issuer.yaml` with your email.
+
+## cert-manager scripts
+```bash
+./scripts/k8s-cert-manager-install.sh vX.Y.Z
+./scripts/k8s-cert-manager-verify.sh
+```
+
+PowerShell:
+```powershell
+.\scripts\k8s-cert-manager-install.ps1 -Version vX.Y.Z
+.\scripts\k8s-cert-manager-verify.ps1
+```
 
 ## Security checklist
 - Never store exchange keys in frontend.

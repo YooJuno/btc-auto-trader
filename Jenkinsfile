@@ -11,11 +11,19 @@ pipeline {
     string(name: 'SSH_PORT', defaultValue: '22', description: 'Compose deploy SSH port')
     string(name: 'SSH_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins SSH credentials id')
     string(name: 'REMOTE_APP_DIR', defaultValue: '/opt/btc-auto-trader', description: 'Remote app root')
+    string(name: 'ENV_FILE_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins secret file id for .env.prod')
     booleanParam(name: 'SYNC_INFRA', defaultValue: true, description: 'Sync infra folder before compose deploy')
     string(name: 'REMOTE_DOCKER_CMD', defaultValue: 'docker', description: 'Remote docker command (e.g. sudo docker)')
+    string(name: 'HEALTHCHECK_URL', defaultValue: 'http://localhost/api/actuator/health', description: 'Backend health URL')
+    string(name: 'FRONTEND_URL', defaultValue: 'http://localhost/', description: 'Frontend URL')
+    string(name: 'HEALTHCHECK_RETRIES', defaultValue: '12', description: 'Healthcheck retries')
+    string(name: 'HEALTHCHECK_INTERVAL', defaultValue: '5', description: 'Healthcheck interval seconds')
+    booleanParam(name: 'ROLLBACK_ON_FAIL', defaultValue: true, description: 'Rollback on failed healthcheck')
     string(name: 'KUBE_CONTEXT', defaultValue: '', description: 'kubectl context name')
     string(name: 'K8S_NAMESPACE', defaultValue: 'default', description: 'Kubernetes namespace')
     string(name: 'KUSTOMIZE_OVERLAY', defaultValue: 'k8s/overlays/prod', description: 'Kustomize overlay path')
+    string(name: 'K8S_SECRETS_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins secret file id for kustomize secrets.env')
+    string(name: 'K8S_ROLLOUT_TIMEOUT', defaultValue: '120s', description: 'Rollout status timeout')
   }
   stages {
     stage('Backend: test & build') {
@@ -106,21 +114,52 @@ pipeline {
             if (!params.SSH_HOST?.trim() || !params.SSH_CREDENTIALS_ID?.trim()) {
               error 'SSH_HOST and SSH_CREDENTIALS_ID are required for compose deploy.'
             }
-            def remote = "${params.SSH_USER}@${params.SSH_HOST}"
-            def portOpt = params.SSH_PORT?.trim() ? "-p ${params.SSH_PORT}" : ""
-            def dockerCmd = params.REMOTE_DOCKER_CMD?.trim() ? params.REMOTE_DOCKER_CMD : "docker"
-            def cmd = "cd ${params.REMOTE_APP_DIR}/infra && BACKEND_IMAGE=${backendImage} FRONTEND_IMAGE=${frontendImage} ${dockerCmd} compose -f docker-compose.prod.registry.yml --env-file .env.prod up -d"
+            def deployArgsSh = "--host ${params.SSH_HOST} --user ${params.SSH_USER} --port ${params.SSH_PORT} --dir ${params.REMOTE_APP_DIR}" +
+              " --backend-image ${backendImage} --frontend-image ${frontendImage}" +
+              " --health-url ${params.HEALTHCHECK_URL} --frontend-url ${params.FRONTEND_URL}" +
+              " --health-retries ${params.HEALTHCHECK_RETRIES} --health-interval ${params.HEALTHCHECK_INTERVAL}" +
+              " --docker-cmd ${params.REMOTE_DOCKER_CMD} --compose-project btc-trader"
+            def deployArgsPs = "-TargetHost ${params.SSH_HOST} -User ${params.SSH_USER} -Port ${params.SSH_PORT} -RemoteDir ${params.REMOTE_APP_DIR}" +
+              " -BackendImage ${backendImage} -FrontendImage ${frontendImage}" +
+              " -HealthUrl ${params.HEALTHCHECK_URL} -FrontendUrl ${params.FRONTEND_URL}" +
+              " -HealthRetries ${params.HEALTHCHECK_RETRIES} -HealthInterval ${params.HEALTHCHECK_INTERVAL}" +
+              " -DockerCmd ${params.REMOTE_DOCKER_CMD} -ComposeProject btc-trader"
+            if (params.ROLLBACK_ON_FAIL) {
+              deployArgsSh += " --rollback-on-fail"
+              deployArgsPs += " -RollbackOnFail"
+            }
+            if (!params.SYNC_INFRA) {
+              deployArgsSh += " --skip-sync"
+              deployArgsPs += " -SkipSync"
+            }
             sshagent(credentials: [params.SSH_CREDENTIALS_ID]) {
-              if (params.SYNC_INFRA && isUnix()) {
-                sh "ssh ${portOpt} ${remote} 'mkdir -p ${params.REMOTE_APP_DIR}/infra'"
-                sh "if command -v rsync >/dev/null 2>&1; then rsync -av --delete --exclude '.env.prod' infra/ ${remote}:${params.REMOTE_APP_DIR}/infra/; else scp ${portOpt} infra/Caddyfile infra/docker-compose.prod.yml infra/docker-compose.prod.registry.yml infra/.env.prod.example ${remote}:${params.REMOTE_APP_DIR}/infra/; fi"
-              } else if (params.SYNC_INFRA && !isUnix()) {
-                echo 'SYNC_INFRA skipped on Windows agent.'
+              def envInjected = false
+              if (params.ENV_FILE_CREDENTIALS_ID?.trim()) {
+                withCredentials([file(credentialsId: params.ENV_FILE_CREDENTIALS_ID, variable: 'ENV_FILE')]) {
+                  if (isUnix()) {
+                    sh "cp $ENV_FILE infra/.env.prod"
+                  } else {
+                    bat "copy %ENV_FILE% infra\\.env.prod"
+                  }
+                }
+                envInjected = true
+                deployArgsSh += " --env-file infra/.env.prod --copy-env"
+                deployArgsPs += " -EnvFile infra/.env.prod -CopyEnv"
               }
-              if (isUnix()) {
-                sh "ssh ${portOpt} ${remote} '${cmd}'"
-              } else {
-                bat "ssh ${portOpt} ${remote} \"${cmd}\""
+              try {
+                if (isUnix()) {
+                  sh "./scripts/deploy-compose-remote.sh ${deployArgsSh}"
+                } else {
+                  powershell ".\\\\scripts\\\\deploy-compose-remote.ps1 ${deployArgsPs}"
+                }
+              } finally {
+                if (envInjected) {
+                  if (isUnix()) {
+                    sh "rm -f infra/.env.prod"
+                  } else {
+                    bat "del /f /q infra\\.env.prod"
+                  }
+                }
               }
             }
           }
@@ -128,14 +167,48 @@ pipeline {
           if (params.DEPLOY_TARGET == 'k8s') {
             def ctx = params.KUBE_CONTEXT?.trim() ? "--context ${params.KUBE_CONTEXT}" : ""
             def ns = params.K8S_NAMESPACE?.trim() ? "-n ${params.K8S_NAMESPACE}" : ""
-            if (isUnix()) {
-              sh "kubectl ${ctx} ${ns} apply -k ${params.KUSTOMIZE_OVERLAY}"
-              sh "kubectl ${ctx} ${ns} set image deployment/btc-backend backend=${backendImage}"
-              sh "kubectl ${ctx} ${ns} set image deployment/btc-frontend frontend=${frontendImage}"
-            } else {
-              bat "kubectl ${ctx} ${ns} apply -k ${params.KUSTOMIZE_OVERLAY}"
-              bat "kubectl ${ctx} ${ns} set image deployment/btc-backend backend=${backendImage}"
-              bat "kubectl ${ctx} ${ns} set image deployment/btc-frontend frontend=${frontendImage}"
+            if (params.K8S_SECRETS_CREDENTIALS_ID?.trim()) {
+              withCredentials([file(credentialsId: params.K8S_SECRETS_CREDENTIALS_ID, variable: 'K8S_SECRETS_FILE')]) {
+                if (isUnix()) {
+                  sh "cp $K8S_SECRETS_FILE ${params.KUSTOMIZE_OVERLAY}/secrets.env"
+                } else {
+                  bat "copy %K8S_SECRETS_FILE% ${params.KUSTOMIZE_OVERLAY}\\\\secrets.env"
+                }
+              }
+            }
+            try {
+              if (isUnix()) {
+                sh "kubectl ${ctx} ${ns} apply -k ${params.KUSTOMIZE_OVERLAY}"
+                sh "kubectl ${ctx} ${ns} set image deployment/btc-backend backend=${backendImage}"
+                sh "kubectl ${ctx} ${ns} set image deployment/btc-frontend frontend=${frontendImage}"
+                sh "kubectl ${ctx} ${ns} rollout status deployment/btc-backend --timeout=${params.K8S_ROLLOUT_TIMEOUT}"
+                sh "kubectl ${ctx} ${ns} rollout status deployment/btc-frontend --timeout=${params.K8S_ROLLOUT_TIMEOUT}"
+              } else {
+                bat "kubectl ${ctx} ${ns} apply -k ${params.KUSTOMIZE_OVERLAY}"
+                bat "kubectl ${ctx} ${ns} set image deployment/btc-backend backend=${backendImage}"
+                bat "kubectl ${ctx} ${ns} set image deployment/btc-frontend frontend=${frontendImage}"
+                bat "kubectl ${ctx} ${ns} rollout status deployment/btc-backend --timeout=${params.K8S_ROLLOUT_TIMEOUT}"
+                bat "kubectl ${ctx} ${ns} rollout status deployment/btc-frontend --timeout=${params.K8S_ROLLOUT_TIMEOUT}"
+              }
+            } catch (err) {
+              if (params.ROLLBACK_ON_FAIL) {
+                if (isUnix()) {
+                  sh "kubectl ${ctx} ${ns} rollout undo deployment/btc-backend"
+                  sh "kubectl ${ctx} ${ns} rollout undo deployment/btc-frontend"
+                } else {
+                  bat "kubectl ${ctx} ${ns} rollout undo deployment/btc-backend"
+                  bat "kubectl ${ctx} ${ns} rollout undo deployment/btc-frontend"
+                }
+              }
+              throw err
+            } finally {
+              if (params.K8S_SECRETS_CREDENTIALS_ID?.trim()) {
+                if (isUnix()) {
+                  sh "rm -f ${params.KUSTOMIZE_OVERLAY}/secrets.env"
+                } else {
+                  bat "del /f /q ${params.KUSTOMIZE_OVERLAY}\\\\secrets.env"
+                }
+              }
             }
           }
         }
