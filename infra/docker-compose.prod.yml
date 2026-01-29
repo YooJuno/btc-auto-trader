@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16
+    container_name: btc-trader-db
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-btctrader}
+      POSTGRES_USER: ${POSTGRES_USER:-btctrader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-btctrader}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ../backend
+    depends_on:
+      - db
+    environment:
+      DB_URL: ${DB_URL:-jdbc:postgresql://db:5432/btctrader}
+      DB_USER: ${DB_USER:-btctrader}
+      DB_PASSWORD: ${DB_PASSWORD:-btctrader}
+      JWT_SECRET: ${JWT_SECRET}
+      APP_ENC_KEY: ${APP_ENC_KEY}
+      PORT: 8080
+
+  frontend:
+    build:
+      context: ../frontend
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  db_data:

@@ -32,6 +32,15 @@ npm install
 npm run dev
 ```
 
+## Production (Docker Compose)
+```bash
+cd infra
+cp .env.prod.example .env.prod
+docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+```
+
+Frontend will be exposed on port 80. Backend runs behind Nginx at `/api`.
+
 ## Environment variables
 Backend reads:
 - `DB_URL` (default: `jdbc:postgresql://localhost:5432/btctrader`)

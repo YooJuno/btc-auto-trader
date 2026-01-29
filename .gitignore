@@ -35,6 +35,7 @@ frontend/.env.*
 infra/.env
 infra/.env.*
 !infra/.env.example
+!infra/.env.prod.example
 
 # Java / Gradle / Spring
 backend/build/
