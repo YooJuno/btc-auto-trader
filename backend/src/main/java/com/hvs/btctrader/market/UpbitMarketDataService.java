@@ -8,9 +8,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 
 import com.hvs.btctrader.config.AppProperties;
 import com.hvs.btctrader.strategy.AutoSelector;
@@ -32,6 +34,9 @@ public class UpbitMarketDataService {
 	private final UpbitTickerCache tickerCache;
 	private volatile List<MarketRecommendation> cachedRecommendations = List.of();
 	private volatile long cachedAtMillis = 0L;
+	private volatile List<UpbitMarket> cachedMarkets = List.of();
+	private volatile long marketsCachedAtMillis = 0L;
+	private final Map<String, CandleCache> candleCache = new ConcurrentHashMap<>();
 
 	public UpbitMarketDataService(UpbitClient upbitClient, IndicatorService indicatorService,
 			AutoSelector autoSelector, AppProperties properties, UpbitTickerCache tickerCache) {
@@ -68,15 +73,22 @@ public class UpbitMarketDataService {
 					&& now - cachedAtMillis <= maxAgeMs) {
 				return cachedRecommendations.subList(0, topN);
 			}
-			List<MarketRecommendation> fresh = recommendTop(topN);
-			cachedRecommendations = fresh;
-			cachedAtMillis = System.currentTimeMillis();
-			return fresh;
+			try {
+				List<MarketRecommendation> fresh = recommendTop(topN);
+				if (!fresh.isEmpty()) {
+					cachedRecommendations = fresh;
+					cachedAtMillis = System.currentTimeMillis();
+					return fresh;
+				}
+				return fallbackRecommendations(topN);
+			} catch (HttpClientErrorException.TooManyRequests ex) {
+				return fallbackRecommendations(topN);
+			}
 		}
 	}
 
 	public List<MarketSnapshot> buildSnapshots(int topN) {
-		List<UpbitMarket> markets = upbitClient.getMarkets(true).stream()
+		List<UpbitMarket> markets = getMarketsCached(true).stream()
 				.filter(market -> market.market().startsWith(properties.getUpbit().getMarketPrefix()))
 				.filter(market -> !"CAUTION".equalsIgnoreCase(market.marketWarning()))
 				.toList();
@@ -92,18 +104,22 @@ public class UpbitMarketDataService {
 		}
 		Map<String, UpbitTicker> tickerByMarket = tickers.stream()
 				.collect(Collectors.toMap(UpbitTicker::market, ticker -> ticker, (a, b) -> a));
-		int candidateCount = Math.max(topN * 4, topN);
+		int factor = properties.getUpbit().getRecommendationCandidateFactor();
+		if (factor <= 0) {
+			factor = 1;
+		} else if (factor > 5) {
+			factor = 5;
+		}
+		int candidateCount = Math.max(topN * factor, topN);
 		List<UpbitTicker> topByVolume = tickers.stream()
 				.sorted(Comparator.comparingDouble(UpbitTicker::accTradePrice24h).reversed())
 				.limit(candidateCount)
 				.toList();
 
 		List<MarketSnapshot> snapshots = new ArrayList<>();
+		boolean fastRecommend = properties.getUpbit().isFastRecommend();
+		int minCandles = Math.max(10, properties.getUpbit().getRecommendationMinCandles());
 		for (UpbitTicker ticker : topByVolume) {
-			List<Candle> candles = fetchCandles(ticker.market());
-			if (candles.size() < 20) {
-				continue;
-			}
 			UpbitTicker baseTicker = tickerByMarket.getOrDefault(ticker.market(), ticker);
 			UpbitTicker finalTicker = tickerCache.getFresh(baseTicker.market(), properties.getUpbit().getWsMaxAgeSec())
 					.map(live -> new UpbitTicker(
@@ -115,15 +131,23 @@ public class UpbitMarketDataService {
 							live.accTradeVolume24h()
 					))
 					.orElse(baseTicker);
-			List<Double> closes = candles.stream().map(Candle::close).toList();
 			double lastPrice = finalTicker.tradePrice();
-			double atr = indicatorService.atr(candles, 14);
-			double emaFast = indicatorService.ema(closes, 12);
-			double emaSlow = indicatorService.ema(closes, 26);
-			double volatilityPct = Double.isNaN(atr) ? 0.0 : (atr / lastPrice) * 100.0;
-			double trendStrengthPct = Double.isNaN(emaFast) || Double.isNaN(emaSlow)
-					? 0.0
-					: ((emaFast - emaSlow) / lastPrice) * 100.0;
+			double volatilityPct = 0.0;
+			double trendStrengthPct = 0.0;
+			if (!fastRecommend) {
+				List<Candle> candles = fetchCandles(ticker.market());
+				if (candles.size() < minCandles) {
+					continue;
+				}
+				List<Double> closes = candles.stream().map(Candle::close).toList();
+				double atr = indicatorService.atr(candles, 14);
+				double emaFast = indicatorService.ema(closes, 12);
+				double emaSlow = indicatorService.ema(closes, 26);
+				volatilityPct = Double.isNaN(atr) ? 0.0 : (atr / lastPrice) * 100.0;
+				trendStrengthPct = Double.isNaN(emaFast) || Double.isNaN(emaSlow)
+						? 0.0
+						: ((emaFast - emaSlow) / lastPrice) * 100.0;
+			}
 
 			MarketSnapshot snapshot = new MarketSnapshot(
 					finalTicker.market(),
@@ -140,7 +164,7 @@ public class UpbitMarketDataService {
 	}
 
 	public List<String> topMarketsByVolume(int topN) {
-		List<UpbitMarket> markets = upbitClient.getMarkets(true).stream()
+		List<UpbitMarket> markets = getMarketsCached(true).stream()
 				.filter(market -> market.market().startsWith(properties.getUpbit().getMarketPrefix()))
 				.filter(market -> !"CAUTION".equalsIgnoreCase(market.marketWarning()))
 				.toList();
@@ -171,6 +195,14 @@ public class UpbitMarketDataService {
 	}
 
 	private List<Candle> fetchCandles(String market) {
+		long cacheMs = Math.max(0, properties.getUpbit().getCandleCacheMs());
+		if (cacheMs > 0) {
+			CandleCache cached = candleCache.get(market);
+			long now = System.currentTimeMillis();
+			if (cached != null && now - cached.cachedAtMillis <= cacheMs) {
+				return cached.candles;
+			}
+		}
 		List<UpbitCandle> response = upbitClient.getMinuteCandles(
 				market,
 				properties.getUpbit().getCandleUnit(),
@@ -186,6 +218,9 @@ public class UpbitMarketDataService {
 					candle.tradePrice(),
 					candle.candleAccTradeVolume()));
 		}
+		if (!candles.isEmpty()) {
+			candleCache.put(market, new CandleCache(candles, System.currentTimeMillis()));
+		}
 		return candles;
 	}
 
@@ -196,5 +231,40 @@ public class UpbitMarketDataService {
 			LocalDateTime localDateTime = LocalDateTime.parse(value);
 			return localDateTime.toInstant(ZoneOffset.UTC);
 		}
+	}
+
+	private List<UpbitMarket> getMarketsCached(boolean withDetails) {
+		long cacheMs = Math.max(0, properties.getUpbit().getMarketCacheMs());
+		if (cacheMs <= 0) {
+			return upbitClient.getMarkets(withDetails);
+		}
+		long now = System.currentTimeMillis();
+		if (!cachedMarkets.isEmpty() && now - marketsCachedAtMillis <= cacheMs) {
+			return cachedMarkets;
+		}
+		synchronized (this) {
+			if (!cachedMarkets.isEmpty() && now - marketsCachedAtMillis <= cacheMs) {
+				return cachedMarkets;
+			}
+			List<UpbitMarket> markets = upbitClient.getMarkets(withDetails);
+			if (!markets.isEmpty()) {
+				cachedMarkets = markets;
+				marketsCachedAtMillis = System.currentTimeMillis();
+				return markets;
+			}
+			return cachedMarkets;
+		}
+	}
+
+	private List<MarketRecommendation> fallbackRecommendations(int topN) {
+		List<MarketRecommendation> cached = cachedRecommendations;
+		if (cached.isEmpty()) {
+			return List.of();
+		}
+		int safeTopN = Math.min(topN, cached.size());
+		return cached.subList(0, safeTopN);
+	}
+
+	private record CandleCache(List<Candle> candles, long cachedAtMillis) {
 	}
 }

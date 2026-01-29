@@ -23,6 +23,8 @@ type BotDefaults = {
   defaultTrendRsiSellMax: number
   defaultRangeRsiBuyMax: number
   defaultRangeRsiSellMin: number
+  engineEnabled: boolean
+  engineIntervalMs: number
   availableMarkets: string[]
   availableSelectionModes: string[]
   availableStrategyModes: string[]
@@ -76,6 +78,9 @@ type MarketStreamEvent = {
 
 type MarketCandlePoint = {
   timestamp: string
+  open: number
+  high: number
+  low: number
   close: number
 }
 
@@ -182,13 +187,15 @@ function App() {
   const [summaryStatus, setSummaryStatus] = useState<'empty' | 'live' | 'error'>('empty')
   const [performanceStatus, setPerformanceStatus] = useState<'empty' | 'live' | 'error'>('empty')
   const [loading, setLoading] = useState(false)
-  const [streamStatus, setStreamStatus] = useState<'idle' | 'live' | 'error'>('idle')
+  const [streamStatus, setStreamStatus] = useState<'idle' | 'live' | 'reconnecting' | 'error'>('idle')
   const [lastUpdated, setLastUpdated] = useState('')
   const [marketFilter, setMarketFilter] = useState('')
   const [activeView, setActiveView] = useState<'overview' | 'portfolio' | 'config'>('overview')
   const [loginOpen, setLoginOpen] = useState(false)
   const [registerOpen, setRegisterOpen] = useState(false)
   const [sparklines, setSparklines] = useState<Record<string, MarketCandlePoint[]>>({})
+  const [chartMode, setChartMode] = useState<'equity' | 'candles'>('equity')
+  const [chartCandles, setChartCandles] = useState<MarketCandlePoint[]>([])
 
   const [configName, setConfigName] = useState('KRW Standard')
   const [market, setMarket] = useState('KRW')
@@ -238,8 +245,9 @@ function App() {
   useEffect(() => {
     const streamUrl = `${API_BASE}/api/market/stream?topN=${autoPickTopN}`
     let closed = false
-    const source = new EventSource(streamUrl)
-    setStreamStatus('idle')
+    let source: EventSource | null = null
+    let retryTimer: number | undefined
+    let retryCount = 0
 
     const handleStream = (event: MessageEvent) => {
       try {
@@ -258,33 +266,50 @@ function App() {
       }
     }
 
-    source.addEventListener('recommendations', handleStream as EventListener)
-    source.onmessage = handleStream
-    source.onopen = () => {
-      if (!closed) {
-        setStreamStatus('live')
-      }
-    }
-    source.onerror = () => {
+    const connect = () => {
       if (closed) {
         return
       }
-      setStreamStatus('error')
-      setRecoStatus((prev) => (prev === 'live' ? 'error' : 'empty'))
-      source.close()
-      if (isAuthed) {
-        apiFetch<Recommendation[]>(`/api/market/recommendations?topN=${autoPickTopN}`, token)
-          .then((data) => {
-            setRecommendations(data)
-            setRecoStatus('live')
-          })
-          .catch(() => null)
+      setStreamStatus('idle')
+      source = new EventSource(streamUrl)
+      source.addEventListener('recommendations', handleStream as EventListener)
+      source.onmessage = handleStream
+      source.onopen = () => {
+        if (!closed) {
+          retryCount = 0
+          setStreamStatus('live')
+        }
+      }
+      source.onerror = () => {
+        if (closed) {
+          return
+        }
+        setStreamStatus('reconnecting')
+        setRecoStatus((prev) => (prev === 'live' ? 'error' : 'empty'))
+        source?.close()
+        source = null
+        if (isAuthed) {
+          apiFetch<Recommendation[]>(`/api/market/recommendations?topN=${autoPickTopN}`, token)
+            .then((data) => {
+              setRecommendations(data)
+              setRecoStatus('live')
+            })
+            .catch(() => null)
+        }
+        const delay = Math.min(30000, 1000 * Math.pow(2, retryCount))
+        retryCount = Math.min(retryCount + 1, 5)
+        retryTimer = window.setTimeout(connect, delay)
       }
     }
 
+    connect()
+
     return () => {
       closed = true
-      source.close()
+      if (retryTimer) {
+        window.clearTimeout(retryTimer)
+      }
+      source?.close()
     }
   }, [autoPickTopN, isAuthed, token])
 
@@ -483,6 +508,7 @@ function App() {
 
   const streamLabel = useMemo(() => {
     if (streamStatus === 'live') return 'Live'
+    if (streamStatus === 'reconnecting') return 'Reconnecting'
     if (streamStatus === 'error') return 'Offline'
     return 'Connecting'
   }, [streamStatus])
@@ -533,7 +559,7 @@ function App() {
   const visibleRecommendations = filteredRecommendations.slice(0, maxRecommendationsToShow)
   const hiddenRecommendations = Math.max(0, filteredRecommendations.length - visibleRecommendations.length)
 
-  const maxPositionsToShow = 3
+  const maxPositionsToShow = 6
   const visiblePositions = displaySummary.positions.slice(0, maxPositionsToShow)
   const hiddenPositions = Math.max(0, displaySummary.positions.length - visiblePositions.length)
 
@@ -579,8 +605,72 @@ function App() {
     }
   }, [chartSeries])
 
-  const performanceBars = useMemo(() => displayPerformance.daily.slice(-5), [displayPerformance.daily])
+  const preferredChartMarket = useMemo(() => {
+    if (displaySummary.positions.length > 0) {
+      return displaySummary.positions[0].market
+    }
+    const reco = displayRecommendations.find((item) => item.market && item.market !== '--')
+    return reco?.market ?? ''
+  }, [displaySummary.positions, displayRecommendations])
 
+  useEffect(() => {
+    if (chartMode !== 'candles') {
+      return
+    }
+    if (!preferredChartMarket) {
+      setChartCandles([])
+      return
+    }
+    let cancelled = false
+    apiFetch<MarketCandlePoint[]>(
+      `/api/market/candles?market=${encodeURIComponent(preferredChartMarket)}&limit=40`
+    )
+      .then((data) => {
+        if (!cancelled) {
+          setChartCandles(data)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setChartCandles([])
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [chartMode, preferredChartMarket])
+
+  const candleChart = useMemo(() => {
+    if (chartMode !== 'candles' || chartCandles.length === 0) {
+      return null
+    }
+    const highs = chartCandles.map((candle) => candle.high)
+    const lows = chartCandles.map((candle) => candle.low)
+    const min = Math.min(...lows)
+    const max = Math.max(...highs)
+    const range = max - min || 1
+    const count = chartCandles.length
+    const step = count <= 1 ? 100 : 100 / count
+    const bodyWidth = Math.max(2, step * 0.6)
+    const candles = chartCandles.map((candle, index) => {
+      const x = step * index + step / 2
+      const highY = 60 - ((candle.high - min) / range) * 60
+      const lowY = 60 - ((candle.low - min) / range) * 60
+      const openY = 60 - ((candle.open - min) / range) * 60
+      const closeY = 60 - ((candle.close - min) / range) * 60
+      return {
+        x,
+        highY,
+        lowY,
+        openY,
+        closeY,
+        bodyTop: Math.min(openY, closeY),
+        bodyHeight: Math.max(2, Math.abs(openY - closeY)),
+        up: candle.close >= candle.open,
+      }
+    })
+    return { candles, min, max, bodyWidth }
+  }, [chartMode, chartCandles])
   const selectionLabel = useMemo(() => (selectionMode === 'MANUAL' ? '수동' : '자동'), [selectionMode])
   const operationLabel = useMemo(() => (operationMode === 'ATTACK' ? '공격' : '안정'), [operationMode])
   const positionCount = displaySummary.positions.length
@@ -672,8 +762,12 @@ function App() {
             />
           </label>
           <span className={`stream-chip ${streamStatus}`}>{streamLabel}</span>
-          <span className={`status-chip ${isAuthed ? 'online' : 'offline'}`}>
-            {isAuthed ? 'API Connected' : 'Demo Mode'}
+          <span
+            className={`status-chip ${
+              streamStatus === 'live' ? 'online' : streamStatus === 'reconnecting' ? 'reconnecting' : 'offline'
+            }`}
+          >
+            {streamStatus === 'live' ? 'Upbit Online' : streamStatus === 'reconnecting' ? 'Upbit Reconnecting' : 'Upbit Offline'}
           </span>
           {!isAuthed && (
             <button
@@ -1041,71 +1135,81 @@ function App() {
           </div>
         </section>
 
-        <section className="panel signal-panel">
+        <section className="panel account-panel">
           <div className="panel-header">
-            <h2>Signal Tape</h2>
-            <span className="pill">Live feed</span>
-          </div>
-          {recommendationNote && <p className="panel-subtitle">{recommendationNote}</p>}
-          <div className="signal-list">
-            {signalTape.map((item, index) => (
-              <div key={`${item.market}-${index}`} className="signal-item">
-                <div>
-                  <p>{item.market}</p>
-                  <strong>\ {formatMoney(item.price)}</strong>
-                </div>
-                <div className="signal-right">
-                  <span className={`signal-badge ${item.tag.tone}`}>{item.tag.label}</span>
-                  <span className="signal-score">{(item.score * 100).toFixed(0)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="signal-footer">
-            <span>전략</span>
-            <strong>{strategyMode}</strong>
-            <span>선택</span>
-            <strong>{selectionLabel}</strong>
-          </div>
-        </section>
-
-        <section className="panel portfolio-panel">
-          <div className="panel-header">
-            <h2>Paper Portfolio</h2>
+            <h2>Account Snapshot</h2>
             <span className="pill">Equity \ {formatMoney(displaySummary.equity)}</span>
           </div>
-          {summaryNote && <p className="panel-subtitle">{summaryNote}</p>}
+          <p className="panel-subtitle">
+            {summaryNote || `최근 업데이트 ${lastUpdated || '대기중'}`}
+          </p>
           <div className="stats-grid">
             <div>
-              <p>Cash</p>
+              <p>Cash balance</p>
               <strong>\ {formatMoney(displaySummary.cashBalance)}</strong>
             </div>
             <div>
-              <p>Unrealized</p>
+              <p>Unrealized PnL</p>
               <strong className={displaySummary.unrealizedPnl >= 0 ? 'positive' : 'negative'}>
-                {formatPct((displaySummary.unrealizedPnl / Math.max(displaySummary.equity, 1)) * 100)}
+                \ {formatMoney(displaySummary.unrealizedPnl)}
               </strong>
             </div>
             <div>
-              <p>Realized</p>
+              <p>Realized PnL</p>
               <strong className={displaySummary.realizedPnl >= 0 ? 'positive' : 'negative'}>
                 \ {formatMoney(displaySummary.realizedPnl)}
               </strong>
             </div>
+            <div>
+              <p>Open positions</p>
+              <strong>{positionCount}개</strong>
+            </div>
           </div>
+          <div className="account-footer">
+            <div>
+              <span className="label">Stream</span>
+              <strong>{streamLabel}</strong>
+            </div>
+            <div>
+              <span className="label">Selection</span>
+              <strong>{selectionLabel}</strong>
+            </div>
+            <div>
+              <span className="label">Strategy</span>
+              <strong>{strategyMode}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel holdings-panel">
+          <div className="panel-header">
+            <h2>Holdings</h2>
+            <span className="pill">Positions {positionCount}</span>
+          </div>
+          {summaryNote && <p className="panel-subtitle">{summaryNote}</p>}
           <div className="positions-table">
             <div className="positions-row header">
               <span>Market</span>
+              <span>Qty</span>
               <span>Entry</span>
+              <span>Buy</span>
               <span>Last</span>
               <span>PnL</span>
+              <span>PnL ₩</span>
             </div>
             {visiblePositions.map((pos) => (
               <div key={pos.market} className="positions-row">
                 <span>{pos.market}</span>
+                <span>{pos.quantity.toFixed(4)}</span>
                 <span>\ {formatMoney(pos.entryPrice)}</span>
+                <span>\ {formatMoney(pos.entryPrice * pos.quantity)}</span>
                 <span>\ {formatMoney(pos.lastPrice)}</span>
-                <span className={pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}>{formatPct(pos.unrealizedPnlPct)}</span>
+                <span className={pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}>
+                  {formatPct(pos.unrealizedPnlPct)}
+                </span>
+                <span className={pos.unrealizedPnl >= 0 ? 'positive' : 'negative'}>
+                  \ {formatMoney(pos.unrealizedPnl)}
+                </span>
               </div>
             ))}
             {displaySummary.positions.length === 0 && <p className="empty">보유 포지션 없음</p>}
@@ -1113,20 +1217,90 @@ function App() {
           </div>
         </section>
 
-        <section className="panel performance-panel">
+        <section className="panel chart-panel">
           <div className="panel-header">
-            <h2>Performance</h2>
-            <span className="pill">Return {formatPct(displayPerformance.totalReturnPct)}</span>
+            <div>
+              <h2>Chart</h2>
+              <p className="panel-subtitle">
+                {chartMode === 'candles'
+                  ? `Market ${preferredChartMarket || '대기중'}`
+                  : 'Equity trend'}
+              </p>
+            </div>
+            <div className="chip-row">
+              <button
+                className={`pill button-pill ${chartMode === 'equity' ? 'active' : ''}`}
+                type="button"
+                onClick={() => setChartMode('equity')}
+              >
+                Line
+              </button>
+              <button
+                className={`pill button-pill ${chartMode === 'candles' ? 'active' : ''}`}
+                type="button"
+                onClick={() => setChartMode('candles')}
+              >
+                Candles
+              </button>
+            </div>
           </div>
-          <p className="panel-subtitle">
-            Max DD {formatPct(displayPerformance.maxDrawdownPct)} · 최근 7일
-            {performanceNote ? ` / ${performanceNote}` : ''}
-          </p>
           <div className="performance-chart">
-            {chartData ? (
+            {chartMode === 'candles' ? (
+              candleChart ? (
+                <div className="performance-visual large">
+                  <div className="chart-wrapper tall">
+                    <svg className="chart-svg" viewBox="0 0 100 60" preserveAspectRatio="none">
+                      <defs>
+                        <pattern id="candleGrid" width="10" height="10" patternUnits="userSpaceOnUse">
+                          <path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255, 255, 255, 0.08)" strokeWidth="0.4" />
+                        </pattern>
+                      </defs>
+                      <rect width="100" height="60" fill="url(#candleGrid)" />
+                      {candleChart.candles.map((candle, index) => (
+                        <g key={index}>
+                          <line
+                            x1={candle.x}
+                            y1={candle.highY}
+                            x2={candle.x}
+                            y2={candle.lowY}
+                            stroke={candle.up ? 'rgba(96, 230, 134, 0.9)' : 'rgba(255, 111, 111, 0.9)'}
+                            strokeWidth="1"
+                          />
+                          <rect
+                            x={candle.x - candleChart.bodyWidth / 2}
+                            y={candle.bodyTop}
+                            width={candleChart.bodyWidth}
+                            height={candle.bodyHeight}
+                            fill={candle.up ? 'rgba(96, 230, 134, 0.5)' : 'rgba(255, 111, 111, 0.5)'}
+                            stroke={candle.up ? 'rgba(96, 230, 134, 0.9)' : 'rgba(255, 111, 111, 0.9)'}
+                            strokeWidth="0.6"
+                          />
+                        </g>
+                      ))}
+                    </svg>
+                  </div>
+                  <div className="chart-legend">
+                    <div>
+                      <span>High</span>
+                      <strong>\ {formatMoney(candleChart.max)}</strong>
+                    </div>
+                    <div>
+                      <span>Low</span>
+                      <strong>\ {formatMoney(candleChart.min)}</strong>
+                    </div>
+                    <div>
+                      <span>Last</span>
+                      <strong>\ {formatMoney(chartCandles[chartCandles.length - 1].close)}</strong>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="empty">캔들 데이터 수신 대기중</p>
+              )
+            ) : chartData ? (
               <>
-                <div className="performance-visual">
-                  <div className="chart-wrapper">
+                <div className="performance-visual large">
+                  <div className="chart-wrapper tall">
                     <svg className="chart-svg" viewBox="0 0 100 60" preserveAspectRatio="none">
                       <defs>
                         <pattern id="chartGrid" width="10" height="10" patternUnits="userSpaceOnUse">
@@ -1163,24 +1337,71 @@ function App() {
                     </div>
                   </div>
                 </div>
-                <div className="performance-bars">
-                  {performanceBars.map((point) => (
-                    <div key={point.label} className="performance-row">
-                      <span>{point.label}</span>
-                      <div className="bar-track">
-                        <div
-                          className={`bar ${point.returnPct >= 0 ? 'positive' : 'negative'}`}
-                          style={{ width: `${Math.min(Math.abs(point.returnPct) * 6, 100)}%` }}
-                        />
-                      </div>
-                      <span>{formatPct(point.returnPct)}</span>
-                    </div>
-                  ))}
-                </div>
               </>
             ) : (
               <p className="empty">성과 데이터 수신 대기중</p>
             )}
+          </div>
+        </section>
+
+        <section className="panel auto-panel">
+          <div className="panel-header">
+            <h2>Auto Trading</h2>
+            <span className="pill">{operationLabel}</span>
+          </div>
+          <p className="panel-subtitle">자동 매매 설정과 추천 시그널을 요약합니다.</p>
+          <div className="auto-grid">
+            <div>
+              <span>Selection</span>
+              <strong>{selectionLabel}</strong>
+            </div>
+            <div>
+              <span>Strategy</span>
+              <strong>{strategyMode}</strong>
+            </div>
+            <div>
+              <span>Risk</span>
+              <strong>{riskBadge}</strong>
+            </div>
+            <div>
+              <span>Top N</span>
+              <strong>{autoPickTopN}</strong>
+            </div>
+            <div>
+              <span>Max positions</span>
+              <strong>{maxPositions}</strong>
+            </div>
+            <div>
+              <span>DD limits</span>
+              <strong>{dailyDd}% / {weeklyDd}%</strong>
+            </div>
+            <div>
+              <span>Engine</span>
+              <strong>{defaults?.engineEnabled ? 'ON' : 'OFF'}</strong>
+            </div>
+            <div>
+              <span>Rebalance</span>
+              <strong>
+                {defaults?.engineIntervalMs ? `${Math.round(defaults.engineIntervalMs / 1000)}s` : '-'}
+              </strong>
+            </div>
+          </div>
+          {selectionMode === 'MANUAL' && manualMarkets && (
+            <p className="hint">Manual: {manualMarkets}</p>
+          )}
+          <div className="signal-list compact">
+            {signalTape.map((item, index) => (
+              <div key={`${item.market}-${index}`} className="signal-item">
+                <div>
+                  <p>{item.market}</p>
+                  <strong>\ {formatMoney(item.price)}</strong>
+                </div>
+                <div className="signal-right">
+                  <span className={`signal-badge ${item.tag.tone}`}>{item.tag.label}</span>
+                  <span className="signal-score">{(item.score * 100).toFixed(0)}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       </main>

@@ -114,6 +114,11 @@
   color: var(--warning);
 }
 
+.status-chip.reconnecting {
+  background: rgba(255, 191, 107, 0.16);
+  color: var(--accent);
+}
+
 .stream-chip.live {
   background: rgba(87, 217, 198, 0.18);
   color: var(--accent-secondary);
@@ -122,6 +127,11 @@
 .stream-chip.error {
   background: rgba(255, 111, 111, 0.16);
   color: var(--warning);
+}
+
+.stream-chip.reconnecting {
+  background: rgba(255, 191, 107, 0.16);
+  color: var(--accent);
 }
 
 .command-strip {
@@ -167,37 +177,48 @@
   height: 100%;
 }
 
-.terminal-grid.view-overview .strategy-panel,
-.terminal-grid.view-overview .portfolio-panel {
+.terminal-grid.view-overview .strategy-panel {
   display: none;
 }
 
 .terminal-grid.view-portfolio .strategy-panel,
 .terminal-grid.view-portfolio .recommendation-panel,
-.terminal-grid.view-portfolio .signal-panel {
+.terminal-grid.view-portfolio .auto-panel,
+.terminal-grid.view-portfolio .chart-panel {
   display: none;
 }
 
 .terminal-grid.view-config .recommendation-panel,
-.terminal-grid.view-config .signal-panel,
-.terminal-grid.view-config .portfolio-panel,
-.terminal-grid.view-config .performance-panel {
+.terminal-grid.view-config .account-panel,
+.terminal-grid.view-config .holdings-panel,
+.terminal-grid.view-config .chart-panel,
+.terminal-grid.view-config .auto-panel {
   display: none;
 }
 
-.terminal-grid.view-overview .performance-panel {
-  grid-column: 1 / span 7;
-  grid-row: 1 / span 2;
-}
-
-.terminal-grid.view-overview .recommendation-panel {
-  grid-column: 8 / span 5;
+.terminal-grid.view-overview .account-panel {
+  grid-column: 1 / span 4;
   grid-row: 1;
 }
 
-.terminal-grid.view-overview .signal-panel {
+.terminal-grid.view-overview .holdings-panel {
+  grid-column: 5 / span 8;
+  grid-row: 1;
+}
+
+.terminal-grid.view-overview .chart-panel {
+  grid-column: 1 / span 7;
+  grid-row: 2;
+}
+
+.terminal-grid.view-overview .auto-panel {
   grid-column: 8 / span 5;
   grid-row: 2;
+}
+
+.terminal-grid.view-overview .recommendation-panel {
+  grid-column: 1 / span 7;
+  grid-row: 3;
 }
 
 .terminal-grid.view-config .strategy-panel {
@@ -245,16 +266,20 @@
   grid-column: span 7;
 }
 
-.signal-panel {
-  grid-column: span 5;
+.account-panel {
+  grid-column: span 4;
 }
 
-.portfolio-panel {
-  grid-column: span 5;
+.holdings-panel {
+  grid-column: span 8;
 }
 
-.performance-panel {
+.chart-panel {
   grid-column: span 7;
+}
+
+.auto-panel {
+  grid-column: span 5;
 }
 
 .panel-header {
@@ -278,6 +303,17 @@
   color: var(--accent);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.button-pill {
+  border: none;
+  cursor: pointer;
+  background: rgba(255, 211, 140, 0.12);
+}
+
+.button-pill.active {
+  background: rgba(255, 191, 107, 0.28);
+  color: var(--accent);
 }
 
 .pill.stream {
@@ -475,6 +511,14 @@ button:hover {
   position: relative;
   height: 100%;
   min-height: 120px;
+}
+
+.chart-wrapper.tall {
+  min-height: 220px;
+}
+
+.performance-visual.large {
+  padding: 1rem;
 }
 
 .chart-svg {
@@ -675,7 +719,7 @@ button:hover {
 
 .positions-row {
   display: grid;
-  grid-template-columns: repeat(4, minmax(80px, 1fr));
+  grid-template-columns: 1.2fr repeat(6, minmax(80px, 1fr));
   gap: 0.6rem;
   padding: 0.6rem 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -701,13 +745,46 @@ button:hover {
   color: var(--warning);
 }
 
-.performance-row {
+.account-footer {
+  margin-top: 1rem;
   display: grid;
-  grid-template-columns: 60px 1fr 80px;
-  align-items: center;
-  gap: 0.8rem;
-  font-size: 0.9rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.account-footer strong {
+  display: block;
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+}
+
+.account-footer .label {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--text-muted);
+}
+
+.auto-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 0.8rem;
+}
+
+.auto-grid span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.auto-grid strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.signal-list.compact {
+  gap: 0.6rem;
 }
 
 .bar-track {
@@ -783,9 +860,10 @@ button:hover {
 
   .strategy-panel,
   .recommendation-panel,
-  .signal-panel,
-  .portfolio-panel,
-  .performance-panel {
+  .account-panel,
+  .holdings-panel,
+  .chart-panel,
+  .auto-panel {
     grid-column: span 12;
   }
 
@@ -793,9 +871,6 @@ button:hover {
     grid-template-columns: repeat(2, minmax(80px, 1fr));
   }
 }
-
-
-
 
 
 

@@ -11,9 +11,6 @@ spring:
     properties:
       hibernate:
         format_sql: true
-  jackson:
-    serialization:
-      write-dates-as-timestamps: false
 
 server:
   port: ${PORT:8080}
@@ -27,18 +24,28 @@ app:
   crypto:
     key: ${APP_ENC_KEY:}
   upbit:
+    accessKey: ${UPBIT_ACCESS_KEY:}
+    secretKey: ${UPBIT_SECRET_KEY:}
     baseUrl: ${UPBIT_BASE_URL:https://api.upbit.com}
     wsUrl: ${UPBIT_WS_URL:wss://api.upbit.com/websocket/v1}
     marketPrefix: ${UPBIT_MARKET_PREFIX:KRW-}
     candleUnit: ${UPBIT_CANDLE_UNIT:1}
-    candleCount: ${UPBIT_CANDLE_COUNT:120}
+    candleCount: ${UPBIT_CANDLE_COUNT:60}
     tickerChunkSize: ${UPBIT_TICKER_CHUNK:100}
     wsEnabled: ${UPBIT_WS_ENABLED:false}
     wsTopN: ${UPBIT_WS_TOPN:30}
     wsRefreshMs: ${UPBIT_WS_REFRESH_MS:300000}
     wsMaxAgeSec: ${UPBIT_WS_MAX_AGE_SEC:30}
     streamIntervalMs: ${UPBIT_STREAM_INTERVAL_MS:5000}
-    recommendationCacheMs: ${UPBIT_RECOMMENDATION_CACHE_MS:15000}
+    recommendationCacheMs: ${UPBIT_RECOMMENDATION_CACHE_MS:60000}
+    fastRecommend: ${UPBIT_FAST_RECOMMEND:true}
+    recommendationCandidateFactor: ${UPBIT_RECO_CANDIDATE_FACTOR:2}
+    recommendationMinCandles: ${UPBIT_RECO_MIN_CANDLES:30}
+    restMinIntervalMs: ${UPBIT_REST_MIN_INTERVAL_MS:250}
+    restRetryMax: ${UPBIT_REST_RETRY_MAX:2}
+    restRetryBackoffMs: ${UPBIT_REST_RETRY_BACKOFF_MS:1000}
+    marketCacheMs: ${UPBIT_MARKET_CACHE_MS:600000}
+    candleCacheMs: ${UPBIT_CANDLE_CACHE_MS:60000}
   engine:
     enabled: ${ENGINE_ENABLED:false}
     intervalMs: ${ENGINE_INTERVAL_MS:60000}

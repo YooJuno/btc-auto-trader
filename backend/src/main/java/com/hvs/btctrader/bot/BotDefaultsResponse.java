@@ -31,6 +31,8 @@ public record BotDefaultsResponse(
 		int defaultTrendRsiSellMax,
 		int defaultRangeRsiBuyMax,
 		int defaultRangeRsiSellMin,
+		boolean engineEnabled,
+		long engineIntervalMs,
 		List<MarketType> availableMarkets,
 		List<SelectionMode> availableSelectionModes,
 		List<StrategyMode> availableStrategyModes,

@@ -37,7 +37,13 @@ public class MarketDataController {
 		int fromIndex = Math.max(0, candles.size() - safeLimit);
 		return candles.subList(fromIndex, candles.size())
 				.stream()
-				.map(candle -> new MarketCandle(candle.timestamp(), candle.close()))
+				.map(candle -> new MarketCandle(
+						candle.timestamp(),
+						candle.open(),
+						candle.high(),
+						candle.low(),
+						candle.close()
+				))
 				.toList();
 	}
 }

@@ -93,13 +93,13 @@ public class BotConfig extends BaseEntity {
 	private Integer bbPeriod;
 
 	@Column(precision = 6, scale = 3)
-	private Double bbStdDev;
+	private BigDecimal bbStdDev;
 
 	@Column(precision = 6, scale = 4)
-	private Double trendThreshold;
+	private BigDecimal trendThreshold;
 
 	@Column(precision = 6, scale = 4)
-	private Double volatilityHigh;
+	private BigDecimal volatilityHigh;
 
 	@Column
 	private Integer trendRsiBuyMin;
@@ -265,27 +265,27 @@ public class BotConfig extends BaseEntity {
 		this.bbPeriod = bbPeriod;
 	}
 
-	public Double getBbStdDev() {
+	public BigDecimal getBbStdDev() {
 		return bbStdDev;
 	}
 
-	public void setBbStdDev(Double bbStdDev) {
+	public void setBbStdDev(BigDecimal bbStdDev) {
 		this.bbStdDev = bbStdDev;
 	}
 
-	public Double getTrendThreshold() {
+	public BigDecimal getTrendThreshold() {
 		return trendThreshold;
 	}
 
-	public void setTrendThreshold(Double trendThreshold) {
+	public void setTrendThreshold(BigDecimal trendThreshold) {
 		this.trendThreshold = trendThreshold;
 	}
 
-	public Double getVolatilityHigh() {
+	public BigDecimal getVolatilityHigh() {
 		return volatilityHigh;
 	}
 
-	public void setVolatilityHigh(Double volatilityHigh) {
+	public void setVolatilityHigh(BigDecimal volatilityHigh) {
 		this.volatilityHigh = volatilityHigh;
 	}
 

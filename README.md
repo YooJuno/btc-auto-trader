@@ -21,6 +21,11 @@ docker compose up -d
 
 ```bash
 cd backend
+chmod +x ./gradlew
+# .env가 있으면 로드 (로컬 전용, 커밋 금지)
+set -a
+source .env
+set +a
 ./gradlew bootRun
 ```
 
@@ -46,6 +51,7 @@ npm run dev
 2) Node.js 18+ 설치 (nvm 사용 권장)
 3) Docker Engine + Docker Compose 설치
 4) `docker compose up -d`로 Postgres 실행 후 백엔드/프론트 실행
+   - macOS는 Docker Desktop 앱이 실행 중이어야 합니다.
 
 예시 명령 (Ubuntu/Debian):
 ```bash
@@ -136,8 +142,21 @@ Backend reads:
 - `DB_PASSWORD` (default: `btctrader`)
 - `JWT_SECRET` (dev default is set, change for real use)
 - `APP_ENC_KEY` (Base64-encoded 32-byte key for API key encryption)
+- `UPBIT_ACCESS_KEY` / `UPBIT_SECRET_KEY` (Upbit API keys)
 - `UPBIT_STREAM_INTERVAL_MS` (SSE recommendation stream interval)
 - `UPBIT_RECOMMENDATION_CACHE_MS` (recommendation cache TTL)
+- `UPBIT_FAST_RECOMMEND` (skip candle/indicator calls for faster recommendations)
+- `UPBIT_RECO_CANDIDATE_FACTOR` (top-volume candidate multiplier, default 2)
+- `UPBIT_RECO_MIN_CANDLES` (min candle count when using indicators)
+- `UPBIT_REST_MIN_INTERVAL_MS` (min gap between Upbit REST calls)
+- `UPBIT_REST_RETRY_MAX` / `UPBIT_REST_RETRY_BACKOFF_MS` (429 retry controls)
+- `UPBIT_MARKET_CACHE_MS` / `UPBIT_CANDLE_CACHE_MS` (Upbit market/candle cache TTL)
+- `ENGINE_ENABLED` (paper trading engine on/off)
+- `ENGINE_INTERVAL_MS` (paper trading engine interval)
+
+Local secrets
+- `backend/.env.example`를 `backend/.env`로 복사 후 키를 입력하세요.
+- `.env`는 **절대 커밋하지 마세요**.
 
 ## Notes
 - API keys are stored encrypted in the backend (AES-GCM).

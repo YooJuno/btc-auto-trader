@@ -20,13 +20,17 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthFilter jwtAuthFilter) throws Exception {
-		http.csrf(csrf -> csrf.disable())
+		http.securityMatcher("/**")
+				.csrf(csrf -> csrf.disable())
 				.cors(Customizer.withDefaults())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+				.securityContext(securityContext -> securityContext.requireExplicitSave(false))
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers("/api/auth/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/bot-configs/defaults").permitAll()
+						.requestMatchers("/api/market/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/market/stream").permitAll()
+						.requestMatchers(HttpMethod.GET, "/api/market/recommendations").permitAll()
 						.requestMatchers("/actuator/health").permitAll()
 						.anyRequest().authenticated())
 				.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

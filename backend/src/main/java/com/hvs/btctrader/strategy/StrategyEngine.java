@@ -1,5 +1,6 @@
 package com.hvs.btctrader.strategy;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -179,14 +180,15 @@ public class StrategyEngine {
 		return override;
 	}
 
-	private double pickDouble(Double override, double fallback, double min, double max) {
+	private double pickDouble(BigDecimal override, double fallback, double min, double max) {
 		if (override == null) {
 			return fallback;
 		}
-		if (override < min || override > max) {
+		double value = override.doubleValue();
+		if (value < min || value > max) {
 			return fallback;
 		}
-		return override;
+		return value;
 	}
 
 	private StrategyParameters applyOperationMode(StrategyParameters base, OperationMode mode) {

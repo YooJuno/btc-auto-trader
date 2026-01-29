@@ -73,18 +73,44 @@ public class AppProperties {
 	}
 
 	public static class Upbit {
+		private String accessKey = "";
+		private String secretKey = "";
 		private String baseUrl = "https://api.upbit.com";
 		private String wsUrl = "wss://api.upbit.com/websocket/v1";
 		private String marketPrefix = "KRW-";
 		private int candleUnit = 1;
-		private int candleCount = 120;
+		private int candleCount = 60;
 		private int tickerChunkSize = 100;
 		private boolean wsEnabled = false;
 		private int wsTopN = 30;
 		private long wsRefreshMs = 300000;
 		private long wsMaxAgeSec = 30;
 		private long streamIntervalMs = 5000;
-		private long recommendationCacheMs = 15000;
+		private long recommendationCacheMs = 60000;
+		private boolean fastRecommend = true;
+		private int recommendationCandidateFactor = 2;
+		private int recommendationMinCandles = 30;
+		private long restMinIntervalMs = 250;
+		private int restRetryMax = 2;
+		private long restRetryBackoffMs = 1000;
+		private long marketCacheMs = 600000;
+		private long candleCacheMs = 60000;
+
+		public String getAccessKey() {
+			return accessKey;
+		}
+
+		public void setAccessKey(String accessKey) {
+			this.accessKey = accessKey;
+		}
+
+		public String getSecretKey() {
+			return secretKey;
+		}
+
+		public void setSecretKey(String secretKey) {
+			this.secretKey = secretKey;
+		}
 
 		public String getBaseUrl() {
 			return baseUrl;
@@ -181,6 +207,70 @@ public class AppProperties {
 		public void setRecommendationCacheMs(long recommendationCacheMs) {
 			this.recommendationCacheMs = recommendationCacheMs;
 		}
+
+		public boolean isFastRecommend() {
+			return fastRecommend;
+		}
+
+		public void setFastRecommend(boolean fastRecommend) {
+			this.fastRecommend = fastRecommend;
+		}
+
+		public int getRecommendationCandidateFactor() {
+			return recommendationCandidateFactor;
+		}
+
+		public void setRecommendationCandidateFactor(int recommendationCandidateFactor) {
+			this.recommendationCandidateFactor = recommendationCandidateFactor;
+		}
+
+		public int getRecommendationMinCandles() {
+			return recommendationMinCandles;
+		}
+
+		public void setRecommendationMinCandles(int recommendationMinCandles) {
+			this.recommendationMinCandles = recommendationMinCandles;
+		}
+
+		public long getRestMinIntervalMs() {
+			return restMinIntervalMs;
+		}
+
+		public void setRestMinIntervalMs(long restMinIntervalMs) {
+			this.restMinIntervalMs = restMinIntervalMs;
+		}
+
+		public int getRestRetryMax() {
+			return restRetryMax;
+		}
+
+		public void setRestRetryMax(int restRetryMax) {
+			this.restRetryMax = restRetryMax;
+		}
+
+		public long getRestRetryBackoffMs() {
+			return restRetryBackoffMs;
+		}
+
+		public void setRestRetryBackoffMs(long restRetryBackoffMs) {
+			this.restRetryBackoffMs = restRetryBackoffMs;
+		}
+
+		public long getMarketCacheMs() {
+			return marketCacheMs;
+		}
+
+		public void setMarketCacheMs(long marketCacheMs) {
+			this.marketCacheMs = marketCacheMs;
+		}
+
+		public long getCandleCacheMs() {
+			return candleCacheMs;
+		}
+
+		public void setCandleCacheMs(long candleCacheMs) {
+			this.candleCacheMs = candleCacheMs;
+		}
 	}
 
 	public static class Engine {
@@ -211,7 +301,7 @@ public class AppProperties {
 			return initialCash;
 		}
 
-		public void setInitialCash(double initialCash) {
+	public void setInitialCash(double initialCash) {
 			this.initialCash = initialCash;
 		}
 	}

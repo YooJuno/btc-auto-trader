@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.hvs.btctrader.auth.JwtUser;
+import com.hvs.btctrader.config.AppProperties;
 import com.hvs.btctrader.enums.MarketType;
 import com.hvs.btctrader.enums.OperationMode;
 import com.hvs.btctrader.enums.RiskPreset;
@@ -31,15 +32,20 @@ import jakarta.validation.Valid;
 public class BotConfigController {
 	private final BotConfigRepository botConfigRepository;
 	private final UserRepository userRepository;
+	private final AppProperties properties;
 
-	public BotConfigController(BotConfigRepository botConfigRepository, UserRepository userRepository) {
+	public BotConfigController(BotConfigRepository botConfigRepository, UserRepository userRepository,
+			AppProperties properties) {
 		this.botConfigRepository = botConfigRepository;
 		this.userRepository = userRepository;
+		this.properties = properties;
 	}
 
 	@GetMapping("/defaults")
 	public BotDefaultsResponse defaults() {
 		StrategyParameters params = StrategyDefaults.forMode(StrategyMode.AUTO);
+		boolean engineEnabled = properties.getEngine().isEnabled();
+		long engineIntervalMs = properties.getEngine().getIntervalMs();
 		return new BotDefaultsResponse(
 				MarketType.KRW,
 				SelectionMode.AUTO,
@@ -62,6 +68,8 @@ public class BotConfigController {
 				params.trendRsiSellMax(),
 				params.rangeRsiBuyMax(),
 				params.rangeRsiSellMin(),
+				engineEnabled,
+				engineIntervalMs,
 				Arrays.asList(MarketType.values()),
 				Arrays.asList(SelectionMode.values()),
 				Arrays.asList(StrategyMode.values()),
