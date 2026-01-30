@@ -63,10 +63,10 @@ If overrides are missing or invalid, the engine falls back to the mode defaults.
 - Aggressive: 1.2% per trade
 
 ## Files
-- Strategy engine: `backend/src/main/java/com/hvs/btctrader/strategy/StrategyEngine.java`
-- Indicators: `backend/src/main/java/com/hvs/btctrader/strategy/IndicatorService.java`
-- Auto-selection scoring: `backend/src/main/java/com/hvs/btctrader/strategy/AutoSelector.java`
-- Market data fetch: `backend/src/main/java/com/hvs/btctrader/market/UpbitMarketDataService.java`
+- Strategy engine: `backend/src/main/java/com/juno/btctrader/strategy/StrategyEngine.java`
+- Indicators: `backend/src/main/java/com/juno/btctrader/strategy/IndicatorService.java`
+- Auto-selection scoring: `backend/src/main/java/com/juno/btctrader/strategy/AutoSelector.java`
+- Market data fetch: `backend/src/main/java/com/juno/btctrader/market/UpbitMarketDataService.java`
 
 ## Notes
 - Spot-only logic; SELL signals assume an existing position.
