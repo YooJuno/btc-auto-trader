@@ -20,10 +20,12 @@ public class PaperTradingService {
 	private final Map<String, PaperAccount> accounts = new ConcurrentHashMap<>();
 	private final AppProperties properties;
 	private final PaperPerformanceService performanceService;
+	private final PaperStreamService paperStreamService;
 
-	public PaperTradingService(AppProperties properties, PaperPerformanceService performanceService) {
+	public PaperTradingService(AppProperties properties, PaperPerformanceService performanceService, PaperStreamService paperStreamService) {
 		this.properties = properties;
 		this.performanceService = performanceService;
+		this.paperStreamService = paperStreamService;
 	}
 
 	public PaperAccount accountFor(String userId) {
@@ -44,7 +46,10 @@ public class PaperTradingService {
 
 	public void recordEquity(String userId) {
 		PaperAccount account = accountFor(userId);
-		performanceService.record(userId, computeEquity(account));
+		double eq = computeEquity(account);
+		performanceService.record(userId, eq);
+		// push update to subscribers
+		paperStreamService.send(userId, new PaperSummary(account.getCashBalance(), eq, account.getRealizedPnl(), computeUnrealized(account), List.of()));
 	}
 
 	public PaperPerformanceResponse performance(String userId, int days, int weeks) {
@@ -54,7 +59,10 @@ public class PaperTradingService {
 	public PaperSummary reset(String userId, double initialCash) {
 		PaperAccount account = accountFor(userId);
 		account.reset(initialCash);
-		return summaryFor(userId);
+		PaperSummary s = summaryFor(userId);
+		// push reset summary
+		paperStreamService.send(userId, s);
+		return s;
 	}
 
 	public void applySignal(BotConfig config, String market, double price, StrategyDecision decision) {
@@ -82,6 +90,8 @@ public class PaperTradingService {
 		PaperPosition position = account.getPositions().get(market);
 		if (position != null) {
 			position.setLastPrice(price);
+			// notify subscribers on price update
+			paperStreamService.send(account.getUserId(), new PaperSummary(account.getCashBalance(), computeEquity(account), account.getRealizedPnl(), computeUnrealized(account), List.copyOf(account.getPositions().values()).stream().map(PaperPositionView::from).toList()));
 		}
 	}
 
@@ -99,6 +109,8 @@ public class PaperTradingService {
 		double quantity = allocation / price;
 		account.setCashBalance(account.getCashBalance() - allocation);
 		account.getPositions().put(market, new PaperPosition(market, quantity, price, price));
+		// notify subscribers of updated summary
+		paperStreamService.send(account.getUserId(), new PaperSummary(account.getCashBalance(), computeEquity(account), account.getRealizedPnl(), computeUnrealized(account), List.copyOf(account.getPositions().values()).stream().map(PaperPositionView::from).toList()));
 	}
 
 	private void sell(PaperAccount account, String market, double price) {
@@ -110,6 +122,8 @@ public class PaperTradingService {
 		double pnl = (price - position.getEntryPrice()) * position.getQuantity();
 		account.setCashBalance(account.getCashBalance() + proceeds);
 		account.addRealizedPnl(pnl);
+		// notify subscribers of updated summary
+		paperStreamService.send(account.getUserId(), new PaperSummary(account.getCashBalance(), computeEquity(account), account.getRealizedPnl(), computeUnrealized(account), List.copyOf(account.getPositions().values()).stream().map(PaperPositionView::from).toList()));
 	}
 
 	private void refreshAnchors(PaperAccount account) {

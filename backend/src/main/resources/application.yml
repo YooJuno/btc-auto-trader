@@ -50,7 +50,7 @@ app:
     enabled: ${ENGINE_ENABLED:false}
     intervalMs: ${ENGINE_INTERVAL_MS:60000}
   paper:
-    initialCash: ${PAPER_INITIAL_CASH:1000000}
+    initialCash: ${PAPER_INITIAL_CASH:0}
 
 logging:
   level:
