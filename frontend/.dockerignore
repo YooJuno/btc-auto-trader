@@ -1,6 +1,0 @@
-# Build frontend
-node_modules/
-dist/
-.vite/
-.env
-.env.*
