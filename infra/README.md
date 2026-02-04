@@ -14,7 +14,7 @@ sudo systemctl status postgresql
 ```
 
 ```sql
-ALTER USER postgres WITH PASSWORD '1dltka';
+ALTER USER postgres WITH PASSWORD '';
 \q
 ```
 
