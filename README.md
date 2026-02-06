@@ -11,7 +11,13 @@ Spring Boot 백엔드 + React 프론트 + PostgreSQL로 구성된 모노레포�
 - 자동매매 설정(전략/리스크/선정 방식)
 
 ## Backend
-- Spring Boot
+- Spring Boot v3.3.4
 - Upbit API 연동
 - JPA + PostgreSQL
 - 스케줄러 기반 자동매매 로직
+
+## Frontend
+- React v22.22.0 + Vite v7.3.1
+
+## Infrastructure
+- PostgreSQL v16.11(Ubuntu 16.11-0ubuntu0.24.04.1)
