@@ -1,94 +1,28 @@
--- Minimal schema for single user / Upbit spot
--- Requires pgcrypto for gen_random_uuid()
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
-CREATE TABLE accounts (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text NOT NULL,
-  mode text NOT NULL CHECK (mode IN ('LIVE','PAPER')),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+-- 이벤트 단위 스냅샷 헤더
+CREATE TABLE portfolio_snapshot (
+  id            BIGSERIAL PRIMARY KEY,
+  event_type    VARCHAR(20) NOT NULL, -- BUY, SELL, DEPOSIT, WITHDRAW, MANUAL, etc
+  source        VARCHAR(10) NOT NULL DEFAULT 'UPBIT',
+  occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  note          TEXT
 );
 
-CREATE TABLE markets (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  symbol text NOT NULL UNIQUE,
-  base_asset text NOT NULL,
-  quote_asset text NOT NULL,
-  status text NOT NULL
+-- 자산별 잔고 스냅샷
+CREATE TABLE portfolio_snapshot_item (
+  id              BIGSERIAL PRIMARY KEY,
+  snapshot_id     BIGINT NOT NULL REFERENCES portfolio_snapshot(id) ON DELETE CASCADE,
+  currency        VARCHAR(10) NOT NULL, -- KRW, BTC, ETH ...
+  balance         NUMERIC(38, 18) NOT NULL,
+  locked          NUMERIC(38, 18) NOT NULL DEFAULT 0,
+  avg_buy_price   NUMERIC(38, 18) NOT NULL DEFAULT 0,
+  unit_currency   VARCHAR(10) NOT NULL DEFAULT 'KRW'
 );
 
-CREATE TABLE strategy_config (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  enabled boolean NOT NULL DEFAULT true,
-  max_order_krw numeric NOT NULL,
-  take_profit_pct numeric NOT NULL,
-  stop_loss_pct numeric NOT NULL,
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
+CREATE INDEX idx_portfolio_snapshot_occurred_at
+  ON portfolio_snapshot(occurred_at);
 
-CREATE TABLE orders (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  account_id uuid NOT NULL REFERENCES accounts(id),
-  market_id uuid NOT NULL REFERENCES markets(id),
-  strategy_config_id uuid REFERENCES strategy_config(id),
-  side text NOT NULL CHECK (side IN ('BUY','SELL')),
-  type text NOT NULL CHECK (type IN ('MARKET','LIMIT')),
-  price numeric,
-  volume numeric,
-  funds numeric,
-  status text NOT NULL CHECK (status IN ('NEW','PARTIAL','FILLED','CANCELED','REJECTED')),
-  exchange_order_id text UNIQUE,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
+CREATE INDEX idx_portfolio_snapshot_item_snapshot
+  ON portfolio_snapshot_item(snapshot_id);
 
-CREATE TABLE fills (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id uuid NOT NULL REFERENCES orders(id),
-  fill_price numeric NOT NULL,
-  fill_volume numeric NOT NULL,
-  fee numeric NOT NULL,
-  fee_asset text NOT NULL,
-  filled_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE balances (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  account_id uuid NOT NULL REFERENCES accounts(id),
-  asset text NOT NULL,
-  available numeric NOT NULL,
-  locked numeric NOT NULL,
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (account_id, asset)
-);
-
-CREATE TABLE positions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  account_id uuid NOT NULL REFERENCES accounts(id),
-  market_id uuid NOT NULL REFERENCES markets(id),
-  base_qty numeric NOT NULL,
-  avg_entry_price numeric NOT NULL,
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (account_id, market_id)
-);
-
--- Optional: engine state (single row)
--- CREATE TABLE engine_state (
---   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
---   running boolean NOT NULL DEFAULT false,
---   started_at timestamptz,
---   stopped_at timestamptz,
---   updated_at timestamptz NOT NULL DEFAULT now()
--- );
-
--- Optional: signals log
--- CREATE TABLE signals (
---   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
---   account_id uuid NOT NULL REFERENCES accounts(id),
---   market_id uuid NOT NULL REFERENCES markets(id),
---   ts timestamptz NOT NULL DEFAULT now(),
---   signal text NOT NULL CHECK (signal IN ('BUY','SELL','HOLD')),
---   score numeric,
---   details_json jsonb
--- );
+CREATE INDEX idx_portfolio_snapshot_item_currency
+  ON portfolio_snapshot_item(currency);
