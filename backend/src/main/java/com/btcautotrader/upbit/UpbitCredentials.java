@@ -13,16 +13,22 @@ public class UpbitCredentials {
                 .directory(".")
                 .ignoreIfMissing()
                 .load();
+        Dotenv dotenvRoot = Dotenv.configure()
+                .directory("..")
+                .ignoreIfMissing()
+                .load();
 
         this.accessKey = firstNonBlank(
-                dotenvCurrent.get("UPBIT_ACCESS_KEY")
+                dotenvCurrent.get("UPBIT_ACCESS_KEY"),
+                dotenvRoot.get("UPBIT_ACCESS_KEY")
         );
         this.secretKey = firstNonBlank(
-                dotenvCurrent.get("UPBIT_SECRET_KEY")
+                dotenvCurrent.get("UPBIT_SECRET_KEY"),
+                dotenvRoot.get("UPBIT_SECRET_KEY")
         );
 
         if (isBlank(this.accessKey) || isBlank(this.secretKey)) {
-            throw new IllegalStateException("UPBIT_ACCESS_KEY/UPBIT_SECRET_KEY not found in ../.env or environment variables.");
+            throw new IllegalStateException("UPBIT_ACCESS_KEY/UPBIT_SECRET_KEY not found in .env, ../.env, or environment variables.");
         }
     }
 
