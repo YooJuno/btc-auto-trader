@@ -15,9 +15,12 @@ Spring Boot 백엔드 + React 프론트 + PostgreSQL로 구성된 모노레포�
 - Upbit API 연동
 - JPA + PostgreSQL
 - 스케줄러 기반 자동매매 로직
+- port : 8080
 
 ## Frontend
 - React v22.22.0 + Vite v7.3.1
+- port : 5173
 
 ## Infrastructure
-- PostgreSQL v16.11(Ubuntu 16.11-0ubuntu0.24.04.1)
+- PostgreSQL v16.11
+- port : 5432
