@@ -35,7 +35,7 @@ function App() {
 
   useEffect(() => {
     fetchSummary(false)
-    const timer = setInterval(() => fetchSummary(true), 5000)
+    const timer = setInterval(() => fetchSummary(true), 2000)
     return () => clearInterval(timer)
   }, [fetchSummary])
 
@@ -60,30 +60,17 @@ function App() {
       <header className="app__header">
         <div>
           <p className="eyebrow">BTC AUTO TRADER</p>
-          <h1>Auto Trader</h1>
+          <h1>Sundal</h1>
           <p className="sub">
-            for your financial free life
+            Work Day & Night for your financial free life
           </p>
         </div>
         <div className="status-card">
           <div className="status-row">
             <span>업데이트</span>
             <strong className="mono">{updatedAt}</strong>
-          </div>
-          <div className="status-row">
-            <span>상태</span>
-            <strong className={`status ${statusClass}`}>{statusLabel}</strong>
-          </div>
-          {error && <p className="status-error">{error}</p>}
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={() => fetchSummary(true)}
-            disabled={refreshing}
-          >
-            {refreshing ? '갱신 중...' : '지금 새로고침'}
-          </button>
-        </div>
+          </div>          
+        </div> 
       </header>
 
       <section className="summary-grid">
