@@ -307,7 +307,7 @@ function App() {
 
       <section className="workspace-grid">
         <div className="workspace-main">
-          <section className="table-card table-card--elevated">
+          <section className="table-card table-card--elevated positions-card">
             <div className="table-header">
               <div>
                 <h2>보유 코인</h2>
@@ -356,7 +356,7 @@ function App() {
             )}
           </section>
 
-          <section className="table-card table-card--elevated">
+          <section className="table-card table-card--elevated decision-card">
             <div className="table-header">
               <div>
                 <h2>매매 사유 스냅샷</h2>
@@ -406,7 +406,7 @@ function App() {
 
         <aside className="workspace-side">
           <section className="control-grid">
-            <div className="control-card card--elevated">
+            <div className="control-card card--elevated strategy-card">
               <div className="card-head">
                 <div>
                   <h2>비율 설정</h2>
@@ -520,7 +520,7 @@ function App() {
             </div>
           </section>
 
-          <article className="control-card card--elevated">
+          <article className="control-card card--elevated market-card">
             <div className="card-head">
               <div>
                 <h2>마켓별 설정</h2>
@@ -596,7 +596,7 @@ function App() {
             </div>
           </article>
 
-          <article className="table-card card--elevated">
+          <article className="table-card card--elevated feed-card">
             <div className="table-header">
               <div>
                 <h2>실시간 알림</h2>
@@ -620,7 +620,7 @@ function App() {
             )}
           </article>
 
-          <article className="table-card card--elevated">
+          <article className="table-card card--elevated order-card">
             <div className="table-header">
               <div>
                 <h2>최근 주문 로그</h2>
