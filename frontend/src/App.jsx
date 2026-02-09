@@ -1,34 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
-const RATIO_PRESETS = {
-  AGGRESSIVE: {
-    takeProfitPct: 6.0,
-    stopLossPct: 2.5,
-    trailingStopPct: 3.0,
-    partialTakeProfitPct: 30.0,
-    stopExitPct: 100.0,
-    trendExitPct: 30.0,
-    momentumExitPct: 30.0,
-  },
-  CONSERVATIVE: {
-    takeProfitPct: 4.0,
-    stopLossPct: 2.0,
-    trailingStopPct: 2.0,
-    partialTakeProfitPct: 50.0,
-    stopExitPct: 100.0,
-    trendExitPct: 50.0,
-    momentumExitPct: 50.0,
-  },
-}
-
 const PROFILE_VALUES = ['AGGRESSIVE', 'BALANCED', 'CONSERVATIVE']
 
 function App() {
   const [summary, setSummary] = useState(null)
-  const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
+  const [serverConnected, setServerConnected] = useState(null)
 
   const [engineStatus, setEngineStatus] = useState(null)
   const [engineBusy, setEngineBusy] = useState(false)
@@ -47,6 +25,8 @@ function App() {
   })
   const [ratioSaving, setRatioSaving] = useState(false)
   const [ratioError, setRatioError] = useState(null)
+  const [presetError, setPresetError] = useState(null)
+  const [ratioPresets, setRatioPresets] = useState([])
   const [selectedRatioPreset, setSelectedRatioPreset] = useState(null)
   const [marketRows, setMarketRows] = useState([])
   const [marketConfigSaving, setMarketConfigSaving] = useState(false)
@@ -63,13 +43,9 @@ function App() {
   const lastDecisionIdRef = useRef(null)
 
   const fetchSummary = useCallback(async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true)
-    } else {
+    if (!isRefresh) {
       setLoading(true)
     }
-    setError(null)
-
     try {
       const response = await fetch('/api/portfolio/summary')
       if (!response.ok) {
@@ -77,12 +53,11 @@ function App() {
       }
       const data = await response.json()
       setSummary(data)
+      setServerConnected(true)
     } catch (err) {
-      setError(err?.message ?? '요청 실패')
+      setServerConnected(false)
     } finally {
-      if (isRefresh) {
-        setRefreshing(false)
-      } else {
+      if (!isRefresh) {
         setLoading(false)
       }
     }
@@ -125,6 +100,21 @@ function App() {
     }
   }, [])
 
+  const fetchRatioPresets = useCallback(async () => {
+    setPresetError(null)
+    try {
+      const response = await fetch('/api/strategy/presets')
+      if (!response.ok) {
+        throw new Error(`프리셋 조회 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      setRatioPresets(normalizeRatioPresets(data))
+    } catch (err) {
+      setRatioPresets([])
+      setPresetError(err?.message ?? '프리셋 조회 실패')
+    }
+  }, [])
+
   const fetchOrderHistory = useCallback(async () => {
     try {
       const response = await fetch('/api/order/history?limit=30')
@@ -142,13 +132,18 @@ function App() {
 
   const fetchDecisionHistory = useCallback(async () => {
     try {
-      const response = await fetch('/api/engine/decisions?limit=30')
+      const response = await fetch('/api/engine/decisions?limit=30&includeSkips=false')
       if (!response.ok) {
         throw new Error(`의사결정 로그 조회 오류 ${response.status}`)
       }
       const data = await response.json()
-      setDecisionHistory(Array.isArray(data) ? data : [])
-      appendDecisionAlerts(data, lastDecisionIdRef, setAlerts)
+      const allItems = Array.isArray(data) ? data : []
+      const tradeOnlyItems = allItems.filter((decision) => {
+        const action = String(decision?.action ?? '').toUpperCase()
+        return action === 'BUY' || action === 'SELL'
+      })
+      setDecisionHistory(tradeOnlyItems)
+      appendDecisionAlerts(tradeOnlyItems, lastDecisionIdRef, setAlerts)
       setFeedError(null)
     } catch (err) {
       setFeedError(err?.message ?? '의사결정 로그 조회 실패')
@@ -179,6 +174,7 @@ function App() {
     fetchSummary(false)
     fetchEngineStatus()
     fetchStrategy()
+    fetchRatioPresets()
     fetchMarketOverrides()
     fetchOrderHistory()
     fetchDecisionHistory()
@@ -195,7 +191,7 @@ function App() {
       clearInterval(engineTimer)
       clearInterval(feedTimer)
     }
-  }, [fetchSummary, fetchEngineStatus, fetchStrategy, fetchMarketOverrides, fetchOrderHistory, fetchDecisionHistory])
+  }, [fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchOrderHistory, fetchDecisionHistory])
 
   const positions = useMemo(() => {
     if (!summary?.positions) {
@@ -210,11 +206,18 @@ function App() {
     ? new Date(summary.queriedAt).toLocaleString('ko-KR', { hour12: false })
     : '—'
 
-  const statusClass = error ? 'error' : loading || refreshing ? 'loading' : 'ok'
-  const statusLabel = error ? '오류' : loading ? '불러오는 중' : refreshing ? '갱신 중' : '정상'
+  const connectionClass = serverConnected === null ? 'checking' : serverConnected ? 'connected' : 'disconnected'
+  const connectionLabel = serverConnected === null ? '확인중' : serverConnected ? '연결됨' : '끊김'
   const engineLabel = engineStatus ? 'ON' : 'OFF'
   const engineClass = engineStatus ? 'ok' : 'error'
   const profileLabel = strategy?.profile ?? '—'
+  const selectedPresetLabel = useMemo(() => {
+    if (!selectedRatioPreset) {
+      return null
+    }
+    const found = ratioPresets.find((preset) => preset.code === selectedRatioPreset)
+    return found?.displayName ?? selectedRatioPreset
+  }, [ratioPresets, selectedRatioPreset])
   const marketRowsDirty = useMemo(
     () => buildMarketOverrideSignature(marketRows) !== marketRowsBaseline,
     [marketRows, marketRowsBaseline]
@@ -269,6 +272,10 @@ function App() {
             <span>업데이트</span>
             <strong className="mono">{updatedAt}</strong>
           </div>
+          <div className="status-connection-row">
+            <span>서버 연결</span>
+            <span className={`connection-badge ${connectionClass}`}>{connectionLabel}</span>
+          </div>
         </div>
       </header>
 
@@ -313,7 +320,6 @@ function App() {
                 <h2>보유 코인</h2>
                 <p className="sub">현재가 기준 평가와 수익률을 표시합니다.</p>
               </div>
-              <span className={`status ${statusClass}`}>{statusLabel}</span>
             </div>
             {loading ? (
               <div className="empty-state">데이터를 불러오는 중입니다…</div>
@@ -360,11 +366,11 @@ function App() {
             <div className="table-header">
               <div>
                 <h2>매매 사유 스냅샷</h2>
-                <p className="sub">매수/매도/스킵 이유와 당시 지표</p>
+                <p className="sub">매수/매도 이유와 당시 지표</p>
               </div>
             </div>
             {decisionHistory.length === 0 ? (
-              <div className="empty-state">의사결정 로그가 없습니다.</div>
+              <div className="empty-state">매수/매도 의사결정 로그가 없습니다.</div>
             ) : (
               <div className="table-wrapper">
                 <table>
@@ -402,6 +408,30 @@ function App() {
               </div>
             )}
           </section>
+
+          <article className="table-card card--elevated feed-card">
+            <div className="table-header">
+              <div>
+                <h2>실시간 알림</h2>
+                <p className="sub">최근 체결/의사결정 이벤트</p>
+              </div>
+            </div>
+            {alerts.length === 0 ? (
+              <div className="empty-state">새 알림이 없습니다.</div>
+            ) : (
+              <ul className="alert-list">
+                {alerts.map((alert) => (
+                  <li key={alert.id} className={`alert-item ${alert.tone}`}>
+                    <div>
+                      <strong>{alert.message}</strong>
+                      <p className="sub compact">{alert.meta}</p>
+                    </div>
+                    <span className="mono small">{formatTime(alert.time)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </article>
         </div>
 
         <aside className="workspace-side">
@@ -416,22 +446,22 @@ function App() {
               </div>
               {strategyError && <p className="status-error">{strategyError}</p>}
               {ratioError && <p className="status-error">{ratioError}</p>}
+              {presetError && <p className="status-error">{presetError}</p>}
               <div className="preset-row">
-                <button
-                  className={`ghost-button ${selectedRatioPreset === 'AGGRESSIVE' ? 'active' : ''}`}
-                  onClick={() => applyRatioPreset('AGGRESSIVE', setRatioInputs, setSelectedRatioPreset, setRatioError)}
-                >
-                  공격형 비율 적용
-                </button>
-                <button
-                  className={`ghost-button ${selectedRatioPreset === 'CONSERVATIVE' ? 'active' : ''}`}
-                  onClick={() => applyRatioPreset('CONSERVATIVE', setRatioInputs, setSelectedRatioPreset, setRatioError)}
-                >
-                  안정형 비율 적용
-                </button>
+                {ratioPresets.length === 0 ? (
+                  <p className="sub compact">등록된 프리셋이 없습니다.</p>
+                ) : ratioPresets.map((preset) => (
+                  <button
+                    key={preset.code}
+                    className={`ghost-button ${selectedRatioPreset === preset.code ? 'active' : ''}`}
+                    onClick={() => applyRatioPreset(preset, setRatioInputs, setSelectedRatioPreset, setRatioError)}
+                  >
+                    {preset.displayName} 비율 적용
+                  </button>
+                ))}
               </div>
-              {selectedRatioPreset && (
-                <p className="sub compact">{selectedRatioPreset} 프리셋이 입력값에만 적용되었습니다. 저장 버튼을 눌러야 서버 반영됩니다.</p>
+              {selectedPresetLabel && (
+                <p className="sub compact">{selectedPresetLabel} 프리셋이 입력값에만 적용되었습니다. 저장 버튼을 눌러야 서버 반영됩니다.</p>
               )}
               <div className="form-grid">
                 <label className="form-field">
@@ -594,30 +624,6 @@ function App() {
                 다시 불러오기
               </button>
             </div>
-          </article>
-
-          <article className="table-card card--elevated feed-card">
-            <div className="table-header">
-              <div>
-                <h2>실시간 알림</h2>
-                <p className="sub">최근 체결/의사결정 이벤트</p>
-              </div>
-            </div>
-            {alerts.length === 0 ? (
-              <div className="empty-state">새 알림이 없습니다.</div>
-            ) : (
-              <ul className="alert-list">
-                {alerts.map((alert) => (
-                  <li key={alert.id} className={`alert-item ${alert.tone}`}>
-                    <div>
-                      <strong>{alert.message}</strong>
-                      <p className="sub compact">{alert.meta}</p>
-                    </div>
-                    <span className="mono small">{formatTime(alert.time)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
           </article>
 
           <article className="table-card card--elevated order-card">
@@ -868,9 +874,8 @@ const handleMarketOverridesSave = async (
   }
 }
 
-const applyRatioPreset = (presetName, setRatioInputs, setSelectedRatioPreset, setRatioError) => {
-  const preset = RATIO_PRESETS[presetName]
-  if (!preset) {
+const applyRatioPreset = (preset, setRatioInputs, setSelectedRatioPreset, setRatioError) => {
+  if (!preset || !preset.code) {
     return
   }
   setRatioInputs({
@@ -882,7 +887,7 @@ const applyRatioPreset = (presetName, setRatioInputs, setSelectedRatioPreset, se
     trendExitPct: toInputValue(preset.trendExitPct),
     momentumExitPct: toInputValue(preset.momentumExitPct),
   })
-  setSelectedRatioPreset(presetName)
+  setSelectedRatioPreset(preset.code)
   setRatioError(null)
 }
 
@@ -928,6 +933,32 @@ const updateMarketOverrideInput = (setMarketRows, market, field, value) => {
       [field]: value,
     }
   }))
+}
+
+const normalizeRatioPresets = (payload) => {
+  if (!Array.isArray(payload)) {
+    return []
+  }
+  return payload
+    .map((item) => {
+      const code = normalizePresetCode(item?.code)
+      const displayName = typeof item?.displayName === 'string' && item.displayName.trim() ? item.displayName.trim() : code
+      if (!code) {
+        return null
+      }
+      return {
+        code,
+        displayName,
+        takeProfitPct: item?.takeProfitPct,
+        stopLossPct: item?.stopLossPct,
+        trailingStopPct: item?.trailingStopPct,
+        partialTakeProfitPct: item?.partialTakeProfitPct,
+        stopExitPct: item?.stopExitPct,
+        trendExitPct: item?.trendExitPct,
+        momentumExitPct: item?.momentumExitPct,
+      }
+    })
+    .filter(Boolean)
 }
 
 const buildMarketOverrideRows = (payload) => {
@@ -1059,6 +1090,17 @@ const normalizeProfileValue = (value) => {
     return ''
   }
   return PROFILE_VALUES.includes(normalized) ? normalized : ''
+}
+
+const normalizePresetCode = (value) => {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  const normalized = String(value).trim().toUpperCase()
+  if (normalized === '') {
+    return ''
+  }
+  return normalized
 }
 
 const normalizeMarket = (value) => {
