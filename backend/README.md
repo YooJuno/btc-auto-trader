@@ -11,6 +11,7 @@
 - `POST /api/engine/tick`: 자동매매 1회 실행 (수동 트리거)
 - `GET /api/strategy`: 전략 설정 조회
 - `PUT /api/strategy`: 전략 설정 업데이트
+- `PATCH /api/strategy/ratios`: 익절/손절/부분매도 비율 업데이트
 
 ## 주문 처리 흐름
 1. `POST /api/order` 수신

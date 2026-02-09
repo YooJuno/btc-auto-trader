@@ -62,4 +62,34 @@ public class StrategyService {
         entity.apply(config);
         return repository.save(entity).toRecord();
     }
+
+    @Transactional
+    public StrategyConfig updateRatios(StrategyRatiosRequest request) {
+        StrategyConfigEntity entity = repository.findById(CONFIG_ID)
+                .orElseGet(() -> StrategyConfigEntity.from(CONFIG_ID, DEFAULT_CONFIG));
+
+        if (request.takeProfitPct() != null) {
+            entity.setTakeProfitPct(request.takeProfitPct());
+        }
+        if (request.stopLossPct() != null) {
+            entity.setStopLossPct(request.stopLossPct());
+        }
+        if (request.trailingStopPct() != null) {
+            entity.setTrailingStopPct(request.trailingStopPct());
+        }
+        if (request.partialTakeProfitPct() != null) {
+            entity.setPartialTakeProfitPct(request.partialTakeProfitPct());
+        }
+        if (request.stopExitPct() != null) {
+            entity.setStopExitPct(request.stopExitPct());
+        }
+        if (request.trendExitPct() != null) {
+            entity.setTrendExitPct(request.trendExitPct());
+        }
+        if (request.momentumExitPct() != null) {
+            entity.setMomentumExitPct(request.momentumExitPct());
+        }
+
+        return repository.save(entity).toRecord();
+    }
 }
