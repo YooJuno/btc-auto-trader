@@ -69,7 +69,7 @@
 - `risk.target-vol-pct`
 
 전략 API 값:
-- `enabled`, `maxOrderKrw`, `takeProfitPct`, `stopLossPct`, `trailingStopPct`, `partialTakeProfitPct`
+- `enabled`, `maxOrderKrw`, `takeProfitPct`, `stopLossPct`, `trailingStopPct`, `partialTakeProfitPct`, `profile`
 
 ## 데이터베이스
 ### 주문 테이블

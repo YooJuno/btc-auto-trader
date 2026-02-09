@@ -33,6 +33,9 @@ public class StrategyConfigEntity {
     @Column(name = "partial_take_profit_pct")
     private double partialTakeProfitPct;
 
+    @Column(name = "profile")
+    private String profile;
+
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
@@ -46,7 +49,8 @@ public class StrategyConfigEntity {
             double takeProfitPct,
             double stopLossPct,
             double trailingStopPct,
-            double partialTakeProfitPct
+            double partialTakeProfitPct,
+            String profile
     ) {
         this.id = id;
         this.enabled = enabled;
@@ -55,6 +59,7 @@ public class StrategyConfigEntity {
         this.stopLossPct = stopLossPct;
         this.trailingStopPct = trailingStopPct;
         this.partialTakeProfitPct = partialTakeProfitPct;
+        this.profile = profile;
     }
 
     public static StrategyConfigEntity from(Long id, StrategyConfig config) {
@@ -65,7 +70,8 @@ public class StrategyConfigEntity {
                 config.takeProfitPct(),
                 config.stopLossPct(),
                 config.trailingStopPct(),
-                config.partialTakeProfitPct()
+                config.partialTakeProfitPct(),
+                config.profile()
         );
     }
 
@@ -76,7 +82,8 @@ public class StrategyConfigEntity {
                 takeProfitPct,
                 stopLossPct,
                 trailingStopPct,
-                partialTakeProfitPct
+                partialTakeProfitPct,
+                profile
         );
     }
 
@@ -87,6 +94,9 @@ public class StrategyConfigEntity {
         this.stopLossPct = config.stopLossPct();
         this.trailingStopPct = config.trailingStopPct();
         this.partialTakeProfitPct = config.partialTakeProfitPct();
+        if (config.profile() != null && !config.profile().isBlank()) {
+            this.profile = config.profile();
+        }
     }
 
     @PrePersist
@@ -149,6 +159,14 @@ public class StrategyConfigEntity {
 
     public void setPartialTakeProfitPct(double partialTakeProfitPct) {
         this.partialTakeProfitPct = partialTakeProfitPct;
+    }
+
+    public String getProfile() {
+        return profile;
+    }
+
+    public void setProfile(String profile) {
+        this.profile = profile;
     }
 
     public OffsetDateTime getUpdatedAt() {

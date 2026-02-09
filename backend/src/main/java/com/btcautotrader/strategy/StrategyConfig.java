@@ -6,6 +6,7 @@ public record StrategyConfig(
         double takeProfitPct,
         double stopLossPct,
         double trailingStopPct,
-        double partialTakeProfitPct
+        double partialTakeProfitPct,
+        String profile
 ) {
 }

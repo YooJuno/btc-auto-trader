@@ -5,6 +5,7 @@ import com.btcautotrader.order.OrderRequest;
 import com.btcautotrader.order.OrderResponse;
 import com.btcautotrader.order.OrderService;
 import com.btcautotrader.strategy.StrategyConfig;
+import com.btcautotrader.strategy.StrategyProfile;
 import com.btcautotrader.strategy.StrategyService;
 import com.btcautotrader.upbit.UpbitService;
 import org.springframework.beans.factory.annotation.Value;
@@ -146,6 +147,7 @@ public class AutoTradeService {
             if (!config.enabled()) {
                 return new AutoTradeResult(now.toString(), List.of());
             }
+            SignalTuning tuning = resolveSignalTuning(config);
 
             List<String> markets = parseMarkets(marketsConfig);
             if (markets.isEmpty()) {
@@ -175,21 +177,21 @@ public class AutoTradeService {
 
                     AccountSnapshot position = accounts.getOrDefault(currency, AccountSnapshot.empty());
                     BigDecimal total = position.total();
-                    MarketIndicators indicators = fetchIndicators(market);
+                    MarketIndicators indicators = fetchIndicators(market, tuning);
 
                     if (total.compareTo(BigDecimal.ZERO) <= 0) {
                         lastPartialTakeProfitAt.remove(market);
                     }
 
                     if (total.compareTo(BigDecimal.ZERO) > 0) {
-                        AutoTradeAction action = handleSell(market, position, config, indicators);
+                        AutoTradeAction action = handleSell(market, position, config, indicators, tuning);
                         if (action != null) {
                             actions.add(action);
                         }
                         continue;
                     }
 
-                    AutoTradeAction action = handleBuy(market, remainingCash, config, indicators);
+                    AutoTradeAction action = handleBuy(market, remainingCash, config, indicators, tuning);
                     if (action != null) {
                         actions.add(action);
                         if ("BUY".equalsIgnoreCase(action.action()) && action.funds() != null) {
@@ -224,7 +226,49 @@ public class AutoTradeService {
         }
     }
 
-    private AutoTradeAction handleSell(String market, AccountSnapshot position, StrategyConfig config, MarketIndicators indicators) {
+    private SignalTuning resolveSignalTuning(StrategyConfig config) {
+        StrategyProfile profile = StrategyProfile.from(config.profile());
+        double rsiBuy = rsiBuyThreshold;
+        double rsiSell = rsiSellThreshold;
+        double rsiOver = rsiOverbought;
+        double breakout = breakoutPct;
+        int confirmations = minConfirmations;
+
+        switch (profile) {
+            case AGGRESSIVE -> {
+                rsiBuy -= 5.0;
+                rsiSell -= 5.0;
+                rsiOver += 10.0;
+                breakout *= 0.5;
+                confirmations = minConfirmations - 1;
+            }
+            case CONSERVATIVE -> {
+                rsiBuy += 5.0;
+                rsiSell += 5.0;
+                rsiOver -= 5.0;
+                breakout *= 1.5;
+                confirmations = minConfirmations + 1;
+            }
+            case BALANCED -> {
+            }
+        }
+
+        rsiBuy = clamp(rsiBuy, 40.0, 80.0);
+        rsiSell = clamp(rsiSell, 30.0, 70.0);
+        rsiOver = clamp(rsiOver, 60.0, 90.0);
+        breakout = clamp(breakout, 0.05, 3.0);
+        confirmations = clamp(confirmations, 1, 3);
+
+        return new SignalTuning(rsiBuy, rsiSell, rsiOver, breakout, confirmations);
+    }
+
+    private AutoTradeAction handleSell(
+            String market,
+            AccountSnapshot position,
+            StrategyConfig config,
+            MarketIndicators indicators,
+            SignalTuning tuning
+    ) {
         BigDecimal available = position.balance();
         if (available.compareTo(BigDecimal.ZERO) <= 0) {
             return new AutoTradeAction(market, "SKIP", "no available balance", null, null, null, null, null);
@@ -265,7 +309,7 @@ public class AutoTradeService {
                 && indicators.macdHistogram() != null
                 && indicators.rsi() != null
                 && indicators.macdHistogram().compareTo(BigDecimal.ZERO) < 0
-                && indicators.rsi().doubleValue() < rsiSellThreshold) {
+                && indicators.rsi().doubleValue() < tuning.rsiSellThreshold()) {
             return submitSell(market, available, "momentum_reversal");
         }
         if (currentPrice.compareTo(takeProfitThreshold) >= 0) {
@@ -289,7 +333,13 @@ public class AutoTradeService {
         return new AutoTradeAction(market, "SKIP", "no signal", currentPrice, available, null, null, null);
     }
 
-    private AutoTradeAction handleBuy(String market, BigDecimal cash, StrategyConfig config, MarketIndicators indicators) {
+    private AutoTradeAction handleBuy(
+            String market,
+            BigDecimal cash,
+            StrategyConfig config,
+            MarketIndicators indicators,
+            SignalTuning tuning
+    ) {
         if (indicators == null || indicators.maShort() == null || indicators.maLong() == null || indicators.currentPrice() == null) {
             return new AutoTradeAction(market, "SKIP", "insufficient candles", null, null, null, null, null);
         }
@@ -298,14 +348,14 @@ public class AutoTradeService {
         }
 
         boolean rsiOk = indicators.rsi() != null
-                && indicators.rsi().doubleValue() >= rsiBuyThreshold
-                && (rsiOverbought <= 0 || indicators.rsi().doubleValue() <= rsiOverbought);
+                && indicators.rsi().doubleValue() >= tuning.rsiBuyThreshold()
+                && (tuning.rsiOverbought() <= 0 || indicators.rsi().doubleValue() <= tuning.rsiOverbought());
         boolean macdOk = indicators.macdHistogram() != null
                 && indicators.macdHistogram().compareTo(BigDecimal.ZERO) > 0;
         boolean breakoutOk = indicators.breakoutLevel() != null
                 && indicators.currentPrice().compareTo(indicators.breakoutLevel()) > 0;
         int confirmations = (rsiOk ? 1 : 0) + (macdOk ? 1 : 0) + (breakoutOk ? 1 : 0);
-        int requiredConfirmations = Math.max(1, Math.min(3, minConfirmations));
+        int requiredConfirmations = Math.max(1, Math.min(3, tuning.minConfirmations()));
         if (confirmations < requiredConfirmations) {
             return new AutoTradeAction(market, "SKIP", "no signal", indicators.currentPrice(), null, null, null, null);
         }
@@ -420,6 +470,14 @@ public class AutoTradeService {
         return left.compareTo(right) <= 0 ? left : right;
     }
 
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
     private static String extractCurrency(String market) {
         if (market == null) {
             return null;
@@ -471,7 +529,7 @@ public class AutoTradeService {
         return value == null ? null : value.toString();
     }
 
-    private MarketIndicators fetchIndicators(String market) {
+    private MarketIndicators fetchIndicators(String market, SignalTuning tuning) {
         int required = Math.max(maLong, maShort);
         int volWindow = Math.max(0, volatilityWindow);
         int rsiWindow = Math.max(2, rsiPeriod);
@@ -532,7 +590,7 @@ public class AutoTradeService {
         if (breakoutWindow > 1 && highs.size() >= breakoutWindow + 1) {
             BigDecimal breakoutHigh = highestHigh(highs, breakoutWindow, true);
             if (breakoutHigh != null) {
-                breakoutLevel = breakoutHigh.multiply(percentFactor(breakoutPct));
+                breakoutLevel = breakoutHigh.multiply(percentFactor(tuning.breakoutPct()));
             }
         }
 
@@ -803,6 +861,15 @@ public class AutoTradeService {
             BigDecimal macdHistogram,
             BigDecimal breakoutLevel,
             BigDecimal trailingHigh
+    ) {
+    }
+
+    private record SignalTuning(
+            double rsiBuyThreshold,
+            double rsiSellThreshold,
+            double rsiOverbought,
+            double breakoutPct,
+            int minConfirmations
     ) {
     }
 

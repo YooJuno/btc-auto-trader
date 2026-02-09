@@ -44,6 +44,22 @@ For stability, consider 5m or 15m as your production default.
 - `TRAILING_STOP = 2.0%`
 - `PARTIAL_TAKE_PROFIT = 50%` (sell half at take-profit, let rest run)
 
+## 2-1) Profile Selection (Aggressive/Balanced/Conservative)
+Profiles adjust confirmation strictness without changing your core MA settings.
+
+- **AGGRESSIVE**
+  - Fewer confirmations (min-confirmations - 1, min 1)
+  - Lower RSI entry threshold
+  - Smaller breakout buffer
+  - Higher overbought ceiling
+- **BALANCED**
+  - Defaults as listed above
+- **CONSERVATIVE**
+  - More confirmations (min-confirmations + 1, max 3)
+  - Higher RSI entry threshold
+  - Larger breakout buffer
+  - Lower overbought ceiling
+
 These values are conservative and easy to reason about. Adjust per timeframe:
 - 1m: 20/100 (20 minutes / 100 minutes)
 - 5m: 20/100 (100 minutes / 500 minutes)
@@ -103,7 +119,7 @@ risk.target-vol-pct=0.5
 ```
 
 Risk parameters `takeProfitPct` / `stopLossPct` / `trailingStopPct`
-/ `partialTakeProfitPct` / `maxOrderKrw` are managed via the Strategy API:
+/ `partialTakeProfitPct` / `maxOrderKrw` / `profile` are managed via the Strategy API:
 - `GET /api/strategy`
 - `PUT /api/strategy`
 
