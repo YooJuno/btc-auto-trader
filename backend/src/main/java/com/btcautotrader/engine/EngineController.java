@@ -17,10 +17,16 @@ import java.util.Map;
 public class EngineController {
     private final EngineService engineService;
     private final AutoTradeService autoTradeService;
+    private final TradeDecisionService tradeDecisionService;
 
-    public EngineController(EngineService engineService, AutoTradeService autoTradeService) {
+    public EngineController(
+            EngineService engineService,
+            AutoTradeService autoTradeService,
+            TradeDecisionService tradeDecisionService
+    ) {
         this.engineService = engineService;
         this.autoTradeService = autoTradeService;
+        this.tradeDecisionService = tradeDecisionService;
     }
 
     @PostMapping("/start")
@@ -32,6 +38,13 @@ public class EngineController {
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> status() {
         return ResponseEntity.ok(statusResponse(engineService.isRunning()));
+    }
+
+    @GetMapping("/decisions")
+    public ResponseEntity<List<TradeDecisionItem>> decisions(
+            @RequestParam(name = "limit", defaultValue = "30") int limit
+    ) {
+        return ResponseEntity.ok(tradeDecisionService.listRecent(limit));
     }
 
     @PostMapping("/stop")

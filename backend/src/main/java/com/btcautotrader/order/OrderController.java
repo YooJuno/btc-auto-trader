@@ -2,13 +2,16 @@ package com.btcautotrader.order;
 
 import com.btcautotrader.upbit.UpbitApiException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -18,6 +21,13 @@ public class OrderController {
 
     public OrderController(OrderService orderService) {
         this.orderService = orderService;
+    }
+
+    @GetMapping("/history")
+    public ResponseEntity<List<OrderHistoryItem>> history(
+            @RequestParam(name = "limit", defaultValue = "30") int limit
+    ) {
+        return ResponseEntity.ok(orderService.listRecent(limit));
     }
 
     @PostMapping

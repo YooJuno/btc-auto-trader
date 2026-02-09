@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 function App() {
@@ -6,10 +6,12 @@ function App() {
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+
   const [engineStatus, setEngineStatus] = useState(null)
   const [engineBusy, setEngineBusy] = useState(false)
   const [engineError, setEngineError] = useState(null)
   const [tickResult, setTickResult] = useState(null)
+
   const [strategy, setStrategy] = useState(null)
   const [strategyError, setStrategyError] = useState(null)
   const [ratioInputs, setRatioInputs] = useState({
@@ -23,6 +25,13 @@ function App() {
   })
   const [ratioSaving, setRatioSaving] = useState(false)
   const [ratioError, setRatioError] = useState(null)
+
+  const [orderHistory, setOrderHistory] = useState([])
+  const [decisionHistory, setDecisionHistory] = useState([])
+  const [feedError, setFeedError] = useState(null)
+  const [alerts, setAlerts] = useState([])
+  const lastOrderIdRef = useRef(null)
+  const lastDecisionIdRef = useRef(null)
 
   const fetchSummary = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -86,13 +95,56 @@ function App() {
     }
   }, [])
 
+  const fetchOrderHistory = useCallback(async () => {
+    try {
+      const response = await fetch('/api/order/history?limit=30')
+      if (!response.ok) {
+        throw new Error(`주문 로그 조회 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      setOrderHistory(Array.isArray(data) ? data : [])
+      appendOrderAlerts(data, lastOrderIdRef, setAlerts)
+      setFeedError(null)
+    } catch (err) {
+      setFeedError(err?.message ?? '주문 로그 조회 실패')
+    }
+  }, [])
+
+  const fetchDecisionHistory = useCallback(async () => {
+    try {
+      const response = await fetch('/api/engine/decisions?limit=30')
+      if (!response.ok) {
+        throw new Error(`의사결정 로그 조회 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      setDecisionHistory(Array.isArray(data) ? data : [])
+      appendDecisionAlerts(data, lastDecisionIdRef, setAlerts)
+      setFeedError(null)
+    } catch (err) {
+      setFeedError(err?.message ?? '의사결정 로그 조회 실패')
+    }
+  }, [])
+
   useEffect(() => {
     fetchSummary(false)
     fetchEngineStatus()
     fetchStrategy()
-    const timer = setInterval(() => fetchSummary(true), 2000)
-    return () => clearInterval(timer)
-  }, [fetchSummary, fetchEngineStatus, fetchStrategy])
+    fetchOrderHistory()
+    fetchDecisionHistory()
+
+    const summaryTimer = setInterval(() => fetchSummary(true), 2000)
+    const engineTimer = setInterval(() => fetchEngineStatus(), 2000)
+    const feedTimer = setInterval(() => {
+      fetchOrderHistory()
+      fetchDecisionHistory()
+    }, 3000)
+
+    return () => {
+      clearInterval(summaryTimer)
+      clearInterval(engineTimer)
+      clearInterval(feedTimer)
+    }
+  }, [fetchSummary, fetchEngineStatus, fetchStrategy, fetchOrderHistory, fetchDecisionHistory])
 
   const positions = useMemo(() => {
     if (!summary?.positions) {
@@ -119,9 +171,7 @@ function App() {
         <div>
           <p className="eyebrow">BTC AUTO TRADER</p>
           <h1>Sundal</h1>
-          <p className="sub">
-            Work Day & Night for your financial free life
-          </p>
+          <p className="sub">Work Day & Night for your financial free life</p>
         </div>
         <div className="status-card">
           <div className="status-row">
@@ -262,6 +312,124 @@ function App() {
         </div>
       </section>
 
+      <section className="feed-grid">
+        <article className="table-card">
+          <div className="table-header">
+            <div>
+              <h2>실시간 알림</h2>
+              <p className="sub">최근 체결/의사결정 이벤트</p>
+            </div>
+          </div>
+          {alerts.length === 0 ? (
+            <div className="empty-state">새 알림이 없습니다.</div>
+          ) : (
+            <ul className="alert-list">
+              {alerts.map((alert) => (
+                <li key={alert.id} className={`alert-item ${alert.tone}`}>
+                  <div>
+                    <strong>{alert.message}</strong>
+                    <p className="sub compact">{alert.meta}</p>
+                  </div>
+                  <span className="mono small">{formatTime(alert.time)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+
+        <article className="table-card">
+          <div className="table-header">
+            <div>
+              <h2>최근 주문 로그</h2>
+              <p className="sub">BUY/SELL 요청 상태와 오류 추적</p>
+            </div>
+          </div>
+          {feedError && <p className="status-error">{feedError}</p>}
+          {orderHistory.length === 0 ? (
+            <div className="empty-state">주문 로그가 없습니다.</div>
+          ) : (
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>시간</th>
+                    <th>마켓</th>
+                    <th>사이드</th>
+                    <th>상태</th>
+                    <th>주문량</th>
+                    <th>주문금액</th>
+                    <th>오류</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orderHistory.map((order) => (
+                    <tr key={order.id}>
+                      <td className="mono small">{formatDateTime(order.requestedAt)}</td>
+                      <td>{order.market}</td>
+                      <td className={order.side === 'BUY' ? 'positive' : 'negative'}>{order.side}</td>
+                      <td>
+                        <span className="mono">{order.requestStatus ?? '-'}</span>
+                        <span className="sub compact">{order.state ?? '-'}</span>
+                      </td>
+                      <td className="mono">{formatCoin(order.volume)}</td>
+                      <td className="mono">{formatKRW(order.funds)}</td>
+                      <td className="mono small">{truncateText(order.errorMessage, 36)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </article>
+      </section>
+
+      <section className="table-card">
+        <div className="table-header">
+          <div>
+            <h2>매매 사유 스냅샷</h2>
+            <p className="sub">매수/매도/스킵 이유와 당시 지표</p>
+          </div>
+        </div>
+        {decisionHistory.length === 0 ? (
+          <div className="empty-state">의사결정 로그가 없습니다.</div>
+        ) : (
+          <div className="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>시간</th>
+                  <th>마켓</th>
+                  <th>액션</th>
+                  <th>사유</th>
+                  <th>RSI</th>
+                  <th>MACD</th>
+                  <th>MA Slope%</th>
+                  <th>가격</th>
+                  <th>프로필</th>
+                </tr>
+              </thead>
+              <tbody>
+                {decisionHistory.map((decision) => (
+                  <tr key={decision.id}>
+                    <td className="mono small">{formatDateTime(decision.executedAt)}</td>
+                    <td>{decision.market}</td>
+                    <td className={decision.action === 'BUY' ? 'positive' : decision.action === 'SELL' ? 'negative' : 'neutral'}>
+                      {decision.action}
+                    </td>
+                    <td className="mono small">{decision.reason ?? '-'}</td>
+                    <td className="mono">{formatFixed(decision.rsi, 2)}</td>
+                    <td className="mono">{formatFixed(decision.macdHistogram, 4)}</td>
+                    <td className="mono">{formatFixed(decision.maLongSlopePct, 3)}</td>
+                    <td className="mono">{formatKRW(decision.price)}</td>
+                    <td>{decision.profile ?? '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <section className="summary-grid">
         <div className="summary-card">
           <h3>보유 KRW</h3>
@@ -334,12 +502,8 @@ function App() {
                     <td className="mono">{formatKRW(position.avgBuyPrice)}</td>
                     <td className="mono">{formatKRW(position.currentPrice)}</td>
                     <td className="mono">{formatKRW(position.valuation)}</td>
-                    <td className={`mono ${pnlClass(position.pnl)}`}>
-                      {formatKRW(position.pnl)}
-                    </td>
-                    <td className={`mono ${pnlClass(position.pnl)}`}>
-                      {formatPercent(position.pnlRate)}
-                    </td>
+                    <td className={`mono ${pnlClass(position.pnl)}`}>{formatKRW(position.pnl)}</td>
+                    <td className={`mono ${pnlClass(position.pnl)}`}>{formatPercent(position.pnlRate)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -349,6 +513,91 @@ function App() {
       </section>
     </div>
   )
+}
+
+const appendOrderAlerts = (orders, lastOrderIdRef, setAlerts) => {
+  if (!Array.isArray(orders) || orders.length === 0) {
+    return
+  }
+
+  const newestId = toNumber(orders[0]?.id)
+  if (newestId === null) {
+    return
+  }
+
+  if (lastOrderIdRef.current === null) {
+    lastOrderIdRef.current = newestId
+    return
+  }
+
+  const baseline = lastOrderIdRef.current
+  const newOrders = orders
+    .filter((order) => {
+      const id = toNumber(order?.id)
+      return id !== null && id > baseline && (order?.side === 'BUY' || order?.side === 'SELL')
+    })
+    .sort((a, b) => a.id - b.id)
+
+  if (newOrders.length === 0) {
+    if (newestId > baseline) {
+      lastOrderIdRef.current = newestId
+    }
+    return
+  }
+
+  newOrders.forEach((order) => {
+    const tone = order.side === 'BUY' ? 'positive' : 'negative'
+    const message = `주문 ${order.side} ${order.market}`
+    const meta = `${order.requestStatus ?? '-'} / ${order.state ?? '-'} / ${formatDateTime(order.requestedAt)}`
+    pushAlert(setAlerts, message, meta, tone)
+  })
+  lastOrderIdRef.current = newestId
+}
+
+const appendDecisionAlerts = (decisions, lastDecisionIdRef, setAlerts) => {
+  if (!Array.isArray(decisions) || decisions.length === 0) {
+    return
+  }
+
+  const newestId = toNumber(decisions[0]?.id)
+  if (newestId === null) {
+    return
+  }
+
+  if (lastDecisionIdRef.current === null) {
+    lastDecisionIdRef.current = newestId
+    return
+  }
+
+  const baseline = lastDecisionIdRef.current
+  const newDecisions = decisions
+    .filter((decision) => {
+      const id = toNumber(decision?.id)
+      return id !== null && id > baseline && (decision?.action === 'BUY' || decision?.action === 'SELL')
+    })
+    .sort((a, b) => a.id - b.id)
+
+  if (newDecisions.length === 0) {
+    if (newestId > baseline) {
+      lastDecisionIdRef.current = newestId
+    }
+    return
+  }
+
+  newDecisions.forEach((decision) => {
+    const tone = decision.action === 'BUY' ? 'positive' : 'negative'
+    const message = `신호 ${decision.action} ${decision.market}`
+    const meta = `${decision.reason ?? '-'} / ${formatDateTime(decision.executedAt)}`
+    pushAlert(setAlerts, message, meta, tone)
+  })
+  lastDecisionIdRef.current = newestId
+}
+
+const pushAlert = (setAlerts, message, meta, tone) => {
+  setAlerts((prev) => {
+    const next = [{ id: `${Date.now()}-${Math.random()}`, message, meta, tone, time: new Date().toISOString() }, ...prev]
+    return next.slice(0, 12)
+  })
 }
 
 const handleEngineStart = async (setEngineStatus, setEngineError, setEngineBusy) => {
@@ -479,6 +728,11 @@ const toInputValue = (value) => {
   return String(value)
 }
 
+const toNumber = (value) => {
+  const numeric = Number(value)
+  return Number.isNaN(numeric) ? null : numeric
+}
+
 const formatKRW = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '-'
@@ -498,6 +752,45 @@ const formatPercent = (value) => {
     return '-'
   }
   return `${(Number(value) * 100).toFixed(2)}%`
+}
+
+const formatFixed = (value, digits) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-'
+  }
+  return Number(value).toFixed(digits)
+}
+
+const formatDateTime = (value) => {
+  if (!value) {
+    return '-'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return '-'
+  }
+  return date.toLocaleString('ko-KR', { hour12: false })
+}
+
+const formatTime = (value) => {
+  if (!value) {
+    return '-'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return '-'
+  }
+  return date.toLocaleTimeString('ko-KR', { hour12: false })
+}
+
+const truncateText = (value, max) => {
+  if (!value) {
+    return '-'
+  }
+  if (value.length <= max) {
+    return value
+  }
+  return `${value.slice(0, max)}...`
 }
 
 const pnlClass = (value) => {

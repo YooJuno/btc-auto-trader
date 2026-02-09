@@ -4,11 +4,13 @@
 
 ## 주요 엔드포인트
 - `POST /api/order`: 주문 생성 (Upbit 실제 주문 호출)
+- `GET /api/order/history`: 최근 주문 로그 조회
 - `GET /api/portfolio/summary`: Upbit 계좌/시세 기반 포트폴리오 요약
 - `GET /api/market/price`: 단일 마켓 현재가 조회
 - `POST /api/engine/start`: 자동매매 엔진 시작
 - `POST /api/engine/stop`: 자동매매 엔진 중지
 - `GET /api/engine/status`: 자동매매 엔진 상태 조회
+- `GET /api/engine/decisions`: 최근 매매 의사결정 로그 조회
 - `POST /api/engine/tick`: 자동매매 1회 실행 (수동 트리거)
 - `GET /api/strategy`: 전략 설정 조회
 - `PUT /api/strategy`: 전략 설정 업데이트

@@ -5,6 +5,8 @@ import com.btcautotrader.upbit.UpbitOrderResponse;
 import com.btcautotrader.upbit.UpbitService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -12,6 +14,7 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -106,6 +109,16 @@ public class OrderService {
             orderRepository.save(entity);
             throw ex;
         }
+    }
+
+    public List<OrderHistoryItem> listRecent(int limit) {
+        int safeLimit = normalizeLimit(limit);
+        PageRequest pageRequest = PageRequest.of(0, safeLimit, Sort.by(Sort.Direction.DESC, "requestedAt"));
+        return orderRepository.findAll(pageRequest)
+                .getContent()
+                .stream()
+                .map(this::toHistoryItem)
+                .toList();
     }
 
     private UpbitPayload buildUpbitPayload(OrderRequest request, String clientOrderId) {
@@ -226,6 +239,26 @@ public class OrderService {
         );
     }
 
+    private OrderHistoryItem toHistoryItem(OrderEntity entity) {
+        return new OrderHistoryItem(
+                entity.getId(),
+                entity.getMarket(),
+                entity.getSide(),
+                entity.getType(),
+                entity.getOrdType(),
+                entity.getStatus() == null ? null : entity.getStatus().name(),
+                entity.getState(),
+                entity.getPrice(),
+                entity.getVolume(),
+                entity.getFunds(),
+                entity.getRequestedAt() == null ? null : entity.getRequestedAt().toString(),
+                entity.getCreatedAt() == null ? null : entity.getCreatedAt().toString(),
+                entity.getExternalId(),
+                entity.getClientOrderId(),
+                entity.getErrorMessage()
+        );
+    }
+
     private static String normalizeClientOrderId(String value) {
         if (value == null) {
             return null;
@@ -257,6 +290,13 @@ public class OrderService {
             return true;
         }
         return status >= 500;
+    }
+
+    private static int normalizeLimit(int limit) {
+        if (limit <= 0) {
+            return 30;
+        }
+        return Math.min(limit, 200);
     }
 
     private record UpbitPayload(Map<String, String> body, String queryString, String ordType) {
