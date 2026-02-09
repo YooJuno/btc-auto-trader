@@ -13,9 +13,11 @@ import java.util.Map;
 @RequestMapping("/api/engine")
 public class EngineController {
     private final EngineService engineService;
+    private final AutoTradeService autoTradeService;
 
-    public EngineController(EngineService engineService) {
+    public EngineController(EngineService engineService, AutoTradeService autoTradeService) {
         this.engineService = engineService;
+        this.autoTradeService = autoTradeService;
     }
 
     @PostMapping("/start")
@@ -28,6 +30,11 @@ public class EngineController {
     public ResponseEntity<Map<String, Object>> stop() {
         boolean running = engineService.stop();
         return ResponseEntity.ok(statusResponse(running));
+    }
+
+    @PostMapping("/tick")
+    public ResponseEntity<AutoTradeResult> tick() {
+        return ResponseEntity.ok(autoTradeService.runOnce());
     }
 
     private Map<String, Object> statusResponse(boolean running) {
