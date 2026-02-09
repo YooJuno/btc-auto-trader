@@ -1,0 +1,65 @@
+# Backend Summary (Auto Trader)
+
+이 문서는 백엔드 자동매매/주문 파트의 현재 구조와 동작을 요약합니다.
+
+## 주요 엔드포인트
+- `POST /api/order`: 주문 생성 (Upbit 실제 주문 호출)
+- `GET /api/portfolio/summary`: Upbit 계좌/시세 기반 포트폴리오 요약
+- `GET /api/market/price`: 단일 마켓 현재가 조회
+- `POST /api/engine/start`: 자동매매 엔진 시작
+- `POST /api/engine/stop`: 자동매매 엔진 중지
+- `POST /api/engine/tick`: 자동매매 1회 실행 (수동 트리거)
+- `GET /api/strategy`: 전략 설정 조회
+- `PUT /api/strategy`: 전략 설정 업데이트
+
+## 주문 처리 흐름
+1. `POST /api/order` 수신
+2. 입력 검증 및 정규화
+3. `clientOrderId`(없으면 자동 생성)를 Upbit `identifier`로 전달
+4. DB에 `REQUESTED` 상태로 먼저 저장
+5. Upbit 주문 호출
+6. 응답 성공 시 `SUBMITTED`, 실패 시 `FAILED` 또는 `PENDING`으로 저장
+7. 응답에는 Upbit 주문 ID, 내부 상태(`requestStatus`), 에러 메시지 포함
+
+## 주문 복구(리컨실)
+- 스케줄러가 `REQUESTED/PENDING` 주문을 주기적으로 조회
+- `identifier` 기준으로 Upbit 주문 상태 조회 후 `SUBMITTED`로 업데이트
+- 오래된 `REQUESTED/PENDING`은 타임아웃 처리(`FAILED`)
+
+설정:
+- `orders.reconcile.enabled`
+- `orders.reconcile.delay-ms`
+- `orders.reconcile.lookback-minutes`
+- `orders.reconcile.stale-minutes`
+- `orders.pending-window-minutes`
+
+## 자동매매 엔진
+### 동작 요약
+- `engine.tick-ms` 주기로 동작 (엔진 ON 상태일 때만)
+- 계좌(Upbit)와 현재가를 조회해 매수/매도 판단
+- 매수: 보유 없고 현금이 충분할 때 시장가 매수
+- 매도: 보유 중일 때 손익 기준(익절/손절) 충족 시 시장가 매도
+- 최근 주문/대기 중 주문은 재주문 방지
+- 장애 발생 시 지수 백오프로 호출 빈도 제한
+
+### 관련 설정
+- `engine.tick-ms`
+- `engine.order-cooldown-seconds`
+- `engine.failure-backoff-base-seconds`
+- `engine.failure-backoff-max-seconds`
+- `trading.markets`
+- `trading.min-krw`
+
+## 데이터베이스
+### 주문 테이블
+`orders` 테이블이 주문 상태를 기록합니다.
+- `client_order_id`: Upbit `identifier`
+- `status`: `REQUESTED`, `PENDING`, `SUBMITTED`, `FAILED`
+- `state`: Upbit 상태값
+- `raw_request`, `raw_response`, `error_message` 포함
+
+스키마: `infra/db/schema.sql`
+
+## 실행/운영 메모
+- Upbit API Key는 `.env` 또는 환경 변수에서 로드
+- 실서버 운용 시 인증/인가 및 리밋 정책 추가 필요
