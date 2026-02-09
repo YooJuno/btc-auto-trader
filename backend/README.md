@@ -75,6 +75,9 @@
 전략 API 값:
 - `enabled`, `maxOrderKrw`, `takeProfitPct`, `stopLossPct`, `trailingStopPct`, `partialTakeProfitPct`, `profile`
 
+프로필 강제:
+- `strategy.force-profile=CONSERVATIVE`
+
 ## 데이터베이스
 ### 주문 테이블
 `orders` 테이블이 주문 상태를 기록합니다.

@@ -131,6 +131,11 @@ Risk parameters `takeProfitPct` / `stopLossPct` / `trailingStopPct`
 - `GET /api/strategy`
 - `PUT /api/strategy`
 
+If you want to **enforce a specific profile** regardless of API updates, set:
+```
+strategy.force-profile=CONSERVATIVE
+```
+
 ## 7) Next Implementation Steps (If You Approve)
 1. Add optional limit-entry with timeout + fallback to market.
 2. Add per-market configuration overrides.

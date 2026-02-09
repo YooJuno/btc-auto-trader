@@ -2,17 +2,23 @@ package com.btcautotrader.strategy;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Value;
 
 @Service
 public class StrategyService {
     private static final long CONFIG_ID = 1L;
     private static final StrategyConfig DEFAULT_CONFIG =
-            new StrategyConfig(true, 10000.0, 3.0, 1.5, 2.0, 50.0, StrategyProfile.BALANCED.name());
+            new StrategyConfig(true, 10000.0, 3.0, 1.5, 2.0, 50.0, StrategyProfile.CONSERVATIVE.name());
 
     private final StrategyConfigRepository repository;
+    private final String forcedProfile;
 
-    public StrategyService(StrategyConfigRepository repository) {
+    public StrategyService(
+            StrategyConfigRepository repository,
+            @Value("${strategy.force-profile:}") String forcedProfile
+    ) {
         this.repository = repository;
+        this.forcedProfile = forcedProfile == null ? "" : forcedProfile.trim();
     }
 
     @Transactional
@@ -28,6 +34,13 @@ public class StrategyService {
         if (entity.getProfile() == null || entity.getProfile().isBlank()) {
             entity.setProfile(DEFAULT_CONFIG.profile());
             entity = repository.save(entity);
+        }
+        if (!forcedProfile.isBlank()) {
+            StrategyProfile profile = StrategyProfile.from(forcedProfile);
+            if (!profile.name().equalsIgnoreCase(entity.getProfile())) {
+                entity.setProfile(profile.name());
+                entity = repository.save(entity);
+            }
         }
 
         return entity.toRecord();
