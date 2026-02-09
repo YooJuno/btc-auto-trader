@@ -10,36 +10,35 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 @Service
 public class StrategyService {
     private static final long CONFIG_ID = 1L;
     private static final StrategyConfig DEFAULT_CONFIG =
-            new StrategyConfig(true, 10000.0, 4.0, 2.0, 2.0, 50.0, StrategyProfile.CONSERVATIVE.name(),
-                    100.0, 50.0, 50.0);
+            new StrategyConfig(true, 10000.0, 4.5, 2.2, 2.3, 40.0, StrategyProfile.CONSERVATIVE.name(),
+                    100.0, 0.0, 0.0);
     private static final List<StrategyPresetItem> DEFAULT_PRESETS = List.of(
             new StrategyPresetItem(
                     "AGGRESSIVE",
                     "공격형",
-                    6.0,
-                    2.5,
-                    3.0,
-                    30.0,
+                    7.0,
+                    2.8,
+                    3.5,
+                    25.0,
                     100.0,
-                    30.0,
-                    30.0
+                    15.0,
+                    10.0
             ),
             new StrategyPresetItem(
                     "CONSERVATIVE",
                     "안정형",
-                    4.0,
-                    2.0,
-                    2.0,
-                    50.0,
+                    4.5,
+                    2.2,
+                    2.3,
+                    40.0,
                     100.0,
-                    50.0,
-                    50.0
+                    0.0,
+                    0.0
             )
     );
 
@@ -78,6 +77,10 @@ public class StrategyService {
         }
         if (entity.getProfile() == null || entity.getProfile().isBlank()) {
             entity.setProfile(DEFAULT_CONFIG.profile());
+            entity = repository.save(entity);
+        }
+        if (isLegacyConservativeDefaults(entity)) {
+            entity.apply(DEFAULT_CONFIG);
             entity = repository.save(entity);
         }
         if (entity.getStopExitPct() == 0.0
@@ -201,7 +204,8 @@ public class StrategyService {
         return new StrategyMarketOverridesResponse(
                 configuredMarkets(),
                 overrides.maxOrderKrwByMarket(),
-                overrides.profileByMarket()
+                overrides.profileByMarket(),
+                overrides.ratiosByMarket()
         );
     }
 
@@ -217,7 +221,7 @@ public class StrategyService {
                 }
                 StrategyMarketOverrideEntity entity = byMarket.computeIfAbsent(
                         market,
-                        key -> new StrategyMarketOverrideEntity(key, null, null)
+                        key -> new StrategyMarketOverrideEntity(key, null, null, null, null, null, null, null, null, null)
                 );
                 entity.setMaxOrderKrw(maxOrderKrw);
             }
@@ -231,9 +235,23 @@ public class StrategyService {
                 StrategyProfile profile = StrategyProfile.from(entry.getValue());
                 StrategyMarketOverrideEntity entity = byMarket.computeIfAbsent(
                         market,
-                        key -> new StrategyMarketOverrideEntity(key, null, null)
+                        key -> new StrategyMarketOverrideEntity(key, null, null, null, null, null, null, null, null, null)
                 );
                 entity.setProfile(profile.name());
+            }
+        }
+        if (request != null && request.ratiosByMarket() != null) {
+            for (Map.Entry<String, StrategyMarketRatios> entry : request.ratiosByMarket().entrySet()) {
+                String market = normalizeMarket(entry.getKey());
+                StrategyMarketRatios ratios = entry.getValue();
+                if (market == null || ratios == null || !hasAnyRatio(ratios)) {
+                    continue;
+                }
+                StrategyMarketOverrideEntity entity = byMarket.computeIfAbsent(
+                        market,
+                        key -> new StrategyMarketOverrideEntity(key, null, null, null, null, null, null, null, null, null)
+                );
+                applyRatios(entity, ratios);
             }
         }
 
@@ -247,6 +265,7 @@ public class StrategyService {
     private static StrategyMarketOverrides toMarketOverrides(List<StrategyMarketOverrideEntity> entities) {
         Map<String, Double> maxOrderKrwByMarket = new HashMap<>();
         Map<String, String> profileByMarket = new HashMap<>();
+        Map<String, StrategyMarketRatios> ratiosByMarket = new HashMap<>();
         for (StrategyMarketOverrideEntity entity : entities) {
             if (entity == null) {
                 continue;
@@ -263,8 +282,58 @@ public class StrategyService {
             if (profile != null && !profile.isBlank()) {
                 profileByMarket.put(market, StrategyProfile.from(profile).name());
             }
+            StrategyMarketRatios ratios = toRatios(entity);
+            if (ratios != null) {
+                ratiosByMarket.put(market, ratios);
+            }
         }
-        return new StrategyMarketOverrides(Map.copyOf(maxOrderKrwByMarket), Map.copyOf(profileByMarket));
+        return new StrategyMarketOverrides(
+                Map.copyOf(maxOrderKrwByMarket),
+                Map.copyOf(profileByMarket),
+                Map.copyOf(ratiosByMarket)
+        );
+    }
+
+    private static StrategyMarketRatios toRatios(StrategyMarketOverrideEntity entity) {
+        if (entity == null) {
+            return null;
+        }
+        StrategyMarketRatios ratios = new StrategyMarketRatios(
+                entity.getTakeProfitPct(),
+                entity.getStopLossPct(),
+                entity.getTrailingStopPct(),
+                entity.getPartialTakeProfitPct(),
+                entity.getStopExitPct(),
+                entity.getTrendExitPct(),
+                entity.getMomentumExitPct()
+        );
+        return hasAnyRatio(ratios) ? ratios : null;
+    }
+
+    private static boolean hasAnyRatio(StrategyMarketRatios ratios) {
+        if (ratios == null) {
+            return false;
+        }
+        return ratios.takeProfitPct() != null
+                || ratios.stopLossPct() != null
+                || ratios.trailingStopPct() != null
+                || ratios.partialTakeProfitPct() != null
+                || ratios.stopExitPct() != null
+                || ratios.trendExitPct() != null
+                || ratios.momentumExitPct() != null;
+    }
+
+    private static void applyRatios(StrategyMarketOverrideEntity entity, StrategyMarketRatios ratios) {
+        if (entity == null || ratios == null) {
+            return;
+        }
+        entity.setTakeProfitPct(ratios.takeProfitPct());
+        entity.setStopLossPct(ratios.stopLossPct());
+        entity.setTrailingStopPct(ratios.trailingStopPct());
+        entity.setPartialTakeProfitPct(ratios.partialTakeProfitPct());
+        entity.setStopExitPct(ratios.stopExitPct());
+        entity.setTrendExitPct(ratios.trendExitPct());
+        entity.setMomentumExitPct(ratios.momentumExitPct());
     }
 
     private static List<String> parseMarkets(String config) {
@@ -309,26 +378,94 @@ public class StrategyService {
 
     private void ensureDefaultPresets() {
         List<StrategyPresetEntity> existing = presetRepository.findAllByOrderByCodeAsc();
-        Set<String> existingCodes = existing.stream()
-                .map(StrategyPresetEntity::getCode)
-                .map(StrategyService::normalizePresetCode)
-                .filter(code -> code != null && !code.isBlank())
-                .collect(Collectors.toSet());
-
-        List<StrategyPresetEntity> toInsert = new ArrayList<>();
-        for (StrategyPresetItem defaultPreset : DEFAULT_PRESETS) {
-            String code = normalizePresetCode(defaultPreset.code());
-            if (code == null || existingCodes.contains(code)) {
+        Map<String, StrategyPresetEntity> existingByCode = new HashMap<>();
+        for (StrategyPresetEntity entity : existing) {
+            if (entity == null) {
                 continue;
             }
-            StrategyPresetEntity entity = StrategyPresetEntity.from(defaultPreset);
-            entity.setCode(code);
-            toInsert.add(entity);
+            String code = normalizePresetCode(entity.getCode());
+            if (code == null || code.isBlank()) {
+                continue;
+            }
+            existingByCode.putIfAbsent(code, entity);
         }
 
-        if (!toInsert.isEmpty()) {
-            presetRepository.saveAll(toInsert);
+        List<StrategyPresetEntity> toSave = new ArrayList<>();
+        for (StrategyPresetItem defaultPreset : DEFAULT_PRESETS) {
+            String code = normalizePresetCode(defaultPreset.code());
+            if (code == null) {
+                continue;
+            }
+            StrategyPresetEntity entity = existingByCode.get(code);
+            if (entity == null) {
+                StrategyPresetEntity insert = StrategyPresetEntity.from(defaultPreset);
+                insert.setCode(code);
+                toSave.add(insert);
+                continue;
+            }
+            if (syncPresetEntity(entity, defaultPreset, code)) {
+                toSave.add(entity);
+            }
         }
+
+        if (!toSave.isEmpty()) {
+            presetRepository.saveAll(toSave);
+        }
+    }
+
+    private static boolean syncPresetEntity(StrategyPresetEntity entity, StrategyPresetItem item, String code) {
+        boolean changed = false;
+        if (!code.equals(entity.getCode())) {
+            entity.setCode(code);
+            changed = true;
+        }
+        if (!item.displayName().equals(entity.getDisplayName())) {
+            entity.setDisplayName(item.displayName());
+            changed = true;
+        }
+        if (Double.compare(entity.getTakeProfitPct(), item.takeProfitPct()) != 0) {
+            entity.setTakeProfitPct(item.takeProfitPct());
+            changed = true;
+        }
+        if (Double.compare(entity.getStopLossPct(), item.stopLossPct()) != 0) {
+            entity.setStopLossPct(item.stopLossPct());
+            changed = true;
+        }
+        if (Double.compare(entity.getTrailingStopPct(), item.trailingStopPct()) != 0) {
+            entity.setTrailingStopPct(item.trailingStopPct());
+            changed = true;
+        }
+        if (Double.compare(entity.getPartialTakeProfitPct(), item.partialTakeProfitPct()) != 0) {
+            entity.setPartialTakeProfitPct(item.partialTakeProfitPct());
+            changed = true;
+        }
+        if (Double.compare(entity.getStopExitPct(), item.stopExitPct()) != 0) {
+            entity.setStopExitPct(item.stopExitPct());
+            changed = true;
+        }
+        if (Double.compare(entity.getTrendExitPct(), item.trendExitPct()) != 0) {
+            entity.setTrendExitPct(item.trendExitPct());
+            changed = true;
+        }
+        if (Double.compare(entity.getMomentumExitPct(), item.momentumExitPct()) != 0) {
+            entity.setMomentumExitPct(item.momentumExitPct());
+            changed = true;
+        }
+        return changed;
+    }
+
+    private static boolean isLegacyConservativeDefaults(StrategyConfigEntity entity) {
+        if (entity == null) {
+            return false;
+        }
+        return Double.compare(entity.getTakeProfitPct(), 4.0) == 0
+                && Double.compare(entity.getStopLossPct(), 2.0) == 0
+                && Double.compare(entity.getTrailingStopPct(), 2.0) == 0
+                && Double.compare(entity.getPartialTakeProfitPct(), 50.0) == 0
+                && Double.compare(entity.getStopExitPct(), 100.0) == 0
+                && Double.compare(entity.getTrendExitPct(), 50.0) == 0
+                && Double.compare(entity.getMomentumExitPct(), 50.0) == 0
+                && StrategyProfile.CONSERVATIVE.name().equalsIgnoreCase(entity.getProfile());
     }
 
     private static String normalizePresetCode(String code) {

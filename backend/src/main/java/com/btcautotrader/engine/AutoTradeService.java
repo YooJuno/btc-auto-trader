@@ -6,6 +6,7 @@ import com.btcautotrader.order.OrderResponse;
 import com.btcautotrader.order.OrderService;
 import com.btcautotrader.strategy.StrategyConfig;
 import com.btcautotrader.strategy.StrategyMarketOverrides;
+import com.btcautotrader.strategy.StrategyMarketRatios;
 import com.btcautotrader.strategy.StrategyProfile;
 import com.btcautotrader.strategy.StrategyService;
 import com.btcautotrader.upbit.UpbitService;
@@ -20,6 +21,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,6 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class AutoTradeService {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
+    private static final BigDecimal RELATIVE_MOMENTUM_LONG_WEIGHT = new BigDecimal("0.6");
+    private static final BigDecimal RELATIVE_MOMENTUM_SHORT_WEIGHT = new BigDecimal("0.4");
     private static final String SYSTEM_KEY = "SYSTEM";
 
     private final UpbitService upbitService;
@@ -74,6 +78,21 @@ public class AutoTradeService {
     private final long stopLossGuardLockMinutes;
     private final int volatilityWindow;
     private final BigDecimal targetVolPct;
+    private final boolean regimeFilterEnabled;
+    private final String regimeMarket;
+    private final int regimeTimeframeUnit;
+    private final int regimeMaShort;
+    private final int regimeMaLong;
+    private final int regimeSlopeLookback;
+    private final double regimeMinMaLongSlopePct;
+    private final int regimeVolatilityWindow;
+    private final BigDecimal regimeMaxVolatilityPct;
+    private final boolean relativeMomentumEnabled;
+    private final int relativeMomentumTimeframeUnit;
+    private final int relativeMomentumShortLookback;
+    private final int relativeMomentumLongLookback;
+    private final int relativeMomentumTopN;
+    private final double relativeMomentumMinScorePct;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger marketCursor = new AtomicInteger(0);
@@ -126,7 +145,22 @@ public class AutoTradeService {
             @Value("${risk.stop-loss-guard-trigger-count:3}") int stopLossGuardTriggerCount,
             @Value("${risk.stop-loss-guard-lock-minutes:180}") long stopLossGuardLockMinutes,
             @Value("${risk.volatility-window:30}") int volatilityWindow,
-            @Value("${risk.target-vol-pct:0.5}") BigDecimal targetVolPct
+            @Value("${risk.target-vol-pct:0.5}") BigDecimal targetVolPct,
+            @Value("${regime.filter.enabled:true}") boolean regimeFilterEnabled,
+            @Value("${regime.filter.market:KRW-BTC}") String regimeMarket,
+            @Value("${regime.filter.timeframe-unit:15}") int regimeTimeframeUnit,
+            @Value("${regime.filter.ma-short:40}") int regimeMaShort,
+            @Value("${regime.filter.ma-long:120}") int regimeMaLong,
+            @Value("${regime.filter.ma-long-slope-lookback:5}") int regimeSlopeLookback,
+            @Value("${regime.filter.min-ma-long-slope-pct:0.0}") double regimeMinMaLongSlopePct,
+            @Value("${regime.filter.volatility-window:48}") int regimeVolatilityWindow,
+            @Value("${regime.filter.max-volatility-pct:1.2}") BigDecimal regimeMaxVolatilityPct,
+            @Value("${signal.relative-momentum.enabled:true}") boolean relativeMomentumEnabled,
+            @Value("${signal.relative-momentum.timeframe-unit:15}") int relativeMomentumTimeframeUnit,
+            @Value("${signal.relative-momentum.short-lookback:24}") int relativeMomentumShortLookback,
+            @Value("${signal.relative-momentum.long-lookback:96}") int relativeMomentumLongLookback,
+            @Value("${signal.relative-momentum.top-n:3}") int relativeMomentumTopN,
+            @Value("${signal.relative-momentum.min-score-pct:0.0}") double relativeMomentumMinScorePct
     ) {
         this.upbitService = upbitService;
         this.orderService = orderService;
@@ -170,6 +204,24 @@ public class AutoTradeService {
         this.stopLossGuardLockMinutes = stopLossGuardLockMinutes;
         this.volatilityWindow = volatilityWindow;
         this.targetVolPct = targetVolPct;
+        this.regimeFilterEnabled = regimeFilterEnabled;
+        this.regimeMarket = normalizeMarket(regimeMarket, "KRW-BTC");
+        this.regimeTimeframeUnit = Math.max(1, regimeTimeframeUnit);
+        this.regimeMaShort = Math.max(2, Math.min(regimeMaShort, 199));
+        this.regimeMaLong = Math.max(this.regimeMaShort + 1, Math.min(regimeMaLong, 200));
+        this.regimeSlopeLookback = Math.max(0, Math.min(regimeSlopeLookback, 60));
+        this.regimeMinMaLongSlopePct = regimeMinMaLongSlopePct;
+        this.regimeVolatilityWindow = Math.max(2, Math.min(regimeVolatilityWindow, 200));
+        this.regimeMaxVolatilityPct = regimeMaxVolatilityPct;
+        this.relativeMomentumEnabled = relativeMomentumEnabled;
+        this.relativeMomentumTimeframeUnit = Math.max(1, relativeMomentumTimeframeUnit);
+        this.relativeMomentumShortLookback = Math.max(1, Math.min(relativeMomentumShortLookback, 199));
+        this.relativeMomentumLongLookback = Math.max(
+                this.relativeMomentumShortLookback + 1,
+                Math.min(relativeMomentumLongLookback, 199)
+        );
+        this.relativeMomentumTopN = relativeMomentumTopN;
+        this.relativeMomentumMinScorePct = relativeMomentumMinScorePct;
     }
 
     @Scheduled(fixedDelayString = "${engine.tick-ms:5000}")
@@ -189,7 +241,7 @@ public class AutoTradeService {
             OffsetDateTime now = OffsetDateTime.now();
             if (isBackoffActive(SYSTEM_KEY, now)) {
                 AutoTradeAction action = new AutoTradeAction(SYSTEM_KEY, "SKIP", "backoff", null, null, null, null, null);
-                recordDecision(SYSTEM_KEY, action, null, null, null, null, null);
+                recordDecision(SYSTEM_KEY, action, null, null, null, null, null, null, null);
                 return new AutoTradeResult(now.toString(), List.of(action));
             }
 
@@ -210,7 +262,6 @@ public class AutoTradeService {
             if (markets.isEmpty()) {
                 return new AutoTradeResult(now.toString(), List.of());
             }
-            MarketSelection selection = selectMarketsForTick(markets);
 
             Map<String, AccountSnapshot> accounts;
             try {
@@ -228,21 +279,25 @@ public class AutoTradeService {
                         null,
                         null
                 );
-                recordDecision(SYSTEM_KEY, action, null, null, null, null, null);
+                recordDecision(SYSTEM_KEY, action, null, null, null, null, null, null, null);
                 return new AutoTradeResult(now.toString(), List.of(action));
             }
+            RegimeSnapshot regime = evaluateRegime();
+            MarketSelection selection = selectMarketsForTick(markets, accounts);
             BigDecimal remainingCash = accounts.getOrDefault("KRW", AccountSnapshot.empty()).balance();
 
             List<AutoTradeAction> actions = new ArrayList<>();
             for (String market : selection.selected()) {
-                StrategyProfile profile = resolveProfileForMarket(market, config, marketProfileByMarket);
+                StrategyConfig marketConfig = resolveConfigForMarket(market, config, runtimeOverrides);
+                StrategyProfile profile = resolveProfileForMarket(market, marketConfig, marketProfileByMarket);
                 SignalTuning tuning = resolveSignalTuning(profile);
-                BigDecimal marketMaxOrderKrw = resolveMarketMaxOrderKrw(market, config, marketMaxOrderKrwByMarket);
+                BigDecimal marketMaxOrderKrw = resolveMarketMaxOrderKrw(market, marketConfig, marketMaxOrderKrwByMarket);
+                BigDecimal momentumScorePct = selection.momentumScorePctByMarket().get(market);
 
                 if (isBackoffActive(market, now)) {
                     AutoTradeAction action = new AutoTradeAction(market, "SKIP", "backoff", null, null, null, null, null);
                     actions.add(action);
-                    recordDecision(market, action, config, profile, null, tuning, marketMaxOrderKrw);
+                    recordDecision(market, action, marketConfig, profile, null, tuning, regime, momentumScorePct, marketMaxOrderKrw);
                     continue;
                 }
 
@@ -256,26 +311,73 @@ public class AutoTradeService {
 
                     AccountSnapshot position = accounts.getOrDefault(currency, AccountSnapshot.empty());
                     BigDecimal total = position.total();
-                    indicators = fetchIndicators(market, tuning);
 
                     if (total.compareTo(BigDecimal.ZERO) <= 0) {
                         lastPartialTakeProfitAt.remove(market);
+                        if (!regime.allowEntries()) {
+                            AutoTradeAction action = new AutoTradeAction(
+                                    market,
+                                    "SKIP",
+                                    "risk_off_regime:" + regime.reason(),
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null
+                            );
+                            actions.add(action);
+                            recordDecision(
+                                    market,
+                                    action,
+                                    marketConfig,
+                                    profile,
+                                    null,
+                                    tuning,
+                                    regime,
+                                    momentumScorePct,
+                                    marketMaxOrderKrw
+                            );
+                            resetFailure(market);
+                            continue;
+                        }
                     }
 
+                    indicators = fetchIndicators(market, tuning);
+
                     if (total.compareTo(BigDecimal.ZERO) > 0) {
-                        AutoTradeAction action = handleSell(market, position, config, indicators, tuning);
+                        AutoTradeAction action = handleSell(market, position, marketConfig, indicators, tuning);
                         if (action != null) {
                             actions.add(action);
-                            recordDecision(market, action, config, profile, indicators, tuning, marketMaxOrderKrw);
+                            recordDecision(
+                                    market,
+                                    action,
+                                    marketConfig,
+                                    profile,
+                                    indicators,
+                                    tuning,
+                                    regime,
+                                    momentumScorePct,
+                                    marketMaxOrderKrw
+                            );
                         }
                         resetFailure(market);
                         continue;
                     }
 
-                    AutoTradeAction action = handleBuy(market, remainingCash, config, indicators, tuning, marketMaxOrderKrw);
+                    AutoTradeAction action = handleBuy(market, remainingCash, marketConfig, indicators, tuning, marketMaxOrderKrw);
                     if (action != null) {
                         actions.add(action);
-                        recordDecision(market, action, config, profile, indicators, tuning, marketMaxOrderKrw);
+                        recordDecision(
+                                market,
+                                action,
+                                marketConfig,
+                                profile,
+                                indicators,
+                                tuning,
+                                regime,
+                                momentumScorePct,
+                                marketMaxOrderKrw
+                        );
                         if ("BUY".equalsIgnoreCase(action.action()) && action.funds() != null) {
                             remainingCash = remainingCash.subtract(action.funds());
                             if (remainingCash.compareTo(BigDecimal.ZERO) < 0) {
@@ -297,18 +399,31 @@ public class AutoTradeService {
                             null
                     );
                     actions.add(action);
-                    recordDecision(market, action, config, profile, indicators, tuning, marketMaxOrderKrw);
+                    recordDecision(
+                            market,
+                            action,
+                            marketConfig,
+                            profile,
+                            indicators,
+                            tuning,
+                            regime,
+                            momentumScorePct,
+                            marketMaxOrderKrw
+                    );
                 }
             }
 
-            for (String market : selection.deferred()) {
-                StrategyProfile profile = resolveProfileForMarket(market, config, marketProfileByMarket);
+            for (Map.Entry<String, String> deferred : selection.deferredReasonsByMarket().entrySet()) {
+                String market = deferred.getKey();
+                StrategyConfig marketConfig = resolveConfigForMarket(market, config, runtimeOverrides);
+                StrategyProfile profile = resolveProfileForMarket(market, marketConfig, marketProfileByMarket);
                 SignalTuning tuning = resolveSignalTuning(profile);
-                BigDecimal marketMaxOrderKrw = resolveMarketMaxOrderKrw(market, config, marketMaxOrderKrwByMarket);
+                BigDecimal marketMaxOrderKrw = resolveMarketMaxOrderKrw(market, marketConfig, marketMaxOrderKrwByMarket);
+                BigDecimal momentumScorePct = selection.momentumScorePctByMarket().get(market);
                 AutoTradeAction action = new AutoTradeAction(
                         market,
                         "SKIP",
-                        "tick_rate_limited",
+                        deferred.getValue(),
                         null,
                         null,
                         null,
@@ -316,7 +431,17 @@ public class AutoTradeService {
                         null
                 );
                 actions.add(action);
-                recordDecision(market, action, config, profile, null, tuning, marketMaxOrderKrw);
+                recordDecision(
+                        market,
+                        action,
+                        marketConfig,
+                        profile,
+                        null,
+                        tuning,
+                        regime,
+                        momentumScorePct,
+                        marketMaxOrderKrw
+                );
             }
             return new AutoTradeResult(now.toString(), actions);
         } finally {
@@ -423,17 +548,17 @@ public class AutoTradeService {
         }
 
         if (currentPrice.compareTo(stopLossThreshold) <= 0) {
-            return submitSellByPct(market, available, currentPrice, config.stopExitPct(), "stop_loss");
+            return submitSellByPct(market, available, currentPrice, config.stopExitPct(), "stop_loss", true);
         }
         if (trailingStopThreshold != null && currentPrice.compareTo(trailingStopThreshold) <= 0) {
-            return submitSellByPct(market, available, currentPrice, config.stopExitPct(), "trailing_stop");
+            return submitSellByPct(market, available, currentPrice, config.stopExitPct(), "trailing_stop", true);
         }
         if (indicators != null
                 && indicators.macdHistogram() != null
                 && indicators.rsi() != null
                 && indicators.macdHistogram().compareTo(BigDecimal.ZERO) < 0
                 && indicators.rsi().doubleValue() < tuning.rsiSellThreshold()) {
-            return submitSellByPct(market, available, currentPrice, config.momentumExitPct(), "momentum_reversal");
+            return submitSellByPct(market, available, currentPrice, config.momentumExitPct(), "momentum_reversal", false);
         }
         if (currentPrice.compareTo(takeProfitThreshold) >= 0) {
             double partialPct = config.partialTakeProfitPct();
@@ -450,7 +575,7 @@ public class AutoTradeService {
             return submitSell(market, available, "take_profit");
         }
         if (indicators != null && indicators.maLong() != null && currentPrice.compareTo(indicators.maLong()) < 0) {
-            return submitSellByPct(market, available, currentPrice, config.trendExitPct(), "trend_break");
+            return submitSellByPct(market, available, currentPrice, config.trendExitPct(), "trend_break", false);
         }
 
         return new AutoTradeAction(market, "SKIP", "no signal", currentPrice, available, null, null, null);
@@ -583,12 +708,16 @@ public class AutoTradeService {
             BigDecimal available,
             BigDecimal currentPrice,
             double pct,
-            String reason
+            String reason,
+            boolean allowFullFallback
     ) {
         if (available == null || available.compareTo(BigDecimal.ZERO) <= 0) {
             return new AutoTradeAction(market, "SKIP", "no volume", null, available, null, null, null);
         }
-        if (pct <= 0 || pct >= 100) {
+        if (pct <= 0) {
+            return new AutoTradeAction(market, "SKIP", reason + "_disabled", currentPrice, available, null, null, null);
+        }
+        if (pct >= 100) {
             return submitSell(market, available, reason);
         }
 
@@ -602,7 +731,7 @@ public class AutoTradeService {
             BigDecimal estimated = currentPrice.multiply(volume);
             if (estimated.compareTo(minOrderKrw) < 0) {
                 BigDecimal fullEstimated = currentPrice.multiply(available);
-                if (fullEstimated.compareTo(minOrderKrw) >= 0) {
+                if (allowFullFallback && fullEstimated.compareTo(minOrderKrw) >= 0) {
                     return submitSell(market, available, reason + "_full");
                 }
                 return new AutoTradeAction(market, "SKIP", "below min order", currentPrice, volume, estimated, null, null);
@@ -703,6 +832,17 @@ public class AutoTradeService {
             return null;
         }
         return market.substring(idx + 1).trim().toUpperCase();
+    }
+
+    private static String normalizeMarket(String market, String fallback) {
+        String resolved = market;
+        if (resolved == null || resolved.isBlank()) {
+            resolved = fallback;
+        }
+        if (resolved == null || resolved.isBlank()) {
+            return "KRW-BTC";
+        }
+        return resolved.trim().toUpperCase();
     }
 
     private static Map<String, BigDecimal> parseMarketMaxOrderKrwOverrides(String config) {
@@ -814,6 +954,39 @@ public class AutoTradeService {
         return merged;
     }
 
+    private StrategyConfig resolveConfigForMarket(
+            String market,
+            StrategyConfig baseConfig,
+            StrategyMarketOverrides runtimeOverrides
+    ) {
+        if (baseConfig == null || runtimeOverrides == null || runtimeOverrides.ratiosByMarket() == null) {
+            return baseConfig;
+        }
+        StrategyMarketRatios ratios = runtimeOverrides.ratiosByMarket().get(market);
+        if (ratios == null) {
+            return baseConfig;
+        }
+        return new StrategyConfig(
+                baseConfig.enabled(),
+                baseConfig.maxOrderKrw(),
+                chooseRatio(ratios.takeProfitPct(), baseConfig.takeProfitPct()),
+                chooseRatio(ratios.stopLossPct(), baseConfig.stopLossPct()),
+                chooseRatio(ratios.trailingStopPct(), baseConfig.trailingStopPct()),
+                chooseRatio(ratios.partialTakeProfitPct(), baseConfig.partialTakeProfitPct()),
+                baseConfig.profile(),
+                chooseRatio(ratios.stopExitPct(), baseConfig.stopExitPct()),
+                chooseRatio(ratios.trendExitPct(), baseConfig.trendExitPct()),
+                chooseRatio(ratios.momentumExitPct(), baseConfig.momentumExitPct())
+        );
+    }
+
+    private static double chooseRatio(Double override, double fallback) {
+        if (override == null || Double.isNaN(override) || Double.isInfinite(override)) {
+            return fallback;
+        }
+        return override;
+    }
+
     private StrategyProfile resolveProfileForMarket(
             String market,
             StrategyConfig config,
@@ -842,25 +1015,276 @@ public class AutoTradeService {
         return min(defaultMaxOrderKrw, override);
     }
 
-    private MarketSelection selectMarketsForTick(List<String> markets) {
+    private MarketSelection selectMarketsForTick(List<String> markets, Map<String, AccountSnapshot> accounts) {
         if (markets == null || markets.isEmpty()) {
-            return new MarketSelection(List.of(), List.of());
+            return new MarketSelection(List.of(), Map.of(), Map.of());
         }
 
-        List<String> rotated = rotateMarkets(markets);
-        int safeLimit = maxMarketsPerTick <= 0 ? rotated.size() : Math.max(1, maxMarketsPerTick);
-        if (rotated.size() <= safeLimit) {
-            return new MarketSelection(rotated, List.of());
+        List<String> heldMarkets = new ArrayList<>();
+        List<String> flatMarkets = new ArrayList<>();
+        for (String market : markets) {
+            if (positionTotalForMarket(market, accounts).compareTo(BigDecimal.ZERO) > 0) {
+                heldMarkets.add(market);
+            } else {
+                flatMarkets.add(market);
+            }
         }
 
-        List<String> selected = new ArrayList<>(rotated.subList(0, safeLimit));
-        List<String> deferred = new ArrayList<>(rotated.subList(safeLimit, rotated.size()));
-        return new MarketSelection(selected, deferred);
+        Map<String, BigDecimal> momentumScores = relativeMomentumEnabled
+                ? computeRelativeMomentumScores(flatMarkets)
+                : Map.of();
+        FlatSelection flatSelection = relativeMomentumEnabled
+                ? selectFlatMarketsByMomentum(flatMarkets, momentumScores)
+                : new FlatSelection(rotateMarkets(flatMarkets), new LinkedHashMap<>());
+
+        List<String> selected = new ArrayList<>(heldMarkets);
+        Map<String, String> deferredReasonsByMarket = new LinkedHashMap<>(flatSelection.deferredReasonsByMarket());
+
+        int safeLimit = maxMarketsPerTick <= 0 ? Integer.MAX_VALUE : Math.max(1, maxMarketsPerTick);
+        int capacityForFlat = Math.max(0, safeLimit - selected.size());
+        if (safeLimit == Integer.MAX_VALUE) {
+            selected.addAll(flatSelection.selectedCandidates());
+        } else {
+            List<String> candidates = flatSelection.selectedCandidates();
+            for (int i = 0; i < candidates.size(); i++) {
+                String market = candidates.get(i);
+                if (i < capacityForFlat) {
+                    selected.add(market);
+                } else {
+                    deferredReasonsByMarket.putIfAbsent(market, "tick_rate_limited");
+                }
+            }
+        }
+
+        return new MarketSelection(
+                selected,
+                Map.copyOf(deferredReasonsByMarket),
+                momentumScores.isEmpty() ? Map.of() : Map.copyOf(momentumScores)
+        );
+    }
+
+    private FlatSelection selectFlatMarketsByMomentum(
+            List<String> flatMarkets,
+            Map<String, BigDecimal> momentumScores
+    ) {
+        if (flatMarkets == null || flatMarkets.isEmpty()) {
+            return new FlatSelection(List.of(), Map.of());
+        }
+
+        List<String> ranked = flatMarkets.stream()
+                .sorted((left, right) -> compareMomentumMarket(left, right, momentumScores))
+                .toList();
+
+        int topN = relativeMomentumTopN <= 0 ? Integer.MAX_VALUE : Math.max(1, relativeMomentumTopN);
+        int selectedCount = 0;
+        List<String> selected = new ArrayList<>();
+        Map<String, String> deferred = new LinkedHashMap<>();
+        for (String market : ranked) {
+            BigDecimal score = momentumScores.get(market);
+            if (score == null) {
+                deferred.put(market, "momentum_unavailable");
+                continue;
+            }
+            if (score.doubleValue() < relativeMomentumMinScorePct) {
+                deferred.put(market, "weak_relative_momentum");
+                continue;
+            }
+            if (selectedCount >= topN) {
+                deferred.put(market, "not_in_top_momentum");
+                continue;
+            }
+            selected.add(market);
+            selectedCount++;
+        }
+        return new FlatSelection(selected, deferred);
+    }
+
+    private static int compareMomentumMarket(
+            String left,
+            String right,
+            Map<String, BigDecimal> momentumScores
+    ) {
+        BigDecimal leftScore = momentumScores.get(left);
+        BigDecimal rightScore = momentumScores.get(right);
+        if (leftScore == null && rightScore == null) {
+            return left.compareTo(right);
+        }
+        if (leftScore == null) {
+            return 1;
+        }
+        if (rightScore == null) {
+            return -1;
+        }
+        int scoreCompare = rightScore.compareTo(leftScore);
+        if (scoreCompare != 0) {
+            return scoreCompare;
+        }
+        return left.compareTo(right);
+    }
+
+    private Map<String, BigDecimal> computeRelativeMomentumScores(List<String> markets) {
+        if (!relativeMomentumEnabled || markets == null || markets.isEmpty()) {
+            return Map.of();
+        }
+
+        int shortLookback = relativeMomentumShortLookback;
+        int longLookback = relativeMomentumLongLookback;
+        int count = Math.max(shortLookback, longLookback) + 1;
+
+        Map<String, BigDecimal> scores = new HashMap<>();
+        for (String market : markets) {
+            try {
+                List<Map<String, Object>> candles = upbitService.fetchMinuteCandles(
+                        market,
+                        relativeMomentumTimeframeUnit,
+                        count
+                );
+                BigDecimal score = computeRelativeMomentumScore(candles, shortLookback, longLookback);
+                if (score != null) {
+                    scores.put(market, score);
+                }
+            } catch (RuntimeException ignored) {
+                // Momentum score is optional and should not block sell-side safety handling.
+            }
+        }
+        return scores;
+    }
+
+    private static BigDecimal computeRelativeMomentumScore(
+            List<Map<String, Object>> candles,
+            int shortLookback,
+            int longLookback
+    ) {
+        List<BigDecimal> closes = extractSortedCloses(candles);
+        if (closes.isEmpty()) {
+            return null;
+        }
+
+        BigDecimal shortReturnPct = computeReturnPct(closes, shortLookback);
+        BigDecimal longReturnPct = computeReturnPct(closes, longLookback);
+        if (shortReturnPct == null || longReturnPct == null) {
+            return null;
+        }
+
+        return longReturnPct.multiply(RELATIVE_MOMENTUM_LONG_WEIGHT)
+                .add(shortReturnPct.multiply(RELATIVE_MOMENTUM_SHORT_WEIGHT));
+    }
+
+    private RegimeSnapshot evaluateRegime() {
+        if (!regimeFilterEnabled) {
+            return RegimeSnapshot.allow("regime_disabled", regimeMarket, null, null, null, null, null);
+        }
+
+        int shortWindow = regimeMaShort;
+        int longWindow = regimeMaLong;
+        int slopeWindow = regimeSlopeLookback;
+        int volatilityWindowSafe = regimeVolatilityWindow;
+
+        int count = longWindow;
+        if (slopeWindow > 0) {
+            count = Math.max(count, longWindow + slopeWindow);
+        }
+        if (volatilityWindowSafe > 1) {
+            count = Math.max(count, volatilityWindowSafe + 1);
+        }
+
+        List<Map<String, Object>> candles;
+        try {
+            candles = upbitService.fetchMinuteCandles(regimeMarket, regimeTimeframeUnit, count);
+        } catch (RuntimeException ex) {
+            return RegimeSnapshot.block("regime_unavailable", regimeMarket, null, null, null, null, null);
+        }
+
+        List<BigDecimal> closes = extractSortedCloses(candles);
+        if (closes.size() < longWindow) {
+            return RegimeSnapshot.block("regime_insufficient_data", regimeMarket, null, null, null, null, null);
+        }
+
+        BigDecimal currentPrice = closes.get(closes.size() - 1);
+        BigDecimal maShortValue = averageLast(closes, shortWindow);
+        BigDecimal maLongValue = averageLast(closes, longWindow);
+        if (maShortValue == null || maLongValue == null || maLongValue.compareTo(BigDecimal.ZERO) <= 0) {
+            return RegimeSnapshot.block("regime_invalid_trend", regimeMarket, currentPrice, maShortValue, maLongValue, null, null);
+        }
+
+        BigDecimal slopePct = null;
+        if (slopeWindow > 0) {
+            BigDecimal maLongPrev = averageLastWithOffset(closes, longWindow, slopeWindow);
+            if (maLongPrev != null && maLongPrev.compareTo(BigDecimal.ZERO) > 0) {
+                slopePct = maLongValue.subtract(maLongPrev)
+                        .divide(maLongPrev, 8, RoundingMode.HALF_UP)
+                        .multiply(HUNDRED);
+            } else if (regimeMinMaLongSlopePct > 0) {
+                return RegimeSnapshot.block(
+                        "regime_missing_slope",
+                        regimeMarket,
+                        currentPrice,
+                        maShortValue,
+                        maLongValue,
+                        null,
+                        null
+                );
+            }
+        }
+
+        BigDecimal volatilityPct = null;
+        if (volatilityWindowSafe > 1) {
+            volatilityPct = computeVolatilityPct(closes, volatilityWindowSafe);
+        }
+
+        if (currentPrice.compareTo(maLongValue) <= 0 || maShortValue.compareTo(maLongValue) <= 0) {
+            return RegimeSnapshot.block(
+                    "regime_trend_off",
+                    regimeMarket,
+                    currentPrice,
+                    maShortValue,
+                    maLongValue,
+                    slopePct,
+                    volatilityPct
+            );
+        }
+        if (regimeMinMaLongSlopePct > 0
+                && slopePct != null
+                && slopePct.doubleValue() < regimeMinMaLongSlopePct) {
+            return RegimeSnapshot.block(
+                    "regime_slope_off",
+                    regimeMarket,
+                    currentPrice,
+                    maShortValue,
+                    maLongValue,
+                    slopePct,
+                    volatilityPct
+            );
+        }
+        if (regimeMaxVolatilityPct != null
+                && regimeMaxVolatilityPct.compareTo(BigDecimal.ZERO) > 0
+                && volatilityPct != null
+                && volatilityPct.compareTo(regimeMaxVolatilityPct) > 0) {
+            return RegimeSnapshot.block(
+                    "regime_high_vol",
+                    regimeMarket,
+                    currentPrice,
+                    maShortValue,
+                    maLongValue,
+                    slopePct,
+                    volatilityPct
+            );
+        }
+
+        return RegimeSnapshot.allow(
+                "regime_on",
+                regimeMarket,
+                currentPrice,
+                maShortValue,
+                maLongValue,
+                slopePct,
+                volatilityPct
+        );
     }
 
     private List<String> rotateMarkets(List<String> markets) {
-        if (markets.size() <= 1) {
-            return new ArrayList<>(markets);
+        if (markets == null || markets.size() <= 1) {
+            return markets == null ? List.of() : new ArrayList<>(markets);
         }
         int start = Math.floorMod(marketCursor.getAndIncrement(), markets.size());
         List<String> ordered = new ArrayList<>(markets.size());
@@ -868,6 +1292,51 @@ public class AutoTradeService {
             ordered.add(markets.get((start + i) % markets.size()));
         }
         return ordered;
+    }
+
+    private BigDecimal positionTotalForMarket(String market, Map<String, AccountSnapshot> accounts) {
+        String currency = extractCurrency(market);
+        if (currency == null || accounts == null) {
+            return BigDecimal.ZERO;
+        }
+        return accounts.getOrDefault(currency, AccountSnapshot.empty()).total();
+    }
+
+    private static List<BigDecimal> extractSortedCloses(List<Map<String, Object>> candles) {
+        if (candles == null || candles.isEmpty()) {
+            return List.of();
+        }
+        List<BigDecimal> closes = new ArrayList<>();
+        for (Map<String, Object> candle : candles) {
+            BigDecimal close = toDecimal(candle.get("trade_price"));
+            if (close.compareTo(BigDecimal.ZERO) > 0) {
+                closes.add(close);
+            }
+        }
+        if (closes.isEmpty()) {
+            return List.of();
+        }
+        reverseInPlace(closes);
+        return closes;
+    }
+
+    private static BigDecimal computeReturnPct(List<BigDecimal> closes, int lookback) {
+        if (closes == null || closes.isEmpty() || lookback <= 0 || closes.size() <= lookback) {
+            return null;
+        }
+        int nowIdx = closes.size() - 1;
+        int pastIdx = nowIdx - lookback;
+        if (pastIdx < 0) {
+            return null;
+        }
+        BigDecimal now = closes.get(nowIdx);
+        BigDecimal past = closes.get(pastIdx);
+        if (past == null || past.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return now.subtract(past)
+                .divide(past, 8, RoundingMode.HALF_UP)
+                .multiply(HUNDRED);
     }
 
     private static BigDecimal toDecimal(Object value) {
@@ -1454,6 +1923,8 @@ public class AutoTradeService {
             StrategyProfile profile,
             MarketIndicators indicators,
             SignalTuning tuning,
+            RegimeSnapshot regime,
+            BigDecimal momentumScorePct,
             BigDecimal marketMaxOrderKrw
     ) {
         if (action == null || tradeDecisionService == null) {
@@ -1504,6 +1975,12 @@ public class AutoTradeService {
             details.put("stopLossGuardLockMinutes", stopLossGuardLockMinutes);
             details.put("maxMarketsPerTick", maxMarketsPerTick);
             details.put("marketMaxOrderKrw", marketMaxOrderKrw);
+            details.put("regimeFilterEnabled", regimeFilterEnabled);
+            details.put("regimeMarket", regimeMarket);
+            details.put("regimeTimeframeUnit", regimeTimeframeUnit);
+            details.put("relativeMomentumEnabled", relativeMomentumEnabled);
+            details.put("relativeMomentumTopN", relativeMomentumTopN);
+            details.put("relativeMomentumMinScorePct", relativeMomentumMinScorePct);
             if (config != null) {
                 details.put("stopExitPct", config.stopExitPct());
                 details.put("trendExitPct", config.trendExitPct());
@@ -1524,6 +2001,18 @@ public class AutoTradeService {
             if (indicators != null) {
                 details.put("adx", indicators.adx());
                 details.put("volumeRatio", indicators.volumeRatio());
+            }
+            if (regime != null) {
+                details.put("regimeAllowEntries", regime.allowEntries());
+                details.put("regimeReason", regime.reason());
+                details.put("regimePrice", regime.price());
+                details.put("regimeMaShort", regime.maShort());
+                details.put("regimeMaLong", regime.maLong());
+                details.put("regimeMaLongSlopePct", regime.maLongSlopePct());
+                details.put("regimeVolatilityPct", regime.volatilityPct());
+            }
+            if (momentumScorePct != null) {
+                details.put("relativeMomentumScorePct", momentumScorePct);
             }
 
             tradeDecisionService.record(entity, details);
@@ -1623,7 +2112,49 @@ public class AutoTradeService {
         }
     }
 
-    private record MarketSelection(List<String> selected, List<String> deferred) {
+    private record FlatSelection(List<String> selectedCandidates, Map<String, String> deferredReasonsByMarket) {
+    }
+
+    private record MarketSelection(
+            List<String> selected,
+            Map<String, String> deferredReasonsByMarket,
+            Map<String, BigDecimal> momentumScorePctByMarket
+    ) {
+    }
+
+    private record RegimeSnapshot(
+            boolean allowEntries,
+            String reason,
+            String market,
+            BigDecimal price,
+            BigDecimal maShort,
+            BigDecimal maLong,
+            BigDecimal maLongSlopePct,
+            BigDecimal volatilityPct
+    ) {
+        static RegimeSnapshot allow(
+                String reason,
+                String market,
+                BigDecimal price,
+                BigDecimal maShort,
+                BigDecimal maLong,
+                BigDecimal maLongSlopePct,
+                BigDecimal volatilityPct
+        ) {
+            return new RegimeSnapshot(true, reason, market, price, maShort, maLong, maLongSlopePct, volatilityPct);
+        }
+
+        static RegimeSnapshot block(
+                String reason,
+                String market,
+                BigDecimal price,
+                BigDecimal maShort,
+                BigDecimal maLong,
+                BigDecimal maLongSlopePct,
+                BigDecimal volatilityPct
+        ) {
+            return new RegimeSnapshot(false, reason, market, price, maShort, maLong, maLongSlopePct, volatilityPct);
+        }
     }
 
     private record BackoffState(int consecutiveFailures, OffsetDateTime until) {

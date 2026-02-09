@@ -54,6 +54,12 @@ CREATE INDEX idx_orders_market
 CREATE INDEX idx_orders_requested_at
   ON orders(requested_at);
 
+CREATE INDEX idx_orders_status_requested_at
+  ON orders(status, requested_at);
+
+CREATE INDEX idx_orders_market_side_requested_at
+  ON orders(market, side, requested_at);
+
 CREATE INDEX idx_orders_client_order_id
   ON orders(client_order_id);
 
@@ -98,6 +104,13 @@ CREATE TABLE strategy_market_overrides (
   market         VARCHAR(20) PRIMARY KEY,
   max_order_krw  DOUBLE PRECISION,
   profile        VARCHAR(20),
+  take_profit_pct         DOUBLE PRECISION,
+  stop_loss_pct           DOUBLE PRECISION,
+  trailing_stop_pct       DOUBLE PRECISION,
+  partial_take_profit_pct DOUBLE PRECISION,
+  stop_exit_pct           DOUBLE PRECISION,
+  trend_exit_pct          DOUBLE PRECISION,
+  momentum_exit_pct       DOUBLE PRECISION,
   updated_at     TIMESTAMPTZ NOT NULL
 );
 
@@ -130,6 +143,12 @@ CREATE INDEX idx_trade_decisions_executed_at
 
 CREATE INDEX idx_trade_decisions_market
   ON trade_decisions(market);
+
+CREATE INDEX idx_trade_decisions_action_executed_at
+  ON trade_decisions(action, executed_at);
+
+CREATE INDEX idx_trade_decisions_market_executed_at
+  ON trade_decisions(market, executed_at);
 
 -- 엔진 실행 상태 (재시작 시 마지막 ON/OFF 복원)
 CREATE TABLE engine_state (

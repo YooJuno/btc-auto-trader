@@ -151,6 +151,11 @@ public class StrategyController {
                 configuredMarkets,
                 errors
         );
+        Map<String, StrategyMarketRatios> ratiosByMarket = normalizeRatiosMap(
+                request.ratiosByMarket(),
+                configuredMarkets,
+                errors
+        );
         if (!errors.isEmpty()) {
             Map<String, Object> error = new HashMap<>();
             error.put("error", "invalid market override values");
@@ -158,7 +163,11 @@ public class StrategyController {
             return ResponseEntity.badRequest().body(error);
         }
 
-        StrategyMarketOverridesRequest normalized = new StrategyMarketOverridesRequest(maxOrderKrwByMarket, profileByMarket);
+        StrategyMarketOverridesRequest normalized = new StrategyMarketOverridesRequest(
+                maxOrderKrwByMarket,
+                profileByMarket,
+                ratiosByMarket
+        );
         return ResponseEntity.ok(strategyService.replaceMarketOverrides(normalized));
     }
 
@@ -225,6 +234,66 @@ public class StrategyController {
             normalized.put(market, profile.name());
         }
         return normalized;
+    }
+
+    private static Map<String, StrategyMarketRatios> normalizeRatiosMap(
+            Map<String, StrategyMarketRatios> source,
+            Set<String> configuredMarkets,
+            Map<String, String> errors
+    ) {
+        Map<String, StrategyMarketRatios> normalized = new HashMap<>();
+        if (source == null) {
+            return normalized;
+        }
+        for (Map.Entry<String, StrategyMarketRatios> entry : source.entrySet()) {
+            String market = normalizeMarket(entry.getKey());
+            if (market == null) {
+                errors.put("ratiosByMarket", "market key is required");
+                continue;
+            }
+            if (!configuredMarkets.contains(market)) {
+                errors.put("ratiosByMarket." + market, "market is not configured");
+                continue;
+            }
+            StrategyMarketRatios ratios = entry.getValue();
+            if (ratios == null) {
+                continue;
+            }
+            validatePct("ratiosByMarket." + market + ".takeProfitPct", ratios.takeProfitPct(), errors);
+            validatePct("ratiosByMarket." + market + ".stopLossPct", ratios.stopLossPct(), errors);
+            validatePct("ratiosByMarket." + market + ".trailingStopPct", ratios.trailingStopPct(), errors);
+            validatePct("ratiosByMarket." + market + ".partialTakeProfitPct", ratios.partialTakeProfitPct(), errors);
+            validatePct("ratiosByMarket." + market + ".stopExitPct", ratios.stopExitPct(), errors);
+            validatePct("ratiosByMarket." + market + ".trendExitPct", ratios.trendExitPct(), errors);
+            validatePct("ratiosByMarket." + market + ".momentumExitPct", ratios.momentumExitPct(), errors);
+
+            StrategyMarketRatios ratioItem = new StrategyMarketRatios(
+                    ratios.takeProfitPct(),
+                    ratios.stopLossPct(),
+                    ratios.trailingStopPct(),
+                    ratios.partialTakeProfitPct(),
+                    ratios.stopExitPct(),
+                    ratios.trendExitPct(),
+                    ratios.momentumExitPct()
+            );
+            if (hasAnyRatio(ratioItem)) {
+                normalized.put(market, ratioItem);
+            }
+        }
+        return normalized;
+    }
+
+    private static boolean hasAnyRatio(StrategyMarketRatios ratios) {
+        if (ratios == null) {
+            return false;
+        }
+        return ratios.takeProfitPct() != null
+                || ratios.stopLossPct() != null
+                || ratios.trailingStopPct() != null
+                || ratios.partialTakeProfitPct() != null
+                || ratios.stopExitPct() != null
+                || ratios.trendExitPct() != null
+                || ratios.momentumExitPct() != null;
     }
 
     private static StrategyProfile parseProfile(String value) {

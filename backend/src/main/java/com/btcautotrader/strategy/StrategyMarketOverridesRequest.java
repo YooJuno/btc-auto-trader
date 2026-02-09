@@ -4,6 +4,7 @@ import java.util.Map;
 
 public record StrategyMarketOverridesRequest(
         Map<String, Double> maxOrderKrwByMarket,
-        Map<String, String> profileByMarket
+        Map<String, String> profileByMarket,
+        Map<String, StrategyMarketRatios> ratiosByMarket
 ) {
 }
