@@ -5,19 +5,30 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Service
 public class TradeDecisionService {
+    private static final Pattern OID_LITERAL_PATTERN = Pattern.compile("^\\d{5,19}$");
+
     private final TradeDecisionRepository repository;
     private final ObjectMapper objectMapper;
+    private final JdbcTemplate jdbcTemplate;
 
-    public TradeDecisionService(TradeDecisionRepository repository, ObjectMapper objectMapper) {
+    public TradeDecisionService(
+            TradeDecisionRepository repository,
+            ObjectMapper objectMapper,
+            JdbcTemplate jdbcTemplate
+    ) {
         this.repository = repository;
         this.objectMapper = objectMapper;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     public void record(TradeDecisionEntity entity, Map<String, Object> details) {
@@ -34,6 +45,7 @@ public class TradeDecisionService {
         return listRecent(limit, true);
     }
 
+    @Transactional(readOnly = true)
     public List<TradeDecisionItem> listRecent(int limit, boolean includeSkips) {
         int safeLimit = normalizeLimit(limit);
         PageRequest pageRequest = PageRequest.of(0, safeLimit, Sort.by(Sort.Direction.DESC, "executedAt"));
@@ -86,7 +98,30 @@ public class TradeDecisionService {
         try {
             return objectMapper.readValue(raw, new TypeReference<Map<String, Object>>() { });
         } catch (JsonProcessingException ex) {
+            String recovered = tryRecoverLargeObjectText(raw);
+            if (recovered != null) {
+                try {
+                    return objectMapper.readValue(recovered, new TypeReference<Map<String, Object>>() { });
+                } catch (JsonProcessingException ignored) {
+                    // Ignore and fallback to raw details below.
+                }
+            }
             return Map.of("raw", raw);
+        }
+    }
+
+    private String tryRecoverLargeObjectText(String raw) {
+        if (raw == null || !OID_LITERAL_PATTERN.matcher(raw).matches()) {
+            return null;
+        }
+        try {
+            return jdbcTemplate.query(
+                    "select convert_from(lo_get(cast(? as oid)), 'UTF8')",
+                    rs -> rs.next() ? rs.getString(1) : null,
+                    raw
+            );
+        } catch (RuntimeException ex) {
+            return null;
         }
     }
 

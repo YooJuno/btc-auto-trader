@@ -7,7 +7,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
+import jakarta.persistence.Index;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
@@ -15,7 +15,14 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "orders")
+@Table(
+        name = "orders",
+        indexes = {
+                @Index(name = "idx_orders_requested_at", columnList = "requested_at"),
+                @Index(name = "idx_orders_status_requested_at", columnList = "status,requested_at"),
+                @Index(name = "idx_orders_market_side_requested_at", columnList = "market,side,requested_at")
+        }
+)
 public class OrderEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -61,16 +68,13 @@ public class OrderEntity {
     @Column(name = "created_at")
     private OffsetDateTime createdAt;
 
-    @Lob
-    @Column(name = "raw_request")
+    @Column(name = "raw_request", columnDefinition = "TEXT")
     private String rawRequest;
 
-    @Lob
-    @Column(name = "error_message")
+    @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 
-    @Lob
-    @Column(name = "raw_response")
+    @Column(name = "raw_response", columnDefinition = "TEXT")
     private String rawResponse;
 
     @PrePersist

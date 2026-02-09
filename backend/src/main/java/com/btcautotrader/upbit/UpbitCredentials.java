@@ -20,11 +20,13 @@ public class UpbitCredentials {
 
         this.accessKey = firstNonBlank(
                 dotenvCurrent.get("UPBIT_ACCESS_KEY"),
-                dotenvRoot.get("UPBIT_ACCESS_KEY")
+                dotenvRoot.get("UPBIT_ACCESS_KEY"),
+                System.getenv("UPBIT_ACCESS_KEY")
         );
         this.secretKey = firstNonBlank(
                 dotenvCurrent.get("UPBIT_SECRET_KEY"),
-                dotenvRoot.get("UPBIT_SECRET_KEY")
+                dotenvRoot.get("UPBIT_SECRET_KEY"),
+                System.getenv("UPBIT_SECRET_KEY")
         );
 
         if (isBlank(this.accessKey) || isBlank(this.secretKey)) {

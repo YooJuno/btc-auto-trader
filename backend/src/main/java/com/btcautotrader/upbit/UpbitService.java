@@ -64,7 +64,8 @@ public class UpbitService {
                 List.class
         );
 
-        return response.getBody();
+        List<Map<String, Object>> body = response.getBody();
+        return body == null ? List.of() : body;
     }
 
     public Map<String, Object> fetchTicker(String market) {

@@ -5,7 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
+import jakarta.persistence.Index;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 
@@ -13,7 +13,14 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "trade_decisions")
+@Table(
+        name = "trade_decisions",
+        indexes = {
+                @Index(name = "idx_trade_decisions_executed_at", columnList = "executed_at"),
+                @Index(name = "idx_trade_decisions_action_executed_at", columnList = "action,executed_at"),
+                @Index(name = "idx_trade_decisions_market_executed_at", columnList = "market,executed_at")
+        }
+)
 public class TradeDecisionEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -73,8 +80,7 @@ public class TradeDecisionEntity {
     @Column(name = "volatility_pct", precision = 38, scale = 18)
     private BigDecimal volatilityPct;
 
-    @Lob
-    @Column(name = "details")
+    @Column(name = "details", columnDefinition = "TEXT")
     private String details;
 
     @PrePersist

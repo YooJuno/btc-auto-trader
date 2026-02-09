@@ -9,6 +9,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.net.URLEncoder;
@@ -111,6 +112,7 @@ public class OrderService {
         }
     }
 
+    @Transactional(readOnly = true)
     public List<OrderHistoryItem> listRecent(int limit) {
         int safeLimit = normalizeLimit(limit);
         PageRequest pageRequest = PageRequest.of(0, safeLimit, Sort.by(Sort.Direction.DESC, "requestedAt"));
