@@ -46,6 +46,26 @@ public class StrategyController {
             error.put("error", "request body is required");
             return ResponseEntity.badRequest().body(error);
         }
+
+        Map<String, String> errors = new HashMap<>();
+        validateRequiredPositive("maxOrderKrw", config.maxOrderKrw(), errors);
+        validatePct("takeProfitPct", config.takeProfitPct(), errors);
+        validatePct("stopLossPct", config.stopLossPct(), errors);
+        validatePct("trailingStopPct", config.trailingStopPct(), errors);
+        validatePct("partialTakeProfitPct", config.partialTakeProfitPct(), errors);
+        validatePct("stopExitPct", config.stopExitPct(), errors);
+        validatePct("trendExitPct", config.trendExitPct(), errors);
+        validatePct("momentumExitPct", config.momentumExitPct(), errors);
+        if (config.profile() != null && !config.profile().isBlank() && parseProfile(config.profile()) == null) {
+            errors.put("profile", "must be AGGRESSIVE, BALANCED, or CONSERVATIVE");
+        }
+        if (!errors.isEmpty()) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "invalid strategy values");
+            error.put("fields", errors);
+            return ResponseEntity.badRequest().body(error);
+        }
+
         return ResponseEntity.ok(strategyService.updateConfig(config));
     }
 
@@ -199,6 +219,12 @@ public class StrategyController {
         }
         if (Double.isNaN(value) || Double.isInfinite(value) || value < 0 || value > 100) {
             errors.put(field, "must be between 0 and 100");
+        }
+    }
+
+    private static void validateRequiredPositive(String field, double value, Map<String, String> errors) {
+        if (Double.isNaN(value) || Double.isInfinite(value) || value <= 0) {
+            errors.put(field, "must be greater than 0");
         }
     }
 }

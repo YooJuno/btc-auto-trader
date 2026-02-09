@@ -1167,6 +1167,12 @@ public class AutoTradeService {
         if (estimatedValue.compareTo(minOrderKrw) < 0) {
             return null;
         }
+        if (hasOpenRequest(market, "SELL")) {
+            return new AutoTradeAction(market, "SKIP", "pending", currentPrice, volume, estimatedValue, null, null);
+        }
+        if (hasRecentOrder(market, "SELL")) {
+            return new AutoTradeAction(market, "SKIP", "cooldown", currentPrice, volume, estimatedValue, null, null);
+        }
         OrderRequest request = new OrderRequest(market, "SELL", "MARKET", null, volume, null, null);
         OrderResponse response = orderService.create(request);
         if (response.requestStatus() != null && !"FAILED".equalsIgnoreCase(response.requestStatus())) {
