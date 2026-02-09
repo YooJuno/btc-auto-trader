@@ -3,6 +3,26 @@ import './App.css'
 
 const PROFILE_VALUES = ['AGGRESSIVE', 'BALANCED', 'CONSERVATIVE']
 const MARKET_CODE_PATTERN = /^[A-Z]{2,10}-[A-Z0-9]{2,15}$/
+const RATIO_FIELDS = [
+  'takeProfitPct',
+  'stopLossPct',
+  'trailingStopPct',
+  'partialTakeProfitPct',
+  'stopExitPct',
+  'trendExitPct',
+  'momentumExitPct',
+]
+const RATIO_FIELD_LABELS = {
+  takeProfitPct: '익절 %',
+  stopLossPct: '손절 %',
+  trailingStopPct: '트레일링 %',
+  partialTakeProfitPct: '부분 익절 %',
+  stopExitPct: '손절/트레일링 매도 %',
+  trendExitPct: '추세 이탈 매도 %',
+  momentumExitPct: '모멘텀 역전 매도 %',
+}
+const ALERT_SEED_LIMIT = 4
+const ALERT_MAX_SIZE = 12
 
 function App() {
   const [summary, setSummary] = useState(null)
@@ -15,20 +35,10 @@ function App() {
 
   const [strategy, setStrategy] = useState(null)
   const [strategyError, setStrategyError] = useState(null)
-  const [ratioInputs, setRatioInputs] = useState({
-    takeProfitPct: '',
-    stopLossPct: '',
-    trailingStopPct: '',
-    partialTakeProfitPct: '',
-    stopExitPct: '',
-    trendExitPct: '',
-    momentumExitPct: '',
-  })
-  const [ratioSaving, setRatioSaving] = useState(false)
   const [ratioError, setRatioError] = useState(null)
   const [presetError, setPresetError] = useState(null)
   const [ratioPresets, setRatioPresets] = useState([])
-  const [selectedRatioPreset, setSelectedRatioPreset] = useState(null)
+  const [selectedRatioPresetByMarket, setSelectedRatioPresetByMarket] = useState({})
   const [marketRows, setMarketRows] = useState([])
   const [marketConfigSaving, setMarketConfigSaving] = useState(false)
   const [marketConfigLoading, setMarketConfigLoading] = useState(false)
@@ -36,11 +46,17 @@ function App() {
   const [marketConfigNotice, setMarketConfigNotice] = useState(null)
   const [marketRowsBaseline, setMarketRowsBaseline] = useState('')
   const [newMarketInput, setNewMarketInput] = useState('')
+  const [expandedMarket, setExpandedMarket] = useState(null)
 
   const [orderHistory, setOrderHistory] = useState([])
   const [decisionHistory, setDecisionHistory] = useState([])
   const [feedError, setFeedError] = useState(null)
   const [alerts, setAlerts] = useState([])
+  const [performance, setPerformance] = useState(null)
+  const [performanceMode, setPerformanceMode] = useState('range')
+  const [performanceInputs, setPerformanceInputs] = useState(buildDefaultPerformanceInputs)
+  const [performanceLoading, setPerformanceLoading] = useState(false)
+  const [performanceError, setPerformanceError] = useState(null)
   const lastOrderIdRef = useRef(null)
   const lastDecisionIdRef = useRef(null)
 
@@ -87,16 +103,6 @@ function App() {
       }
       const data = await response.json()
       setStrategy(data)
-      setRatioInputs({
-        takeProfitPct: toInputValue(data?.takeProfitPct),
-        stopLossPct: toInputValue(data?.stopLossPct),
-        trailingStopPct: toInputValue(data?.trailingStopPct),
-        partialTakeProfitPct: toInputValue(data?.partialTakeProfitPct),
-        stopExitPct: toInputValue(data?.stopExitPct),
-        trendExitPct: toInputValue(data?.trendExitPct),
-        momentumExitPct: toInputValue(data?.momentumExitPct),
-      })
-      setSelectedRatioPreset(null)
     } catch (err) {
       setStrategyError(err?.message ?? '전략 조회 실패')
     }
@@ -125,7 +131,7 @@ function App() {
       }
       const data = await response.json()
       setOrderHistory(Array.isArray(data) ? data : [])
-      appendOrderAlerts(data, lastOrderIdRef, setAlerts)
+      appendOrderAlerts(data, lastOrderIdRef, setAlerts, { seedInitial: true })
       setFeedError(null)
     } catch (err) {
       setFeedError(err?.message ?? '주문 로그 조회 실패')
@@ -145,7 +151,7 @@ function App() {
         return action === 'BUY' || action === 'SELL'
       })
       setDecisionHistory(tradeOnlyItems)
-      appendDecisionAlerts(tradeOnlyItems, lastDecisionIdRef, setAlerts)
+      appendDecisionAlerts(tradeOnlyItems, lastDecisionIdRef, setAlerts, { seedInitial: true })
       setFeedError(null)
     } catch (err) {
       setFeedError(err?.message ?? '의사결정 로그 조회 실패')
@@ -166,12 +172,50 @@ function App() {
       setMarketRows(rows)
       setMarketRowsBaseline(buildMarketOverrideSignature(rows))
       setNewMarketInput('')
+      setSelectedRatioPresetByMarket((prev) => {
+        if (!prev || typeof prev !== 'object') {
+          return {}
+        }
+        const next = {}
+        rows.forEach((row) => {
+          if (row?.market && prev[row.market]) {
+            next[row.market] = prev[row.market]
+          }
+        })
+        return next
+      })
+      setExpandedMarket((prev) => {
+        if (prev && rows.some((row) => row.market === prev)) {
+          return prev
+        }
+        return rows.length > 0 ? rows[0].market : null
+      })
     } catch (err) {
       setMarketConfigError(err?.message ?? '마켓 설정 조회 실패')
     } finally {
       setMarketConfigLoading(false)
     }
   }, [])
+
+  const fetchPerformance = useCallback(async (mode = performanceMode, inputs = performanceInputs) => {
+    setPerformanceLoading(true)
+    setPerformanceError(null)
+    try {
+      const query = buildPerformanceQuery(mode, inputs)
+      const response = await fetch(`/api/portfolio/performance?${query}`)
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        const message = buildApiErrorMessage(payload, `성과 조회 실패 ${response.status}`)
+        throw new Error(message)
+      }
+      const data = await response.json()
+      setPerformance(data)
+    } catch (err) {
+      setPerformanceError(err?.message ?? '성과 조회 실패')
+    } finally {
+      setPerformanceLoading(false)
+    }
+  }, [performanceInputs, performanceMode])
 
   useEffect(() => {
     fetchSummary(false)
@@ -181,6 +225,7 @@ function App() {
     fetchMarketOverrides()
     fetchOrderHistory()
     fetchDecisionHistory()
+    fetchPerformance()
 
     const summaryTimer = setInterval(() => fetchSummary(true), 2000)
     const engineTimer = setInterval(() => fetchEngineStatus(), 2000)
@@ -194,7 +239,7 @@ function App() {
       clearInterval(engineTimer)
       clearInterval(feedTimer)
     }
-  }, [fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchOrderHistory, fetchDecisionHistory])
+  }, [fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchOrderHistory, fetchDecisionHistory, fetchPerformance])
 
   const positions = useMemo(() => {
     if (!summary?.positions) {
@@ -214,17 +259,11 @@ function App() {
   const engineLabel = engineStatus ? 'ON' : 'OFF'
   const engineClass = engineStatus ? 'ok' : 'error'
   const profileLabel = strategy?.profile ?? '—'
-  const selectedPresetLabel = useMemo(() => {
-    if (!selectedRatioPreset) {
-      return null
-    }
-    const found = ratioPresets.find((preset) => preset.code === selectedRatioPreset)
-    return found?.displayName ?? selectedRatioPreset
-  }, [ratioPresets, selectedRatioPreset])
   const marketRowsDirty = useMemo(
     () => buildMarketOverrideSignature(marketRows) !== marketRowsBaseline,
     [marketRows, marketRowsBaseline]
   )
+  const performanceTotal = performance?.total
 
   const handleMarketReload = useCallback(() => {
     if (marketRowsDirty && !window.confirm('저장하지 않은 변경사항이 있습니다. 서버 설정으로 덮어쓸까요?')) {
@@ -232,6 +271,36 @@ function App() {
     }
     fetchMarketOverrides()
   }, [fetchMarketOverrides, marketRowsDirty])
+
+  const handleAddMarket = useCallback(() => {
+    const normalized = normalizeMarket(newMarketInput)
+    const canExpand = Boolean(
+      normalized &&
+      isValidMarketCode(normalized) &&
+      !marketRows.some((row) => normalizeMarket(row?.market) === normalized)
+    )
+    addMarketRow(
+      newMarketInput,
+      marketRows,
+      setNewMarketInput,
+      setMarketRows,
+      setMarketConfigError,
+      setMarketConfigNotice
+    )
+    if (canExpand) {
+      setExpandedMarket(normalized)
+    }
+  }, [marketRows, newMarketInput])
+
+  useEffect(() => {
+    if (!expandedMarket) {
+      return
+    }
+    const stillExists = marketRows.some((row) => row.market === expandedMarket)
+    if (!stillExists) {
+      setExpandedMarket(marketRows.length > 0 ? marketRows[0].market : null)
+    }
+  }, [expandedMarket, marketRows])
 
   useEffect(() => {
     if (marketRowsDirty && marketConfigNotice) {
@@ -419,6 +488,7 @@ function App() {
                 <p className="sub">최근 체결/의사결정 이벤트</p>
               </div>
             </div>
+            {feedError && <p className="status-error">{feedError}</p>}
             {alerts.length === 0 ? (
               <div className="empty-state">새 알림이 없습니다.</div>
             ) : (
@@ -483,131 +553,19 @@ function App() {
         </div>
 
         <aside className="workspace-side">
-          <section className="control-grid">
-            <div className="control-card card--elevated strategy-card">
-              <div className="card-head">
-                <div>
-                  <h2>비율 설정</h2>
-                  <p className="sub">익절/손절/부분 매도 비율을 조정합니다.</p>
-                </div>
-                <span className="pill">PROFILE {profileLabel}</span>
-              </div>
-              {strategyError && <p className="status-error">{strategyError}</p>}
-              {ratioError && <p className="status-error">{ratioError}</p>}
-              {presetError && <p className="status-error">{presetError}</p>}
-              <div className="preset-row">
-                {ratioPresets.length === 0 ? (
-                  <p className="sub compact">등록된 프리셋이 없습니다.</p>
-                ) : ratioPresets.map((preset) => (
-                  <button
-                    key={preset.code}
-                    className={`ghost-button ${selectedRatioPreset === preset.code ? 'active' : ''}`}
-                    onClick={() => applyRatioPreset(preset, setRatioInputs, setSelectedRatioPreset, setRatioError)}
-                  >
-                    {preset.displayName} 비율 적용
-                  </button>
-                ))}
-              </div>
-              {selectedPresetLabel && (
-                <p className="sub compact">{selectedPresetLabel} 프리셋이 입력값에만 적용되었습니다. 저장 버튼을 눌러야 서버 반영됩니다.</p>
-              )}
-              <div className="form-grid">
-                <label className="form-field">
-                  <span>익절 %</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={ratioInputs.takeProfitPct}
-                    onChange={(event) => updateRatioInput(setRatioInputs, 'takeProfitPct', event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>손절 %</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={ratioInputs.stopLossPct}
-                    onChange={(event) => updateRatioInput(setRatioInputs, 'stopLossPct', event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>트레일링 %</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={ratioInputs.trailingStopPct}
-                    onChange={(event) => updateRatioInput(setRatioInputs, 'trailingStopPct', event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>부분 익절 %</span>
-                  <input
-                    type="number"
-                    step="1"
-                    value={ratioInputs.partialTakeProfitPct}
-                    onChange={(event) => updateRatioInput(setRatioInputs, 'partialTakeProfitPct', event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>손절/트레일링 매도 %</span>
-                  <input
-                    type="number"
-                    step="1"
-                    value={ratioInputs.stopExitPct}
-                    onChange={(event) => updateRatioInput(setRatioInputs, 'stopExitPct', event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>추세 이탈 매도 %</span>
-                  <input
-                    type="number"
-                    step="1"
-                    value={ratioInputs.trendExitPct}
-                    onChange={(event) => updateRatioInput(setRatioInputs, 'trendExitPct', event.target.value)}
-                  />
-                </label>
-                <label className="form-field">
-                  <span>모멘텀 역전 매도 %</span>
-                  <input
-                    type="number"
-                    step="1"
-                    value={ratioInputs.momentumExitPct}
-                    onChange={(event) => updateRatioInput(setRatioInputs, 'momentumExitPct', event.target.value)}
-                  />
-                </label>
-              </div>
-              <div className="button-row">
-                <button
-                  className="primary-button"
-                  onClick={() => handleRatioSave(
-                    ratioInputs,
-                    setRatioSaving,
-                    setRatioError,
-                    setStrategy,
-                    setRatioInputs,
-                    setSelectedRatioPreset
-                  )}
-                  disabled={ratioSaving}
-                >
-                  비율 저장
-                </button>
-                <button className="ghost-button" onClick={() => fetchStrategy()}>
-                  새로고침
-                </button>
-              </div>
-            </div>
-          </section>
-
           <article className="control-card card--elevated market-card">
             <div className="card-head">
               <div>
                 <h2>마켓별 설정</h2>
-                <p className="sub">자동매매 대상 마켓과 종목별 cap/profile을 저장합니다.</p>
+                <p className="sub">마켓별 cap/profile 저장 + 행별 토글에서 비율 override 저장을 관리합니다.</p>
               </div>
               <span className={`pill ${marketRowsDirty ? 'pill-warning' : ''}`}>
                 {marketRowsDirty ? '변경 있음' : '저장됨'}
               </span>
             </div>
+            {strategyError && <p className="status-error">{strategyError}</p>}
+            {ratioError && <p className="status-error">{ratioError}</p>}
+            {presetError && <p className="status-error">{presetError}</p>}
             {marketConfigError && <p className="status-error">{marketConfigError}</p>}
             {marketConfigNotice && <p className="status-success">{marketConfigNotice}</p>}
             <div className="market-add-row">
@@ -619,27 +577,13 @@ function App() {
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') {
                     event.preventDefault()
-                    addMarketRow(
-                      newMarketInput,
-                      marketRows,
-                      setNewMarketInput,
-                      setMarketRows,
-                      setMarketConfigError,
-                      setMarketConfigNotice
-                    )
+                    handleAddMarket()
                   }
                 }}
               />
               <button
                 className="ghost-button"
-                onClick={() => addMarketRow(
-                  newMarketInput,
-                  marketRows,
-                  setNewMarketInput,
-                  setMarketRows,
-                  setMarketConfigError,
-                  setMarketConfigNotice
-                )}
+                onClick={() => handleAddMarket()}
                 disabled={marketConfigLoading || marketConfigSaving}
               >
                 마켓 추가
@@ -651,43 +595,189 @@ function App() {
               <div className="empty-state">설정 가능한 마켓이 없습니다.</div>
             ) : (
               <div className="market-override-list">
-                {marketRows.map((row) => (
-                  <div className="market-override-row" key={row.market}>
-                    <div className="market-override-title">
-                      <strong>{row.market}</strong>
-                      <button
-                        className="market-remove-button"
-                        onClick={() => removeMarketRow(setMarketRows, row.market, setMarketConfigNotice, setMarketConfigError)}
-                        disabled={marketConfigSaving}
-                      >
-                        제거
-                      </button>
+                <div className="market-grid-header">
+                  <span>마켓</span>
+                  <span>최대 매수 KRW</span>
+                  <span>프로필</span>
+                  <span>관리</span>
+                </div>
+                {marketRows.map((row) => {
+                  const expanded = expandedMarket === row.market
+                  const effectiveProfileLabel = row.profile && row.profile !== '' ? row.profile : profileLabel
+                  return (
+                    <div className={`market-override-row ${expanded ? 'expanded' : ''}`} key={row.market}>
+                      <div className="market-override-main">
+                        <div className="market-symbol">
+                          <button
+                            className={`market-expand-button ${expanded ? 'open' : ''}`}
+                            onClick={() => setExpandedMarket((prev) => (prev === row.market ? null : row.market))}
+                            aria-label={expanded ? `${row.market} 비율 설정 닫기` : `${row.market} 비율 설정 열기`}
+                            type="button"
+                          >
+                            <span>▾</span>
+                          </button>
+                          <strong>{row.market}</strong>
+                        </div>
+                        <label className="market-inline-field">
+                          <input
+                            type="number"
+                            step="1000"
+                            min="0"
+                            placeholder="기본값"
+                            value={row.maxOrderKrw}
+                            onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'maxOrderKrw', event.target.value)}
+                          />
+                        </label>
+                        <label className="market-inline-field">
+                          <select
+                            value={row.profile}
+                            onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'profile', event.target.value)}
+                          >
+                            <option value="">기본값</option>
+                            <option value="AGGRESSIVE">AGGRESSIVE</option>
+                            <option value="BALANCED">BALANCED</option>
+                            <option value="CONSERVATIVE">CONSERVATIVE</option>
+                          </select>
+                        </label>
+                        <button
+                          className="market-remove-button"
+                          onClick={() => removeMarketRow(
+                            setMarketRows,
+                            row.market,
+                            setMarketConfigNotice,
+                            setMarketConfigError,
+                            setSelectedRatioPresetByMarket
+                          )}
+                          disabled={marketConfigSaving}
+                        >
+                          제거
+                        </button>
+                      </div>
+
+                      <div className={`market-ratio-panel ${expanded ? 'open' : ''}`}>
+                        <div className="market-ratio-panel-inner">
+                          <div className="market-ratio-head">
+                            <h3>{row.market} 비율 설정</h3>
+                            <span className="pill">PROFILE {effectiveProfileLabel}</span>
+                          </div>
+                          <p className="sub compact">빈 값은 전역 전략 비율을 사용하고, 입력한 값만 이 마켓 override로 저장됩니다.</p>
+                          <div className="preset-row">
+                            {ratioPresets.length === 0 ? (
+                              <p className="sub compact">등록된 프리셋이 없습니다.</p>
+                            ) : ratioPresets.map((preset) => (
+                              <button
+                                key={`${row.market}-${preset.code}`}
+                                className={`ghost-button ${selectedRatioPresetByMarket[row.market] === preset.code ? 'active' : ''}`}
+                                onClick={() => applyRatioPresetToMarket(
+                                  preset,
+                                  row.market,
+                                  setMarketRows,
+                                  setSelectedRatioPresetByMarket,
+                                  setRatioError
+                                )}
+                                type="button"
+                              >
+                                {preset.displayName} 비율 적용
+                              </button>
+                            ))}
+                          </div>
+                          {selectedRatioPresetByMarket[row.market] && (
+                            <p className="sub compact">
+                              {resolvePresetDisplayName(ratioPresets, selectedRatioPresetByMarket[row.market])} 프리셋이
+                              입력값에 적용되었습니다. 아래 마켓 설정 저장 버튼을 눌러야 서버 반영됩니다.
+                            </p>
+                          )}
+                          <div className="form-grid market-ratio-grid">
+                            <label className="form-field">
+                              <span>익절 %</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                placeholder={toInputValue(strategy?.takeProfitPct)}
+                                value={row.takeProfitPct}
+                                onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'takeProfitPct', event.target.value)}
+                              />
+                            </label>
+                            <label className="form-field">
+                              <span>손절 %</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                placeholder={toInputValue(strategy?.stopLossPct)}
+                                value={row.stopLossPct}
+                                onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'stopLossPct', event.target.value)}
+                              />
+                            </label>
+                            <label className="form-field">
+                              <span>트레일링 %</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                placeholder={toInputValue(strategy?.trailingStopPct)}
+                                value={row.trailingStopPct}
+                                onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'trailingStopPct', event.target.value)}
+                              />
+                            </label>
+                            <label className="form-field">
+                              <span>부분 익절 %</span>
+                              <input
+                                type="number"
+                                step="1"
+                                placeholder={toInputValue(strategy?.partialTakeProfitPct)}
+                                value={row.partialTakeProfitPct}
+                                onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'partialTakeProfitPct', event.target.value)}
+                              />
+                            </label>
+                            <label className="form-field">
+                              <span>손절/트레일링 매도 %</span>
+                              <input
+                                type="number"
+                                step="1"
+                                placeholder={toInputValue(strategy?.stopExitPct)}
+                                value={row.stopExitPct}
+                                onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'stopExitPct', event.target.value)}
+                              />
+                            </label>
+                            <label className="form-field">
+                              <span>추세 이탈 매도 %</span>
+                              <input
+                                type="number"
+                                step="1"
+                                placeholder={toInputValue(strategy?.trendExitPct)}
+                                value={row.trendExitPct}
+                                onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'trendExitPct', event.target.value)}
+                              />
+                            </label>
+                            <label className="form-field">
+                              <span>모멘텀 역전 매도 %</span>
+                              <input
+                                type="number"
+                                step="1"
+                                placeholder={toInputValue(strategy?.momentumExitPct)}
+                                value={row.momentumExitPct}
+                                onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'momentumExitPct', event.target.value)}
+                              />
+                            </label>
+                          </div>
+                          <div className="button-row">
+                            <button
+                              className="ghost-button"
+                              onClick={() => clearMarketRatioOverrides(
+                                setMarketRows,
+                                row.market,
+                                setSelectedRatioPresetByMarket,
+                                setRatioError
+                              )}
+                              type="button"
+                            >
+                              이 마켓 비율 초기화
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <label className="form-field">
-                      <span>최대 매수 KRW</span>
-                      <input
-                        type="number"
-                        step="1000"
-                        min="0"
-                        placeholder="기본값 사용"
-                        value={row.maxOrderKrw}
-                        onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'maxOrderKrw', event.target.value)}
-                      />
-                    </label>
-                    <label className="form-field">
-                      <span>프로필</span>
-                      <select
-                        value={row.profile}
-                        onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'profile', event.target.value)}
-                      >
-                        <option value="">기본값</option>
-                        <option value="AGGRESSIVE">AGGRESSIVE</option>
-                        <option value="BALANCED">BALANCED</option>
-                        <option value="CONSERVATIVE">CONSERVATIVE</option>
-                      </select>
-                    </label>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
             <p className="sub compact">빈 값은 글로벌 전략 설정값을 사용합니다.</p>
@@ -716,13 +806,202 @@ function App() {
             </div>
           </article>
 
+          <article className="control-card card--elevated performance-card">
+            <div className="card-head">
+              <div>
+                <h2>기간 수익 분석</h2>
+                <p className="sub">직접 기간/연도/월 기준 추정 실현손익을 조회합니다.</p>
+              </div>
+              <span className="pill">ESTIMATED</span>
+            </div>
+
+            <div className="mode-row">
+              <button
+                className={`ghost-button ${performanceMode === 'range' ? 'active' : ''}`}
+                onClick={() => setPerformanceMode('range')}
+              >
+                직접 기간
+              </button>
+              <button
+                className={`ghost-button ${performanceMode === 'year' ? 'active' : ''}`}
+                onClick={() => setPerformanceMode('year')}
+              >
+                연도별
+              </button>
+              <button
+                className={`ghost-button ${performanceMode === 'month' ? 'active' : ''}`}
+                onClick={() => setPerformanceMode('month')}
+              >
+                월별
+              </button>
+            </div>
+
+            {performanceMode === 'range' ? (
+              <div className="filter-row">
+                <label className="form-field">
+                  <span>시작일</span>
+                  <input
+                    type="date"
+                    value={performanceInputs.from}
+                    onChange={(event) => setPerformanceInputs((prev) => ({ ...prev, from: event.target.value }))}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>종료일</span>
+                  <input
+                    type="date"
+                    value={performanceInputs.to}
+                    onChange={(event) => setPerformanceInputs((prev) => ({ ...prev, to: event.target.value }))}
+                  />
+                </label>
+              </div>
+            ) : performanceMode === 'year' ? (
+              <div className="filter-row filter-row--single">
+                <label className="form-field">
+                  <span>연도</span>
+                  <input
+                    type="number"
+                    min="2009"
+                    max="2100"
+                    value={performanceInputs.year}
+                    onChange={(event) => setPerformanceInputs((prev) => ({ ...prev, year: event.target.value }))}
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="filter-row">
+                <label className="form-field">
+                  <span>연도</span>
+                  <input
+                    type="number"
+                    min="2009"
+                    max="2100"
+                    value={performanceInputs.year}
+                    onChange={(event) => setPerformanceInputs((prev) => ({ ...prev, year: event.target.value }))}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>월</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="12"
+                    value={performanceInputs.month}
+                    onChange={(event) => setPerformanceInputs((prev) => ({ ...prev, month: event.target.value }))}
+                  />
+                </label>
+              </div>
+            )}
+
+            <div className="button-row">
+              <button
+                className="primary-button"
+                onClick={() => fetchPerformance()}
+                disabled={performanceLoading}
+              >
+                {performanceLoading ? '조회 중...' : '수익 조회'}
+              </button>
+            </div>
+
+            {performanceError && <p className="status-error">{performanceError}</p>}
+
+            {performance && (
+              <>
+                <p className="sub compact">
+                  조회 구간 {performance.from} ~ {performance.to} ({performance.timezone})
+                </p>
+                <div className="performance-summary-grid">
+                  <div className="performance-mini">
+                    <span>실현손익</span>
+                    <strong className={`mono ${pnlClass(performanceTotal?.estimatedRealizedPnlKrw)}`}>
+                      {formatKRW(performanceTotal?.estimatedRealizedPnlKrw)} KRW
+                    </strong>
+                  </div>
+                  <div className="performance-mini">
+                    <span>순현금흐름</span>
+                    <strong className={`mono ${pnlClass(performanceTotal?.netCashFlowKrw)}`}>
+                      {formatKRW(performanceTotal?.netCashFlowKrw)} KRW
+                    </strong>
+                  </div>
+                  <div className="performance-mini">
+                    <span>매수/매도</span>
+                    <strong className="mono">
+                      {formatKRW(performanceTotal?.buyNotionalKrw)} / {formatKRW(performanceTotal?.sellNotionalKrw)}
+                    </strong>
+                  </div>
+                  <div className="performance-mini">
+                    <span>매도 승률</span>
+                    <strong className="mono">{formatPercent(performanceTotal?.sellWinRate)}</strong>
+                  </div>
+                </div>
+
+                <div className="performance-table-grid">
+                  <div className="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>연도</th>
+                          <th>실현손익</th>
+                          <th>순현금흐름</th>
+                          <th>승률</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(performance.yearly ?? []).length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="empty-cell">연도 데이터 없음</td>
+                          </tr>
+                        ) : (performance.yearly ?? []).map((row) => (
+                          <tr key={`year-${row.period}`}>
+                            <td className="mono">{row.period}</td>
+                            <td className={`mono ${pnlClass(row.estimatedRealizedPnlKrw)}`}>{formatKRW(row.estimatedRealizedPnlKrw)}</td>
+                            <td className={`mono ${pnlClass(row.netCashFlowKrw)}`}>{formatKRW(row.netCashFlowKrw)}</td>
+                            <td className="mono">{formatPercent(row.sellWinRate)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="table-wrapper">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>월</th>
+                          <th>실현손익</th>
+                          <th>순현금흐름</th>
+                          <th>승률</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(performance.monthly ?? []).length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="empty-cell">월 데이터 없음</td>
+                          </tr>
+                        ) : (performance.monthly ?? []).map((row) => (
+                          <tr key={`month-${row.period}`}>
+                            <td className="mono">{row.period}</td>
+                            <td className={`mono ${pnlClass(row.estimatedRealizedPnlKrw)}`}>{formatKRW(row.estimatedRealizedPnlKrw)}</td>
+                            <td className={`mono ${pnlClass(row.netCashFlowKrw)}`}>{formatKRW(row.netCashFlowKrw)}</td>
+                            <td className="mono">{formatPercent(row.sellWinRate)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+          </article>
+
         </aside>
       </section>
     </div>
   )
 }
 
-const appendOrderAlerts = (orders, lastOrderIdRef, setAlerts) => {
+const appendOrderAlerts = (orders, lastOrderIdRef, setAlerts, options = {}) => {
+  const seedInitial = Boolean(options?.seedInitial)
   if (!Array.isArray(orders) || orders.length === 0) {
     return
   }
@@ -733,6 +1012,17 @@ const appendOrderAlerts = (orders, lastOrderIdRef, setAlerts) => {
   }
 
   if (lastOrderIdRef.current === null) {
+    if (seedInitial) {
+      const seedOrders = orders
+        .filter((order) => order?.side === 'BUY' || order?.side === 'SELL')
+        .slice(0, ALERT_SEED_LIMIT)
+      seedOrders.forEach((order) => {
+        const tone = order.side === 'BUY' ? 'positive' : 'negative'
+        const message = `주문 ${order.side} ${order.market}`
+        const meta = `${order.requestStatus ?? '-'} / ${order.state ?? '-'} / ${formatDateTime(order.requestedAt)}`
+        pushAlert(setAlerts, message, meta, tone, order.requestedAt)
+      })
+    }
     lastOrderIdRef.current = newestId
     return
   }
@@ -756,12 +1046,13 @@ const appendOrderAlerts = (orders, lastOrderIdRef, setAlerts) => {
     const tone = order.side === 'BUY' ? 'positive' : 'negative'
     const message = `주문 ${order.side} ${order.market}`
     const meta = `${order.requestStatus ?? '-'} / ${order.state ?? '-'} / ${formatDateTime(order.requestedAt)}`
-    pushAlert(setAlerts, message, meta, tone)
+    pushAlert(setAlerts, message, meta, tone, order.requestedAt)
   })
   lastOrderIdRef.current = newestId
 }
 
-const appendDecisionAlerts = (decisions, lastDecisionIdRef, setAlerts) => {
+const appendDecisionAlerts = (decisions, lastDecisionIdRef, setAlerts, options = {}) => {
+  const seedInitial = Boolean(options?.seedInitial)
   if (!Array.isArray(decisions) || decisions.length === 0) {
     return
   }
@@ -772,6 +1063,17 @@ const appendDecisionAlerts = (decisions, lastDecisionIdRef, setAlerts) => {
   }
 
   if (lastDecisionIdRef.current === null) {
+    if (seedInitial) {
+      const seedDecisions = decisions
+        .filter((decision) => decision?.action === 'BUY' || decision?.action === 'SELL')
+        .slice(0, ALERT_SEED_LIMIT)
+      seedDecisions.forEach((decision) => {
+        const tone = decision.action === 'BUY' ? 'positive' : 'negative'
+        const message = `신호 ${decision.action} ${decision.market}`
+        const meta = `${decision.reason ?? '-'} / ${formatDateTime(decision.executedAt)}`
+        pushAlert(setAlerts, message, meta, tone, decision.executedAt)
+      })
+    }
     lastDecisionIdRef.current = newestId
     return
   }
@@ -795,15 +1097,24 @@ const appendDecisionAlerts = (decisions, lastDecisionIdRef, setAlerts) => {
     const tone = decision.action === 'BUY' ? 'positive' : 'negative'
     const message = `신호 ${decision.action} ${decision.market}`
     const meta = `${decision.reason ?? '-'} / ${formatDateTime(decision.executedAt)}`
-    pushAlert(setAlerts, message, meta, tone)
+    pushAlert(setAlerts, message, meta, tone, decision.executedAt)
   })
   lastDecisionIdRef.current = newestId
 }
 
-const pushAlert = (setAlerts, message, meta, tone) => {
+const pushAlert = (setAlerts, message, meta, tone, occurredAt = null) => {
   setAlerts((prev) => {
-    const next = [{ id: `${Date.now()}-${Math.random()}`, message, meta, tone, time: new Date().toISOString() }, ...prev]
-    return next.slice(0, 12)
+    if (prev.some((item) => item.message === message && item.meta === meta)) {
+      return prev
+    }
+    const next = [{
+      id: `${Date.now()}-${Math.random()}`,
+      message,
+      meta,
+      tone,
+      time: occurredAt ?? new Date().toISOString(),
+    }, ...prev]
+    return next.slice(0, ALERT_MAX_SIZE)
   })
 }
 
@@ -841,47 +1152,6 @@ const handleEngineStop = async (setEngineStatus, setEngineError, setEngineBusy) 
     setEngineError(err?.message ?? '엔진 중지 실패')
   } finally {
     setEngineBusy(false)
-  }
-}
-
-const handleRatioSave = async (
-  inputs,
-  setRatioSaving,
-  setRatioError,
-  setStrategy,
-  setRatioInputs,
-  setSelectedRatioPreset
-) => {
-  setRatioSaving(true)
-  setRatioError(null)
-  try {
-    const payload = buildRatioPayload(inputs)
-    const response = await fetch('/api/strategy/ratios', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    if (!response.ok) {
-      const errorPayload = await response.json().catch(() => null)
-      const message = errorPayload?.error ? `${errorPayload.error}` : `저장 실패 ${response.status}`
-      throw new Error(message)
-    }
-    const data = await response.json()
-    setStrategy(data)
-    setRatioInputs({
-      takeProfitPct: toInputValue(data?.takeProfitPct),
-      stopLossPct: toInputValue(data?.stopLossPct),
-      trailingStopPct: toInputValue(data?.trailingStopPct),
-      partialTakeProfitPct: toInputValue(data?.partialTakeProfitPct),
-      stopExitPct: toInputValue(data?.stopExitPct),
-      trendExitPct: toInputValue(data?.trendExitPct),
-      momentumExitPct: toInputValue(data?.momentumExitPct),
-    })
-    setSelectedRatioPreset(null)
-  } catch (err) {
-    setRatioError(err?.message ?? '비율 저장 실패')
-  } finally {
-    setRatioSaving(false)
   }
 }
 
@@ -932,53 +1202,101 @@ const handleMarketOverridesSave = async (
   }
 }
 
-const applyRatioPreset = (preset, setRatioInputs, setSelectedRatioPreset, setRatioError) => {
-  if (!preset || !preset.code) {
+const applyRatioPresetToMarket = (
+  preset,
+  market,
+  setMarketRows,
+  setSelectedRatioPresetByMarket,
+  setRatioError
+) => {
+  if (!preset || !preset.code || !market) {
     return
   }
-  setRatioInputs({
-    takeProfitPct: toInputValue(preset.takeProfitPct),
-    stopLossPct: toInputValue(preset.stopLossPct),
-    trailingStopPct: toInputValue(preset.trailingStopPct),
-    partialTakeProfitPct: toInputValue(preset.partialTakeProfitPct),
-    stopExitPct: toInputValue(preset.stopExitPct),
-    trendExitPct: toInputValue(preset.trendExitPct),
-    momentumExitPct: toInputValue(preset.momentumExitPct),
-  })
-  setSelectedRatioPreset(preset.code)
+  const normalized = normalizeMarket(market)
+  if (!normalized) {
+    return
+  }
+  setMarketRows((prev) => prev.map((row) => {
+    if (row.market !== normalized) {
+      return row
+    }
+    return {
+      ...row,
+      takeProfitPct: toInputValue(preset.takeProfitPct),
+      stopLossPct: toInputValue(preset.stopLossPct),
+      trailingStopPct: toInputValue(preset.trailingStopPct),
+      partialTakeProfitPct: toInputValue(preset.partialTakeProfitPct),
+      stopExitPct: toInputValue(preset.stopExitPct),
+      trendExitPct: toInputValue(preset.trendExitPct),
+      momentumExitPct: toInputValue(preset.momentumExitPct),
+    }
+  }))
+  setSelectedRatioPresetByMarket((prev) => ({
+    ...prev,
+    [normalized]: preset.code,
+  }))
   setRatioError(null)
 }
 
-const buildRatioPayload = (inputs) => {
-  const payload = {}
-  const fields = [
-    'takeProfitPct',
-    'stopLossPct',
-    'trailingStopPct',
-    'partialTakeProfitPct',
-    'stopExitPct',
-    'trendExitPct',
-    'momentumExitPct',
-  ]
-  fields.forEach((field) => {
-    const raw = inputs[field]
-    if (raw === '' || raw === null || raw === undefined) {
-      return
+const clearMarketRatioOverrides = (
+  setMarketRows,
+  market,
+  setSelectedRatioPresetByMarket,
+  setRatioError
+) => {
+  const normalized = normalizeMarket(market)
+  if (!normalized) {
+    return
+  }
+  setMarketRows((prev) => prev.map((row) => {
+    if (row.market !== normalized) {
+      return row
     }
-    const value = Number(raw)
-    if (Number.isNaN(value) || value < 0 || value > 100) {
-      throw new Error(`${field} 값은 0~100 사이여야 합니다.`)
+    return {
+      ...row,
+      ...createEmptyRatioFields(),
     }
-    payload[field] = value
+  }))
+  setSelectedRatioPresetByMarket((prev) => {
+    if (!prev || !Object.prototype.hasOwnProperty.call(prev, normalized)) {
+      return prev
+    }
+    const next = { ...prev }
+    delete next[normalized]
+    return next
   })
-  return payload
+  setRatioError(null)
 }
 
-const updateRatioInput = (setRatioInputs, field, value) => {
-  setRatioInputs((prev) => ({
-    ...prev,
-    [field]: value,
-  }))
+const createEmptyRatioFields = () => ({
+  takeProfitPct: '',
+  stopLossPct: '',
+  trailingStopPct: '',
+  partialTakeProfitPct: '',
+  stopExitPct: '',
+  trendExitPct: '',
+  momentumExitPct: '',
+})
+
+const normalizeRatioInputOrNull = (market, field, value) => {
+  const raw = `${value ?? ''}`.trim()
+  if (raw === '') {
+    return null
+  }
+  const numeric = Number(raw)
+  if (Number.isNaN(numeric) || numeric < 0 || numeric > 100) {
+    const label = RATIO_FIELD_LABELS[field] ?? field
+    throw new Error(`${market} ${label} 값은 0~100 사이여야 합니다.`)
+  }
+  return numeric
+}
+
+const resolvePresetDisplayName = (presets, code) => {
+  if (!code) {
+    return ''
+  }
+  const found = Array.isArray(presets) ? presets.find((preset) => preset.code === code) : null
+  return found?.displayName ?? code
 }
 
 const updateMarketOverrideInput = (setMarketRows, market, field, value) => {
@@ -1015,18 +1333,34 @@ const addMarketRow = (
     return
   }
 
-  setMarketRows((prev) => [...prev, { market, maxOrderKrw: '', profile: '' }])
+  setMarketRows((prev) => [...prev, { market, maxOrderKrw: '', profile: '', ...createEmptyRatioFields() }])
   setNewMarketInput('')
   setMarketConfigError(null)
   setMarketConfigNotice(null)
 }
 
-const removeMarketRow = (setMarketRows, market, setMarketConfigNotice, setMarketConfigError) => {
+const removeMarketRow = (
+  setMarketRows,
+  market,
+  setMarketConfigNotice,
+  setMarketConfigError,
+  setSelectedRatioPresetByMarket
+) => {
   const normalized = normalizeMarket(market)
   if (!normalized) {
     return
   }
   setMarketRows((prev) => prev.filter((row) => normalizeMarket(row?.market) !== normalized))
+  if (typeof setSelectedRatioPresetByMarket === 'function') {
+    setSelectedRatioPresetByMarket((prev) => {
+      if (!prev || !Object.prototype.hasOwnProperty.call(prev, normalized)) {
+        return prev
+      }
+      const next = { ...prev }
+      delete next[normalized]
+      return next
+    })
+  }
   setMarketConfigNotice(null)
   setMarketConfigError(null)
 }
@@ -1061,6 +1395,7 @@ const buildMarketOverrideRows = (payload) => {
   const configuredMarkets = Array.isArray(payload?.markets) ? payload.markets : []
   const maxOrderKrwByMarket = payload?.maxOrderKrwByMarket ?? {}
   const profileByMarket = payload?.profileByMarket ?? {}
+  const ratiosByMarket = payload?.ratiosByMarket ?? {}
 
   const orderedMarkets = []
   const seen = new Set()
@@ -1093,6 +1428,13 @@ const buildMarketOverrideRows = (payload) => {
     market,
     maxOrderKrw: toInputValue(maxOrderKrwByMarket?.[market]),
     profile: normalizeProfileValue(profileByMarket?.[market]),
+    takeProfitPct: toInputValue(ratiosByMarket?.[market]?.takeProfitPct),
+    stopLossPct: toInputValue(ratiosByMarket?.[market]?.stopLossPct),
+    trailingStopPct: toInputValue(ratiosByMarket?.[market]?.trailingStopPct),
+    partialTakeProfitPct: toInputValue(ratiosByMarket?.[market]?.partialTakeProfitPct),
+    stopExitPct: toInputValue(ratiosByMarket?.[market]?.stopExitPct),
+    trendExitPct: toInputValue(ratiosByMarket?.[market]?.trendExitPct),
+    momentumExitPct: toInputValue(ratiosByMarket?.[market]?.momentumExitPct),
   }))
 }
 
@@ -1100,6 +1442,7 @@ const buildMarketOverridePayload = (rows) => {
   const payload = {
     maxOrderKrwByMarket: {},
     profileByMarket: {},
+    ratiosByMarket: {},
   }
   if (!Array.isArray(rows)) {
     return payload
@@ -1121,6 +1464,17 @@ const buildMarketOverridePayload = (rows) => {
     const profile = normalizeProfileValue(row?.profile)
     if (profile !== '') {
       payload.profileByMarket[market] = profile
+    }
+
+    const ratioPayload = {}
+    RATIO_FIELDS.forEach((field) => {
+      const normalized = normalizeRatioInputOrNull(market, field, row?.[field])
+      if (normalized !== null) {
+        ratioPayload[field] = normalized
+      }
+    })
+    if (Object.keys(ratioPayload).length > 0) {
+      payload.ratiosByMarket[market] = ratioPayload
     }
   })
   return payload
@@ -1169,6 +1523,13 @@ const buildMarketOverrideSignature = (rows) => {
         market,
         maxOrderKrw: normalizeCapForSignature(row?.maxOrderKrw),
         profile: normalizeProfileValue(row?.profile),
+        takeProfitPct: normalizeCapForSignature(row?.takeProfitPct),
+        stopLossPct: normalizeCapForSignature(row?.stopLossPct),
+        trailingStopPct: normalizeCapForSignature(row?.trailingStopPct),
+        partialTakeProfitPct: normalizeCapForSignature(row?.partialTakeProfitPct),
+        stopExitPct: normalizeCapForSignature(row?.stopExitPct),
+        trendExitPct: normalizeCapForSignature(row?.trendExitPct),
+        momentumExitPct: normalizeCapForSignature(row?.momentumExitPct),
       }
     })
     .filter((row) => row !== null)
@@ -1204,6 +1565,87 @@ const buildApiErrorMessage = (payload, fallback) => {
     return base
   }
   return `${base} (${details})`
+}
+
+const buildDefaultPerformanceInputs = () => {
+  const now = new Date()
+  const to = formatDateInput(now)
+  const from = formatDateInput(addDays(now, -29))
+  return {
+    from,
+    to,
+    year: String(now.getFullYear()),
+    month: String(now.getMonth() + 1),
+  }
+}
+
+const buildPerformanceQuery = (mode, inputs) => {
+  const params = new URLSearchParams()
+  if (mode === 'year') {
+    const year = normalizeIntegerInput(inputs?.year)
+    if (!year) {
+      throw new Error('연도 값을 입력해주세요.')
+    }
+    params.set('year', String(year))
+    return params.toString()
+  }
+  if (mode === 'month') {
+    const year = normalizeIntegerInput(inputs?.year)
+    const month = normalizeIntegerInput(inputs?.month)
+    if (!year || !month) {
+      throw new Error('연도/월 값을 입력해주세요.')
+    }
+    params.set('year', String(year))
+    params.set('month', String(month))
+    return params.toString()
+  }
+
+  const from = normalizeDateInput(inputs?.from)
+  const to = normalizeDateInput(inputs?.to)
+  if (!from || !to) {
+    throw new Error('시작일/종료일을 입력해주세요.')
+  }
+  if (from > to) {
+    throw new Error('시작일은 종료일보다 늦을 수 없습니다.')
+  }
+  params.set('from', from)
+  params.set('to', to)
+  return params.toString()
+}
+
+const formatDateInput = (date) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return ''
+  }
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const addDays = (date, days) => {
+  const next = new Date(date.getTime())
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+const normalizeIntegerInput = (value) => {
+  const num = Number(value)
+  if (!Number.isInteger(num)) {
+    return null
+  }
+  return num
+}
+
+const normalizeDateInput = (value) => {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
 }
 
 const normalizeProfileValue = (value) => {

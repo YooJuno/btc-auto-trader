@@ -53,11 +53,11 @@
 .table-card,
 .control-card {
   position: relative;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(12, 47, 58, 0.16);
+  background: linear-gradient(165deg, var(--surface), var(--surface-soft));
+  border: 1px solid var(--border);
   border-radius: 18px;
-  box-shadow: 0 16px 34px rgba(16, 44, 56, 0.12);
-  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(11px);
   transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
   overflow: hidden;
 }
@@ -73,7 +73,7 @@
   height: 180px;
   right: -108px;
   top: -84px;
-  background: radial-gradient(circle, rgba(14, 140, 124, 0.22), rgba(14, 140, 124, 0));
+  background: radial-gradient(circle, rgba(31, 201, 169, 0.26), rgba(31, 201, 169, 0));
   pointer-events: none;
 }
 
@@ -84,7 +84,7 @@
   height: 170px;
   right: 18px;
   bottom: -132px;
-  background: radial-gradient(circle, rgba(255, 132, 86, 0.16), rgba(255, 132, 86, 0));
+  background: radial-gradient(circle, rgba(240, 123, 79, 0.2), rgba(240, 123, 79, 0));
   pointer-events: none;
 }
 
@@ -101,13 +101,14 @@ h1 {
   margin: 0;
   font-size: clamp(2.1rem, 3.3vw, 3.1rem);
   letter-spacing: -0.03em;
-  color: #0f2732;
+  color: var(--text-strong);
 }
 
 h2 {
   margin: 0 0 3px;
   font-size: 1.18rem;
   letter-spacing: -0.02em;
+  color: var(--text-strong);
 }
 
 h3 {
@@ -133,16 +134,17 @@ h3 {
   gap: 9px;
   background-image: linear-gradient(
       145deg,
-      rgba(14, 140, 124, 0.14),
-      rgba(255, 132, 86, 0.14)
+      rgba(31, 201, 169, 0.16),
+      rgba(240, 123, 79, 0.16)
     ),
-    linear-gradient(rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.9));
+    linear-gradient(var(--surface-strong), var(--surface-strong));
 }
 
 .engine-inline-card::before,
 .positions-card::before,
 .decision-card::before,
 .strategy-card::before,
+.performance-card::before,
 .market-card::before,
 .feed-card::before,
 .order-card::before {
@@ -157,14 +159,15 @@ h3 {
 .engine-inline-card::before,
 .positions-card::before,
 .strategy-card::before,
+.performance-card::before,
 .feed-card::before {
-  background: linear-gradient(90deg, rgba(14, 140, 124, 0.95), rgba(14, 140, 124, 0.12));
+  background: linear-gradient(90deg, rgba(31, 201, 169, 0.95), rgba(31, 201, 169, 0.12));
 }
 
 .decision-card::before,
 .market-card::before,
 .order-card::before {
-  background: linear-gradient(90deg, rgba(255, 132, 86, 0.95), rgba(255, 132, 86, 0.14));
+  background: linear-gradient(90deg, rgba(240, 123, 79, 0.95), rgba(240, 123, 79, 0.14));
 }
 
 .engine-inline-head {
@@ -220,7 +223,7 @@ h3 {
   justify-content: space-between;
   gap: 8px;
   padding-top: 8px;
-  border-top: 1px dashed rgba(16, 44, 56, 0.2);
+  border-top: 1px dashed rgba(141, 177, 209, 0.28);
 }
 
 .status-connection-row > span:first-child {
@@ -246,21 +249,21 @@ h3 {
 }
 
 .connection-badge.connected {
-  color: #0a7045;
-  border-color: rgba(21, 120, 72, 0.36);
-  background: rgba(21, 120, 72, 0.15);
+  color: #0fdd95;
+  border-color: rgba(69, 216, 154, 0.44);
+  background: rgba(69, 216, 154, 0.14);
 }
 
 .connection-badge.disconnected {
-  color: #9d3f30;
-  border-color: rgba(176, 74, 58, 0.38);
-  background: rgba(176, 74, 58, 0.15);
+  color: #ff8f87;
+  border-color: rgba(255, 125, 115, 0.44);
+  background: rgba(255, 125, 115, 0.14);
 }
 
 .connection-badge.checking {
-  color: #9e5a2d;
-  border-color: rgba(255, 132, 86, 0.36);
-  background: rgba(255, 132, 86, 0.15);
+  color: #f5b072;
+  border-color: rgba(240, 123, 79, 0.44);
+  background: rgba(240, 123, 79, 0.14);
 }
 
 .status {
@@ -277,18 +280,18 @@ h3 {
 }
 
 .status.ok {
-  color: #0a7045;
-  background: rgba(21, 120, 72, 0.14);
+  color: #0fdd95;
+  background: rgba(69, 216, 154, 0.14);
 }
 
 .status.loading {
-  color: #9e5a2d;
-  background: rgba(255, 132, 86, 0.15);
+  color: #f5b072;
+  background: rgba(240, 123, 79, 0.14);
 }
 
 .status.error {
-  color: #9d3f30;
-  background: rgba(176, 74, 58, 0.16);
+  color: #ff8f87;
+  background: rgba(255, 125, 115, 0.14);
 }
 
 .status-error,
@@ -300,13 +303,13 @@ h3 {
 }
 
 .status-error {
-  color: #9d3f30;
-  background: rgba(176, 74, 58, 0.11);
+  color: #ff9b93;
+  background: rgba(255, 125, 115, 0.14);
 }
 
 .status-success {
-  color: #0a7045;
-  background: rgba(21, 120, 72, 0.11);
+  color: #70eab6;
+  background: rgba(69, 216, 154, 0.14);
 }
 
 .summary-grid {
@@ -383,6 +386,10 @@ h3 {
   min-height: 292px;
 }
 
+.performance-card {
+  min-height: 248px;
+}
+
 .market-card {
   min-height: 184px;
 }
@@ -395,7 +402,7 @@ h3 {
 
 .card--elevated,
 .table-card--elevated {
-  box-shadow: 0 16px 34px rgba(16, 44, 56, 0.12);
+  box-shadow: var(--shadow-soft);
 }
 
 .card-head {
@@ -406,11 +413,11 @@ h3 {
 }
 
 .pill {
-  border: 1px solid rgba(14, 140, 124, 0.3);
+  border: 1px solid rgba(31, 201, 169, 0.42);
   border-radius: 999px;
   padding: 6px 10px;
-  background: rgba(14, 140, 124, 0.09);
-  color: #0f6e61;
+  background: rgba(31, 201, 169, 0.12);
+  color: #8df0dc;
   font-size: 0.68rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -419,9 +426,9 @@ h3 {
 }
 
 .pill-warning {
-  border-color: rgba(255, 132, 86, 0.5);
-  color: #ab5c2a;
-  background: rgba(255, 132, 86, 0.16);
+  border-color: rgba(240, 123, 79, 0.5);
+  color: #ffc39d;
+  background: rgba(240, 123, 79, 0.16);
 }
 
 .button-row,
@@ -429,6 +436,22 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.filter-row--single {
+  grid-template-columns: 1fr;
 }
 
 .ghost-button,
@@ -443,36 +466,37 @@ h3 {
 }
 
 .ghost-button {
-  border: 1px solid rgba(16, 44, 56, 0.2);
-  background: rgba(255, 255, 255, 0.64);
-  color: #183343;
+  border: 1px solid var(--border);
+  background: rgba(20, 33, 50, 0.7);
+  color: var(--text);
   padding: 8px 12px;
 }
 
 .ghost-button:hover {
   transform: translateY(-1px);
-  border-color: rgba(14, 140, 124, 0.55);
+  border-color: rgba(31, 201, 169, 0.6);
+  box-shadow: 0 8px 18px rgba(7, 15, 27, 0.5);
 }
 
 .ghost-button.active {
-  border-color: rgba(14, 140, 124, 0.55);
-  color: #0c6659;
-  background: rgba(14, 140, 124, 0.13);
+  border-color: rgba(31, 201, 169, 0.62);
+  color: #9cf3e1;
+  background: rgba(31, 201, 169, 0.16);
 }
 
 .primary-button {
-  border: 1px solid transparent;
+  border: 1px solid rgba(250, 161, 120, 0.26);
   padding: 9px 12px;
-  color: #fff;
+  color: #fcfffe;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  box-shadow: 0 8px 18px rgba(16, 70, 92, 0.2);
+  box-shadow: 0 12px 20px rgba(9, 21, 34, 0.52);
 }
 
 .danger-button {
-  border: 1px solid rgba(176, 74, 58, 0.35);
+  border: 1px solid rgba(255, 125, 115, 0.44);
   padding: 9px 12px;
-  color: #9d3f30;
-  background: rgba(176, 74, 58, 0.09);
+  color: #ff9f97;
+  background: rgba(255, 125, 115, 0.14);
 }
 
 .primary-button:hover,
@@ -509,27 +533,32 @@ h3 {
 
 .form-field input,
 .form-field select {
-  border: 1px solid rgba(16, 44, 56, 0.2);
+  border: 1px solid var(--border);
   border-radius: 9px;
   padding: 7px 9px;
-  background: rgba(255, 255, 255, 0.74);
-  color: #102431;
+  background: rgba(10, 18, 30, 0.82);
+  color: var(--text);
   font-size: 0.82rem;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.form-field input::placeholder,
+.market-add-row input::placeholder {
+  color: rgba(140, 161, 184, 0.72);
 }
 
 .form-field input:focus,
 .form-field select:focus {
   outline: none;
-  border-color: rgba(14, 140, 124, 0.62);
-  box-shadow: 0 0 0 2px rgba(14, 140, 124, 0.12);
-  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(31, 201, 169, 0.7);
+  box-shadow: 0 0 0 2px rgba(31, 201, 169, 0.18);
+  background: rgba(8, 17, 29, 0.94);
 }
 
 .market-override-list {
   display: grid;
   gap: 8px;
-  max-height: 300px;
+  max-height: 520px;
   overflow: auto;
   padding-right: 3px;
 }
@@ -543,10 +572,10 @@ h3 {
 .market-add-row input {
   flex: 1;
   min-width: 0;
-  border: 1px solid rgba(16, 44, 56, 0.18);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.84);
+  background: rgba(10, 18, 30, 0.9);
   color: var(--text);
   font-size: 0.82rem;
   transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
@@ -554,34 +583,111 @@ h3 {
 
 .market-add-row input:focus {
   outline: none;
-  border-color: rgba(14, 140, 124, 0.62);
-  box-shadow: 0 0 0 2px rgba(14, 140, 124, 0.12);
-  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(31, 201, 169, 0.7);
+  box-shadow: 0 0 0 2px rgba(31, 201, 169, 0.18);
+  background: rgba(8, 17, 29, 0.94);
+}
+
+.market-grid-header {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(170px, 1.2fr) minmax(170px, 1fr) auto;
+  gap: 8px;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .market-override-row {
-  display: grid;
-  grid-template-columns: 168px minmax(0, 1fr) 150px;
-  gap: 8px;
-  align-items: end;
-  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 10px;
   border-radius: 11px;
-  border: 1px solid rgba(16, 44, 56, 0.11);
-  background: rgba(255, 255, 255, 0.57);
+  border: 1px solid rgba(129, 172, 209, 0.2);
+  background: rgba(12, 20, 33, 0.8);
 }
 
-.market-override-title {
+.market-override-row.expanded {
+  border-color: rgba(31, 201, 169, 0.34);
+  background: linear-gradient(170deg, rgba(12, 20, 33, 0.9), rgba(15, 27, 42, 0.88));
+}
+
+.market-override-main {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(170px, 1.2fr) minmax(170px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.market-symbol {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 8px;
-  font-size: 0.81rem;
+}
+
+.market-symbol strong {
+  font-size: 0.9rem;
+  color: var(--text-strong);
+}
+
+.market-expand-button {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(15, 27, 41, 0.88);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.market-expand-button span {
+  display: inline-block;
+  transform: rotate(-90deg);
+  transition: transform 0.2s ease;
+}
+
+.market-expand-button.open span {
+  transform: rotate(0deg);
+}
+
+.market-expand-button:hover {
+  border-color: rgba(31, 201, 169, 0.62);
+  background: rgba(21, 36, 55, 0.92);
+}
+
+.market-inline-field {
+  display: block;
+}
+
+.market-inline-field input,
+.market-inline-field select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(10, 18, 30, 0.9);
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.market-inline-field input:focus,
+.market-inline-field select:focus {
+  outline: none;
+  border-color: rgba(31, 201, 169, 0.7);
+  box-shadow: 0 0 0 2px rgba(31, 201, 169, 0.18);
+  background: rgba(8, 17, 29, 0.94);
 }
 
 .market-remove-button {
-  border: 1px solid rgba(176, 74, 58, 0.32);
-  background: rgba(255, 255, 255, 0.78);
-  color: rgba(176, 74, 58, 0.95);
+  border: 1px solid rgba(255, 125, 115, 0.42);
+  background: rgba(17, 26, 40, 0.88);
+  color: #ff978f;
   border-radius: 999px;
   padding: 5px 9px;
   font-size: 0.7rem;
@@ -592,13 +698,51 @@ h3 {
 }
 
 .market-remove-button:hover:not(:disabled) {
-  border-color: rgba(176, 74, 58, 0.64);
-  background: rgba(176, 74, 58, 0.1);
+  border-color: rgba(255, 125, 115, 0.64);
+  background: rgba(255, 125, 115, 0.14);
 }
 
 .market-remove-button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.market-ratio-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.24s ease, opacity 0.24s ease, margin-top 0.24s ease;
+  opacity: 0;
+  margin-top: 0;
+}
+
+.market-ratio-panel.open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  margin-top: 10px;
+}
+
+.market-ratio-panel-inner {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px dashed rgba(129, 172, 209, 0.28);
+  padding-top: 10px;
+}
+
+.market-ratio-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.market-ratio-head h3 {
+  margin: 0;
+}
+
+.market-ratio-grid {
+  margin-top: 2px;
 }
 
 .table-header {
@@ -613,6 +757,44 @@ h3 {
   border-radius: 10px;
 }
 
+.performance-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.performance-mini {
+  border: 1px solid rgba(129, 172, 209, 0.22);
+  border-radius: 10px;
+  padding: 8px 9px;
+  background: rgba(12, 20, 33, 0.82);
+  display: grid;
+  gap: 4px;
+}
+
+.performance-mini span {
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.performance-mini strong {
+  font-size: 0.86rem;
+}
+
+.performance-table-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.empty-cell {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 table {
   width: 100%;
   min-width: 620px;
@@ -621,7 +803,7 @@ table {
 
 thead th {
   padding: 8px 7px;
-  border-bottom: 1px solid rgba(16, 44, 56, 0.15);
+  border-bottom: 1px solid rgba(129, 172, 209, 0.24);
   text-align: left;
   font-size: 0.68rem;
   letter-spacing: 0.09em;
@@ -630,22 +812,22 @@ thead th {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: rgba(247, 252, 250, 0.88);
+  background: rgba(8, 16, 27, 0.94);
 }
 
 tbody td {
   padding: 8px 7px;
-  border-bottom: 1px solid rgba(16, 44, 56, 0.08);
+  border-bottom: 1px solid rgba(129, 172, 209, 0.14);
   font-size: 0.81rem;
   vertical-align: top;
 }
 
 tbody tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.36);
+  background: rgba(14, 24, 38, 0.62);
 }
 
 tbody tr:hover {
-  background: rgba(14, 140, 124, 0.08);
+  background: rgba(31, 201, 169, 0.14);
 }
 
 .table-wrapper::-webkit-scrollbar,
@@ -658,14 +840,14 @@ tbody tr:hover {
 .table-wrapper::-webkit-scrollbar-thumb,
 .alert-list::-webkit-scrollbar-thumb,
 .market-override-list::-webkit-scrollbar-thumb {
-  background: rgba(16, 44, 56, 0.22);
+  background: rgba(129, 172, 209, 0.32);
   border-radius: 999px;
 }
 
 .table-wrapper::-webkit-scrollbar-track,
 .alert-list::-webkit-scrollbar-track,
 .market-override-list::-webkit-scrollbar-track {
-  background: rgba(16, 44, 56, 0.06);
+  background: rgba(11, 21, 34, 0.66);
   border-radius: 999px;
 }
 
@@ -688,17 +870,17 @@ tbody tr:hover {
   gap: 10px;
   padding: 8px 10px;
   border-radius: 11px;
-  border: 1px solid rgba(16, 44, 56, 0.12);
+  border: 1px solid rgba(129, 172, 209, 0.2);
   border-left-width: 3px;
-  background: rgba(255, 255, 255, 0.56);
+  background: rgba(12, 20, 33, 0.84);
 }
 
 .alert-item.positive {
-  border-left-color: rgba(21, 120, 72, 0.7);
+  border-left-color: rgba(69, 216, 154, 0.82);
 }
 
 .alert-item.negative {
-  border-left-color: rgba(176, 74, 58, 0.72);
+  border-left-color: rgba(255, 125, 115, 0.84);
 }
 
 .compact {
@@ -773,8 +955,8 @@ tbody tr:hover {
   .table-card:hover,
   .control-card:hover {
     transform: translateY(-2px);
-    border-color: rgba(14, 140, 124, 0.3);
-    box-shadow: 0 20px 40px rgba(16, 44, 56, 0.16);
+    border-color: var(--border-strong);
+    box-shadow: 0 26px 46px rgba(3, 10, 21, 0.62);
   }
 }
 
@@ -802,6 +984,7 @@ tbody tr:hover {
   }
 
   .strategy-card,
+  .performance-card,
   .market-card,
   .decision-card,
   .feed-card,
@@ -821,6 +1004,19 @@ tbody tr:hover {
 
   .workspace-side {
     grid-template-columns: 1fr;
+  }
+
+  .market-grid-header {
+    display: none;
+  }
+
+  .market-override-main {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .market-remove-button {
+    justify-self: start;
   }
 }
 
@@ -846,6 +1042,7 @@ tbody tr:hover {
 
   .button-row,
   .preset-row,
+  .mode-row,
   .engine-inline-actions {
     flex-direction: column;
   }
@@ -859,7 +1056,9 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
-  .market-override-row {
+  .filter-row,
+  .performance-summary-grid,
+  .performance-table-grid {
     grid-template-columns: 1fr;
   }
 
