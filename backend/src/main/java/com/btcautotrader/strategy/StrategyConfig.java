@@ -7,6 +7,9 @@ public record StrategyConfig(
         double stopLossPct,
         double trailingStopPct,
         double partialTakeProfitPct,
-        String profile
+        String profile,
+        double stopExitPct,
+        double trendExitPct,
+        double momentumExitPct
 ) {
 }

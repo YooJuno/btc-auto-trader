@@ -33,6 +33,7 @@ For stability, consider 5m or 15m as your production default.
 - **Momentum reversal:** RSI below `RSI_SELL` and MACD histogram < 0.
 - **Trend break:** price below `MA_LONG`.
 - **Take-profit:** optional partial take-profit before full exit.
+ - **Exit sizing:** non-stop exits can be partial; stop/trailing defaults to full exit.
 
 **Suggested defaults (balanced)**
 - `MA_SHORT = 20`
@@ -128,7 +129,8 @@ risk.target-vol-pct=0.5
 ```
 
 Risk parameters `takeProfitPct` / `stopLossPct` / `trailingStopPct`
-/ `partialTakeProfitPct` / `maxOrderKrw` / `profile` are managed via the Strategy API:
+/ `partialTakeProfitPct` / `maxOrderKrw` / `profile`
+/ `stopExitPct` / `trendExitPct` / `momentumExitPct` are managed via the Strategy API:
 - `GET /api/strategy`
 - `PUT /api/strategy`
 

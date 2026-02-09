@@ -36,6 +36,15 @@ public class StrategyConfigEntity {
     @Column(name = "profile")
     private String profile;
 
+    @Column(name = "stop_exit_pct")
+    private double stopExitPct;
+
+    @Column(name = "trend_exit_pct")
+    private double trendExitPct;
+
+    @Column(name = "momentum_exit_pct")
+    private double momentumExitPct;
+
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
@@ -50,7 +59,10 @@ public class StrategyConfigEntity {
             double stopLossPct,
             double trailingStopPct,
             double partialTakeProfitPct,
-            String profile
+            String profile,
+            double stopExitPct,
+            double trendExitPct,
+            double momentumExitPct
     ) {
         this.id = id;
         this.enabled = enabled;
@@ -60,6 +72,9 @@ public class StrategyConfigEntity {
         this.trailingStopPct = trailingStopPct;
         this.partialTakeProfitPct = partialTakeProfitPct;
         this.profile = profile;
+        this.stopExitPct = stopExitPct;
+        this.trendExitPct = trendExitPct;
+        this.momentumExitPct = momentumExitPct;
     }
 
     public static StrategyConfigEntity from(Long id, StrategyConfig config) {
@@ -71,7 +86,10 @@ public class StrategyConfigEntity {
                 config.stopLossPct(),
                 config.trailingStopPct(),
                 config.partialTakeProfitPct(),
-                config.profile()
+                config.profile(),
+                config.stopExitPct(),
+                config.trendExitPct(),
+                config.momentumExitPct()
         );
     }
 
@@ -83,7 +101,10 @@ public class StrategyConfigEntity {
                 stopLossPct,
                 trailingStopPct,
                 partialTakeProfitPct,
-                profile
+                profile,
+                stopExitPct,
+                trendExitPct,
+                momentumExitPct
         );
     }
 
@@ -97,6 +118,9 @@ public class StrategyConfigEntity {
         if (config.profile() != null && !config.profile().isBlank()) {
             this.profile = config.profile();
         }
+        this.stopExitPct = config.stopExitPct();
+        this.trendExitPct = config.trendExitPct();
+        this.momentumExitPct = config.momentumExitPct();
     }
 
     @PrePersist
@@ -167,6 +191,30 @@ public class StrategyConfigEntity {
 
     public void setProfile(String profile) {
         this.profile = profile;
+    }
+
+    public double getStopExitPct() {
+        return stopExitPct;
+    }
+
+    public void setStopExitPct(double stopExitPct) {
+        this.stopExitPct = stopExitPct;
+    }
+
+    public double getTrendExitPct() {
+        return trendExitPct;
+    }
+
+    public void setTrendExitPct(double trendExitPct) {
+        this.trendExitPct = trendExitPct;
+    }
+
+    public double getMomentumExitPct() {
+        return momentumExitPct;
+    }
+
+    public void setMomentumExitPct(double momentumExitPct) {
+        this.momentumExitPct = momentumExitPct;
     }
 
     public OffsetDateTime getUpdatedAt() {

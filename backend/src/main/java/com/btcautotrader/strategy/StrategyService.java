@@ -8,7 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 public class StrategyService {
     private static final long CONFIG_ID = 1L;
     private static final StrategyConfig DEFAULT_CONFIG =
-            new StrategyConfig(true, 10000.0, 3.0, 1.5, 2.0, 50.0, StrategyProfile.CONSERVATIVE.name());
+            new StrategyConfig(true, 10000.0, 3.0, 1.5, 2.0, 50.0, StrategyProfile.CONSERVATIVE.name(),
+                    100.0, 70.0, 70.0);
 
     private final StrategyConfigRepository repository;
     private final String forcedProfile;
@@ -33,6 +34,14 @@ public class StrategyService {
         }
         if (entity.getProfile() == null || entity.getProfile().isBlank()) {
             entity.setProfile(DEFAULT_CONFIG.profile());
+            entity = repository.save(entity);
+        }
+        if (entity.getStopExitPct() == 0.0
+                && entity.getTrendExitPct() == 0.0
+                && entity.getMomentumExitPct() == 0.0) {
+            entity.setStopExitPct(DEFAULT_CONFIG.stopExitPct());
+            entity.setTrendExitPct(DEFAULT_CONFIG.trendExitPct());
+            entity.setMomentumExitPct(DEFAULT_CONFIG.momentumExitPct());
             entity = repository.save(entity);
         }
         if (!forcedProfile.isBlank()) {

@@ -76,6 +76,7 @@
 
 전략 API 값:
 - `enabled`, `maxOrderKrw`, `takeProfitPct`, `stopLossPct`, `trailingStopPct`, `partialTakeProfitPct`, `profile`
+- `stopExitPct`, `trendExitPct`, `momentumExitPct`
 
 프로필 강제:
 - `strategy.force-profile=CONSERVATIVE`

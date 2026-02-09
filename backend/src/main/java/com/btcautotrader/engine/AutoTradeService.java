@@ -326,17 +326,17 @@ public class AutoTradeService {
         }
 
         if (currentPrice.compareTo(stopLossThreshold) <= 0) {
-            return submitSell(market, available, "stop_loss");
+            return submitSellByPct(market, available, currentPrice, config.stopExitPct(), "stop_loss");
         }
         if (trailingStopThreshold != null && currentPrice.compareTo(trailingStopThreshold) <= 0) {
-            return submitSell(market, available, "trailing_stop");
+            return submitSellByPct(market, available, currentPrice, config.stopExitPct(), "trailing_stop");
         }
         if (indicators != null
                 && indicators.macdHistogram() != null
                 && indicators.rsi() != null
                 && indicators.macdHistogram().compareTo(BigDecimal.ZERO) < 0
                 && indicators.rsi().doubleValue() < tuning.rsiSellThreshold()) {
-            return submitSell(market, available, "momentum_reversal");
+            return submitSellByPct(market, available, currentPrice, config.momentumExitPct(), "momentum_reversal");
         }
         if (currentPrice.compareTo(takeProfitThreshold) >= 0) {
             double partialPct = config.partialTakeProfitPct();
@@ -353,7 +353,7 @@ public class AutoTradeService {
             return submitSell(market, available, "take_profit");
         }
         if (indicators != null && indicators.maLong() != null && currentPrice.compareTo(indicators.maLong()) < 0) {
-            return submitSell(market, available, "trend_break");
+            return submitSellByPct(market, available, currentPrice, config.trendExitPct(), "trend_break");
         }
 
         return new AutoTradeAction(market, "SKIP", "no signal", currentPrice, available, null, null, null);
@@ -434,6 +434,62 @@ public class AutoTradeService {
     private AutoTradeAction submitSell(String market, BigDecimal volume, String reason) {
         if (volume.compareTo(BigDecimal.ZERO) <= 0) {
             return new AutoTradeAction(market, "SKIP", "no volume", null, volume, null, null, null);
+        }
+
+        if (hasOpenRequest(market, "SELL")) {
+            return new AutoTradeAction(market, "SKIP", "pending", null, volume, null, null, null);
+        }
+        if (hasRecentOrder(market, "SELL")) {
+            return new AutoTradeAction(market, "SKIP", "cooldown", null, volume, null, null, null);
+        }
+
+        OrderRequest request = new OrderRequest(market, "SELL", "MARKET", null, volume, null, null);
+        OrderResponse response = orderService.create(request);
+        if (shouldRecordStopLoss(reason, response)) {
+            lastStopLossAt.put(market, OffsetDateTime.now());
+        }
+
+        return new AutoTradeAction(
+                market,
+                "SELL",
+                reason,
+                null,
+                volume,
+                null,
+                response.orderId(),
+                response.requestStatus()
+        );
+    }
+
+    private AutoTradeAction submitSellByPct(
+            String market,
+            BigDecimal available,
+            BigDecimal currentPrice,
+            double pct,
+            String reason
+    ) {
+        if (available == null || available.compareTo(BigDecimal.ZERO) <= 0) {
+            return new AutoTradeAction(market, "SKIP", "no volume", null, available, null, null, null);
+        }
+        if (pct <= 0 || pct >= 100) {
+            return submitSell(market, available, reason);
+        }
+
+        BigDecimal fraction = BigDecimal.valueOf(pct).divide(HUNDRED, 8, RoundingMode.HALF_UP);
+        BigDecimal volume = available.multiply(fraction);
+        if (volume.compareTo(BigDecimal.ZERO) <= 0) {
+            return new AutoTradeAction(market, "SKIP", "no volume", null, available, null, null, null);
+        }
+
+        if (currentPrice != null && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal estimated = currentPrice.multiply(volume);
+            if (estimated.compareTo(minOrderKrw) < 0) {
+                BigDecimal fullEstimated = currentPrice.multiply(available);
+                if (fullEstimated.compareTo(minOrderKrw) >= 0) {
+                    return submitSell(market, available, reason + "_full");
+                }
+                return new AutoTradeAction(market, "SKIP", "below min order", currentPrice, volume, estimated, null, null);
+            }
         }
 
         if (hasOpenRequest(market, "SELL")) {
@@ -980,6 +1036,12 @@ public class AutoTradeService {
             details.put("trailingWindow", trailingWindow);
             details.put("volatilityWindow", volatilityWindow);
             details.put("targetVolPct", targetVolPct);
+            if (config != null) {
+                details.put("stopExitPct", config.stopExitPct());
+                details.put("trendExitPct", config.trendExitPct());
+                details.put("momentumExitPct", config.momentumExitPct());
+                details.put("partialTakeProfitPct", config.partialTakeProfitPct());
+            }
             if (tuning != null) {
                 details.put("rsiBuyThreshold", tuning.rsiBuyThreshold());
                 details.put("rsiSellThreshold", tuning.rsiSellThreshold());
