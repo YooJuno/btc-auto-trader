@@ -12,6 +12,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -61,6 +62,33 @@ public class UpbitService {
         }
 
         return body.get(0);
+    }
+
+    public Map<String, Map<String, Object>> fetchTickers(List<String> markets) {
+        if (markets == null || markets.isEmpty()) {
+            return Map.of();
+        }
+
+        String url = UriComponentsBuilder.fromHttpUrl(UPBIT_TICKER_URL)
+                .queryParam("markets", String.join(",", markets))
+                .toUriString();
+
+        ResponseEntity<List> response = restTemplate.getForEntity(url, List.class);
+        List<Map<String, Object>> body = response.getBody();
+
+        if (body == null || body.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Map<String, Object>> byMarket = new HashMap<>();
+        for (Map<String, Object> ticker : body) {
+            Object market = ticker.get("market");
+            if (market != null) {
+                byMarket.put(market.toString(), ticker);
+            }
+        }
+
+        return byMarket;
     }
 
     private String createJwtToken() {
