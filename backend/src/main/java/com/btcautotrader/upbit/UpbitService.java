@@ -35,16 +35,23 @@ public class UpbitService {
 
     private final RestTemplate restTemplate;
     private final UpbitCredentials credentials;
+    private final UpbitRateLimiter rateLimiter;
 
-    public UpbitService(RestTemplateBuilder restTemplateBuilder, UpbitCredentials credentials) {
+    public UpbitService(
+            RestTemplateBuilder restTemplateBuilder,
+            UpbitCredentials credentials,
+            UpbitRateLimiter rateLimiter
+    ) {
         this.restTemplate = restTemplateBuilder
                 .setConnectTimeout(Duration.ofSeconds(5))
                 .setReadTimeout(Duration.ofSeconds(10))
                 .build();
         this.credentials = credentials;
+        this.rateLimiter = rateLimiter;
     }
 
     public List<Map<String, Object>> fetchAccounts() {
+        rateLimiter.acquire("accounts");
         String jwtToken = createJwtToken(null);
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + jwtToken);
@@ -61,6 +68,7 @@ public class UpbitService {
     }
 
     public Map<String, Object> fetchTicker(String market) {
+        rateLimiter.acquire("ticker");
         String url = UriComponentsBuilder.fromHttpUrl(UPBIT_TICKER_URL)
                 .queryParam("markets", market)
                 .toUriString();
@@ -79,6 +87,7 @@ public class UpbitService {
         if (unit <= 0) {
             throw new IllegalArgumentException("unit must be positive");
         }
+        rateLimiter.acquire("candles");
         int safeCount = Math.max(1, Math.min(count, 200));
         String url = UriComponentsBuilder.fromHttpUrl(UPBIT_CANDLES_MINUTE_URL + "/" + unit)
                 .queryParam("market", market)
@@ -94,6 +103,7 @@ public class UpbitService {
         if (markets == null || markets.isEmpty()) {
             return Map.of();
         }
+        rateLimiter.acquire("tickers");
 
         String url = UriComponentsBuilder.fromHttpUrl(UPBIT_TICKER_URL)
                 .queryParam("markets", String.join(",", markets))
@@ -118,6 +128,7 @@ public class UpbitService {
     }
 
     public UpbitOrderResponse createOrder(Map<String, String> body, String queryString) {
+        rateLimiter.acquire("create-order");
         String jwtToken = createJwtToken(queryString);
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + jwtToken);
@@ -165,6 +176,7 @@ public class UpbitService {
     }
 
     private UpbitOrderResponse fetchOrder(Map<String, String> params) {
+        rateLimiter.acquire("order-detail");
         String queryString = buildQueryString(params);
         String jwtToken = createJwtToken(queryString);
 

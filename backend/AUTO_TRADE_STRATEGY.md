@@ -105,10 +105,12 @@ If you prefer price control for entries:
 Limit orders do not guarantee execution, while market orders do.  
 Ref: https://global-docs.upbit.com/reference/order
 
-## 5) Optional Enhancements (Later)
-- **Limit-entry with timeout + fallback to market.**
-- **Orders chance API:** read per-market supported order types.
-  Ref: https://docs.upbit.com/kr/v1.5.8/reference/%EC%A3%BC%EB%AC%B8
+## 5) Operational Protections (Implemented)
+- **Per-market cap:** `trading.market-max-order-krw`로 종목별 최대 매수금액 제한.
+- **Per-market profile override:** `trading.market-profile`로 종목별 공격/균형/보수 분리.
+- **Per-market backoff:** 특정 종목 실패가 다른 종목 거래를 멈추지 않도록 분리 백오프 적용.
+- **Tick budget:** `engine.max-markets-per-tick`로 1회 tick 처리 종목 수 제한(라운드로빈 순환).
+- **API rate-limit guard:** Upbit 호출 간격 및 초/분당 요청량 제어.
 
 ## 6) Config Keys (Implemented)
 These keys are wired into the current auto-trade engine:
@@ -128,11 +130,18 @@ signal.breakout-pct=0.3
 signal.max-extension-pct=1.2
 signal.ma-long-slope-lookback=5
 signal.min-confirmations=2
+trading.market-max-order-krw=
+trading.market-profile=
+engine.max-markets-per-tick=0
 risk.trailing-window=20
 risk.partial-take-profit-cooldown-minutes=120
 risk.stop-loss-cooldown-minutes=30
 risk.volatility-window=30
 risk.target-vol-pct=0.5
+upbit.rate-limit.enabled=true
+upbit.rate-limit.min-interval-ms=120
+upbit.rate-limit.max-requests-per-second=8
+upbit.rate-limit.max-requests-per-minute=240
 ```
 
 Risk parameters `takeProfitPct` / `stopLossPct` / `trailingStopPct`
@@ -141,6 +150,10 @@ Risk parameters `takeProfitPct` / `stopLossPct` / `trailingStopPct`
 - `GET /api/strategy`
 - `PUT /api/strategy`
 
+Per-market cap/profile overrides are managed via:
+- `GET /api/strategy/market-overrides`
+- `PUT /api/strategy/market-overrides`
+
 If you want to **enforce a specific profile** regardless of API updates, set:
 ```
 strategy.force-profile=CONSERVATIVE
@@ -148,4 +161,4 @@ strategy.force-profile=CONSERVATIVE
 
 ## 7) Next Implementation Steps (If You Approve)
 1. Add optional limit-entry with timeout + fallback to market.
-2. Add per-market configuration overrides.
+2. Add Upbit `orders/chance` pre-check to validate order constraints before submission.

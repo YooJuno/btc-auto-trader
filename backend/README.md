@@ -15,6 +15,8 @@
 - `GET /api/strategy`: 전략 설정 조회
 - `PUT /api/strategy`: 전략 설정 업데이트
 - `PATCH /api/strategy/ratios`: 익절/손절/부분매도 비율 업데이트
+- `GET /api/strategy/market-overrides`: 마켓별 cap/profile override 조회
+- `PUT /api/strategy/market-overrides`: 마켓별 cap/profile override 전체 저장(교체)
 
 ## 주문 처리 흐름
 1. `POST /api/order` 수신
@@ -45,17 +47,24 @@
 - 매수: `MA_SHORT > MA_LONG` + 확인 신호(기본 2개 이상) 충족 시 시장가 매수
 - 매도: 손절/트레일링 스탑/모멘텀 약화/MA 이탈/익절(부분 익절 가능)
 - 프로필(`AGGRESSIVE/BALANCED/CONSERVATIVE`)에 따라 신호 민감도 자동 조정
+- 마켓별 프로필 override 지원 (`trading.market-profile`)
+- 마켓별 최대 주문 금액 cap 지원 (`trading.market-max-order-krw`)
 - 매매 결정(매수/매도/스킵)과 지표 스냅샷을 `trade_decisions` 테이블에 기록
 - 변동성 타깃이 설정되어 있으면 주문 금액을 축소
 - 최근 주문/대기 중 주문은 재주문 방지
-- 장애 발생 시 지수 백오프로 호출 빈도 제한
+- 장애 발생 시 마켓별 지수 백오프 적용 (한 마켓 장애가 전체를 멈추지 않음)
+- tick당 처리할 마켓 수 제한 가능 (`engine.max-markets-per-tick`, 라운드로빈 처리)
+- Upbit API 전역 rate-limit 보호(최소 호출 간격/초당/분당 요청량) 적용
 
 ### 관련 설정
 - `engine.tick-ms`
 - `engine.order-cooldown-seconds`
 - `engine.failure-backoff-base-seconds`
 - `engine.failure-backoff-max-seconds`
+- `engine.max-markets-per-tick`
 - `trading.markets`
+- `trading.market-max-order-krw` (예: `KRW-BTC:12000,KRW-ETH:8000`)
+- `trading.market-profile` (예: `KRW-BTC:CONSERVATIVE,KRW-ETH:AGGRESSIVE`)
 - `trading.min-krw`
 - `signal.timeframe-unit`
 - `signal.ma-short`
@@ -77,10 +86,19 @@
 - `risk.stop-loss-cooldown-minutes`
 - `risk.volatility-window`
 - `risk.target-vol-pct`
+- `upbit.rate-limit.enabled`
+- `upbit.rate-limit.min-interval-ms`
+- `upbit.rate-limit.max-requests-per-second`
+- `upbit.rate-limit.max-requests-per-minute`
 
 전략 API 값:
 - `enabled`, `maxOrderKrw`, `takeProfitPct`, `stopLossPct`, `trailingStopPct`, `partialTakeProfitPct`, `profile`
 - `stopExitPct`, `trendExitPct`, `momentumExitPct`
+
+마켓 override API 값:
+- `markets`
+- `maxOrderKrwByMarket`
+- `profileByMarket`
 
 프로필 강제:
 - `strategy.force-profile=CONSERVATIVE`
@@ -97,6 +115,10 @@
 
 ### 매매 결정 테이블
 `trade_decisions` 테이블에 매매/스킵 사유와 지표 스냅샷을 저장합니다.
+스키마: `infra/db/schema.sql`
+
+### 마켓 override 테이블
+`strategy_market_overrides` 테이블에 마켓별 cap/profile 설정을 저장합니다.
 스키마: `infra/db/schema.sql`
 
 ## 실행/운영 메모

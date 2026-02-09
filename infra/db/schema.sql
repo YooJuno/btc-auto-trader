@@ -73,6 +73,14 @@ CREATE TABLE strategy_config (
   updated_at              TIMESTAMPTZ NOT NULL
 );
 
+-- 마켓별 전략 override 설정 (cap/profile)
+CREATE TABLE strategy_market_overrides (
+  market         VARCHAR(20) PRIMARY KEY,
+  max_order_krw  DOUBLE PRECISION,
+  profile        VARCHAR(20),
+  updated_at     TIMESTAMPTZ NOT NULL
+);
+
 -- 매매 결정 기록 (매수/매도/스킵/에러)
 CREATE TABLE trade_decisions (
   id                BIGSERIAL PRIMARY KEY,

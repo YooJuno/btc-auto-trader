@@ -4,6 +4,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Value;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 @Service
 public class StrategyService {
     private static final long CONFIG_ID = 1L;
@@ -12,13 +19,19 @@ public class StrategyService {
                     100.0, 50.0, 50.0);
 
     private final StrategyConfigRepository repository;
+    private final StrategyMarketOverrideRepository marketOverrideRepository;
     private final String forcedProfile;
+    private final String marketsConfig;
 
     public StrategyService(
             StrategyConfigRepository repository,
+            StrategyMarketOverrideRepository marketOverrideRepository,
+            @Value("${trading.markets:KRW-BTC}") String marketsConfig,
             @Value("${strategy.force-profile:}") String forcedProfile
     ) {
         this.repository = repository;
+        this.marketOverrideRepository = marketOverrideRepository;
+        this.marketsConfig = marketsConfig;
         this.forcedProfile = forcedProfile == null ? "" : forcedProfile.trim();
     }
 
@@ -91,5 +104,113 @@ public class StrategyService {
         }
 
         return repository.save(entity).toRecord();
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> configuredMarkets() {
+        return parseMarkets(marketsConfig);
+    }
+
+    @Transactional(readOnly = true)
+    public StrategyMarketOverrides getMarketOverridesSnapshot() {
+        return toMarketOverrides(marketOverrideRepository.findAll());
+    }
+
+    @Transactional(readOnly = true)
+    public StrategyMarketOverridesResponse getMarketOverrides() {
+        StrategyMarketOverrides overrides = getMarketOverridesSnapshot();
+        return new StrategyMarketOverridesResponse(
+                configuredMarkets(),
+                overrides.maxOrderKrwByMarket(),
+                overrides.profileByMarket()
+        );
+    }
+
+    @Transactional
+    public StrategyMarketOverridesResponse replaceMarketOverrides(StrategyMarketOverridesRequest request) {
+        Map<String, StrategyMarketOverrideEntity> byMarket = new HashMap<>();
+        if (request != null && request.maxOrderKrwByMarket() != null) {
+            for (Map.Entry<String, Double> entry : request.maxOrderKrwByMarket().entrySet()) {
+                String market = normalizeMarket(entry.getKey());
+                Double maxOrderKrw = entry.getValue();
+                if (market == null || maxOrderKrw == null) {
+                    continue;
+                }
+                StrategyMarketOverrideEntity entity = byMarket.computeIfAbsent(
+                        market,
+                        key -> new StrategyMarketOverrideEntity(key, null, null)
+                );
+                entity.setMaxOrderKrw(maxOrderKrw);
+            }
+        }
+        if (request != null && request.profileByMarket() != null) {
+            for (Map.Entry<String, String> entry : request.profileByMarket().entrySet()) {
+                String market = normalizeMarket(entry.getKey());
+                if (market == null || entry.getValue() == null || entry.getValue().isBlank()) {
+                    continue;
+                }
+                StrategyProfile profile = StrategyProfile.from(entry.getValue());
+                StrategyMarketOverrideEntity entity = byMarket.computeIfAbsent(
+                        market,
+                        key -> new StrategyMarketOverrideEntity(key, null, null)
+                );
+                entity.setProfile(profile.name());
+            }
+        }
+
+        marketOverrideRepository.deleteAllInBatch();
+        if (!byMarket.isEmpty()) {
+            marketOverrideRepository.saveAll(byMarket.values());
+        }
+        return getMarketOverrides();
+    }
+
+    private static StrategyMarketOverrides toMarketOverrides(List<StrategyMarketOverrideEntity> entities) {
+        Map<String, Double> maxOrderKrwByMarket = new HashMap<>();
+        Map<String, String> profileByMarket = new HashMap<>();
+        for (StrategyMarketOverrideEntity entity : entities) {
+            if (entity == null) {
+                continue;
+            }
+            String market = normalizeMarket(entity.getMarket());
+            if (market == null) {
+                continue;
+            }
+            Double maxOrderKrw = entity.getMaxOrderKrw();
+            if (maxOrderKrw != null && maxOrderKrw > 0) {
+                maxOrderKrwByMarket.put(market, maxOrderKrw);
+            }
+            String profile = entity.getProfile();
+            if (profile != null && !profile.isBlank()) {
+                profileByMarket.put(market, StrategyProfile.from(profile).name());
+            }
+        }
+        return new StrategyMarketOverrides(Map.copyOf(maxOrderKrwByMarket), Map.copyOf(profileByMarket));
+    }
+
+    private static List<String> parseMarkets(String config) {
+        if (config == null || config.isBlank()) {
+            return List.of();
+        }
+        String[] raw = config.split(",");
+        Set<String> unique = new LinkedHashSet<>();
+        for (String item : raw) {
+            String market = normalizeMarket(item);
+            if (market != null) {
+                unique.add(market);
+            }
+        }
+        return new ArrayList<>(unique);
+    }
+
+    private static String normalizeMarket(String market) {
+        if (market == null) {
+            return null;
+        }
+        String normalized = market.trim().toUpperCase();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return normalized;
     }
 }

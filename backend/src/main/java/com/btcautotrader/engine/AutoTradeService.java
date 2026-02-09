@@ -5,6 +5,7 @@ import com.btcautotrader.order.OrderRequest;
 import com.btcautotrader.order.OrderResponse;
 import com.btcautotrader.order.OrderService;
 import com.btcautotrader.strategy.StrategyConfig;
+import com.btcautotrader.strategy.StrategyMarketOverrides;
 import com.btcautotrader.strategy.StrategyProfile;
 import com.btcautotrader.strategy.StrategyService;
 import com.btcautotrader.upbit.UpbitService;
@@ -17,14 +18,18 @@ import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class AutoTradeService {
     private static final BigDecimal HUNDRED = new BigDecimal("100");
+    private static final String SYSTEM_KEY = "SYSTEM";
 
     private final UpbitService upbitService;
     private final OrderService orderService;
@@ -34,11 +39,14 @@ public class AutoTradeService {
     private final TradeDecisionService tradeDecisionService;
 
     private final String marketsConfig;
+    private final Map<String, BigDecimal> propertyMarketMaxOrderKrwOverrides;
+    private final Map<String, StrategyProfile> propertyMarketProfileOverrides;
     private final BigDecimal minOrderKrw;
     private final long cooldownSeconds;
     private final long pendingWindowMinutes;
     private final long failureBackoffBaseSeconds;
     private final long failureBackoffMaxSeconds;
+    private final int maxMarketsPerTick;
     private final int candleUnitMinutes;
     private final int maShort;
     private final int maLong;
@@ -61,9 +69,8 @@ public class AutoTradeService {
     private final BigDecimal targetVolPct;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
-    private final AtomicBoolean backoffActive = new AtomicBoolean(false);
-    private volatile OffsetDateTime backoffUntil;
-    private volatile int consecutiveFailures;
+    private final AtomicInteger marketCursor = new AtomicInteger(0);
+    private final Map<String, BackoffState> backoffStates = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> lastPartialTakeProfitAt = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> lastStopLossAt = new ConcurrentHashMap<>();
 
@@ -75,11 +82,14 @@ public class AutoTradeService {
             OrderRepository orderRepository,
             TradeDecisionService tradeDecisionService,
             @Value("${trading.markets:KRW-BTC}") String marketsConfig,
+            @Value("${trading.market-max-order-krw:}") String marketMaxOrderKrwConfig,
+            @Value("${trading.market-profile:}") String marketProfileConfig,
             @Value("${trading.min-krw:5000}") BigDecimal minOrderKrw,
             @Value("${engine.order-cooldown-seconds:30}") long cooldownSeconds,
             @Value("${orders.pending-window-minutes:30}") long pendingWindowMinutes,
             @Value("${engine.failure-backoff-base-seconds:5}") long failureBackoffBaseSeconds,
             @Value("${engine.failure-backoff-max-seconds:300}") long failureBackoffMaxSeconds,
+            @Value("${engine.max-markets-per-tick:0}") int maxMarketsPerTick,
             @Value("${signal.timeframe-unit:1}") int candleUnitMinutes,
             @Value("${signal.ma-short:20}") int maShort,
             @Value("${signal.ma-long:100}") int maLong,
@@ -108,11 +118,14 @@ public class AutoTradeService {
         this.orderRepository = orderRepository;
         this.tradeDecisionService = tradeDecisionService;
         this.marketsConfig = marketsConfig;
+        this.propertyMarketMaxOrderKrwOverrides = Map.copyOf(parseMarketMaxOrderKrwOverrides(marketMaxOrderKrwConfig));
+        this.propertyMarketProfileOverrides = Map.copyOf(parseMarketProfileOverrides(marketProfileConfig));
         this.minOrderKrw = minOrderKrw;
         this.cooldownSeconds = cooldownSeconds;
         this.pendingWindowMinutes = pendingWindowMinutes;
         this.failureBackoffBaseSeconds = failureBackoffBaseSeconds;
         this.failureBackoffMaxSeconds = failureBackoffMaxSeconds;
+        this.maxMarketsPerTick = maxMarketsPerTick;
         this.candleUnitMinutes = candleUnitMinutes;
         this.maShort = maShort;
         this.maLong = maLong;
@@ -150,9 +163,9 @@ public class AutoTradeService {
 
         try {
             OffsetDateTime now = OffsetDateTime.now();
-            if (isBackoffActive(now)) {
-                AutoTradeAction action = new AutoTradeAction("SYSTEM", "SKIP", "backoff", null, null, null, null, null);
-                recordDecision("SYSTEM", action, null, null, null);
+            if (isBackoffActive(SYSTEM_KEY, now)) {
+                AutoTradeAction action = new AutoTradeAction(SYSTEM_KEY, "SKIP", "backoff", null, null, null, null, null);
+                recordDecision(SYSTEM_KEY, action, null, null, null, null, null);
                 return new AutoTradeResult(now.toString(), List.of(action));
             }
 
@@ -160,27 +173,55 @@ public class AutoTradeService {
             if (!config.enabled()) {
                 return new AutoTradeResult(now.toString(), List.of());
             }
-            SignalTuning tuning = resolveSignalTuning(config);
-
+            StrategyMarketOverrides runtimeOverrides = strategyService.getMarketOverridesSnapshot();
+            Map<String, BigDecimal> marketMaxOrderKrwByMarket = mergeMarketMaxOrderKrwOverrides(
+                    propertyMarketMaxOrderKrwOverrides,
+                    runtimeOverrides
+            );
+            Map<String, StrategyProfile> marketProfileByMarket = mergeMarketProfileOverrides(
+                    propertyMarketProfileOverrides,
+                    runtimeOverrides
+            );
             List<String> markets = parseMarkets(marketsConfig);
             if (markets.isEmpty()) {
                 return new AutoTradeResult(now.toString(), List.of());
             }
+            MarketSelection selection = selectMarketsForTick(markets);
 
             Map<String, AccountSnapshot> accounts;
             try {
                 accounts = loadAccounts();
+                resetFailure(SYSTEM_KEY);
             } catch (RuntimeException ex) {
-                recordFailure(now);
-                return new AutoTradeResult(now.toString(), List.of(
-                        new AutoTradeAction("SYSTEM", "ERROR", truncate(ex.getMessage(), 200), null, null, null, null, null)
-                ));
+                recordFailure(SYSTEM_KEY, now);
+                AutoTradeAction action = new AutoTradeAction(
+                        SYSTEM_KEY,
+                        "ERROR",
+                        truncate(ex.getMessage(), 200),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                );
+                recordDecision(SYSTEM_KEY, action, null, null, null, null, null);
+                return new AutoTradeResult(now.toString(), List.of(action));
             }
             BigDecimal remainingCash = accounts.getOrDefault("KRW", AccountSnapshot.empty()).balance();
 
             List<AutoTradeAction> actions = new ArrayList<>();
-            boolean hadFailure = false;
-            for (String market : markets) {
+            for (String market : selection.selected()) {
+                StrategyProfile profile = resolveProfileForMarket(market, config, marketProfileByMarket);
+                SignalTuning tuning = resolveSignalTuning(profile);
+                BigDecimal marketMaxOrderKrw = resolveMarketMaxOrderKrw(market, config, marketMaxOrderKrwByMarket);
+
+                if (isBackoffActive(market, now)) {
+                    AutoTradeAction action = new AutoTradeAction(market, "SKIP", "backoff", null, null, null, null, null);
+                    actions.add(action);
+                    recordDecision(market, action, config, profile, null, tuning, marketMaxOrderKrw);
+                    continue;
+                }
+
                 MarketIndicators indicators = null;
                 try {
                     String currency = extractCurrency(market);
@@ -201,15 +242,16 @@ public class AutoTradeService {
                         AutoTradeAction action = handleSell(market, position, config, indicators, tuning);
                         if (action != null) {
                             actions.add(action);
-                            recordDecision(market, action, config, indicators, tuning);
+                            recordDecision(market, action, config, profile, indicators, tuning, marketMaxOrderKrw);
                         }
+                        resetFailure(market);
                         continue;
                     }
 
-                    AutoTradeAction action = handleBuy(market, remainingCash, config, indicators, tuning);
+                    AutoTradeAction action = handleBuy(market, remainingCash, config, indicators, tuning, marketMaxOrderKrw);
                     if (action != null) {
                         actions.add(action);
-                        recordDecision(market, action, config, indicators, tuning);
+                        recordDecision(market, action, config, profile, indicators, tuning, marketMaxOrderKrw);
                         if ("BUY".equalsIgnoreCase(action.action()) && action.funds() != null) {
                             remainingCash = remainingCash.subtract(action.funds());
                             if (remainingCash.compareTo(BigDecimal.ZERO) < 0) {
@@ -217,9 +259,9 @@ public class AutoTradeService {
                             }
                         }
                     }
+                    resetFailure(market);
                 } catch (RuntimeException ex) {
-                    hadFailure = true;
-                    recordFailure(now);
+                    recordFailure(market, now);
                     AutoTradeAction action = new AutoTradeAction(
                             market,
                             "ERROR",
@@ -231,12 +273,26 @@ public class AutoTradeService {
                             null
                     );
                     actions.add(action);
-                    recordDecision(market, action, config, indicators, tuning);
+                    recordDecision(market, action, config, profile, indicators, tuning, marketMaxOrderKrw);
                 }
             }
 
-            if (!hadFailure) {
-                resetFailures();
+            for (String market : selection.deferred()) {
+                StrategyProfile profile = resolveProfileForMarket(market, config, marketProfileByMarket);
+                SignalTuning tuning = resolveSignalTuning(profile);
+                BigDecimal marketMaxOrderKrw = resolveMarketMaxOrderKrw(market, config, marketMaxOrderKrwByMarket);
+                AutoTradeAction action = new AutoTradeAction(
+                        market,
+                        "SKIP",
+                        "tick_rate_limited",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                );
+                actions.add(action);
+                recordDecision(market, action, config, profile, null, tuning, marketMaxOrderKrw);
             }
             return new AutoTradeResult(now.toString(), actions);
         } finally {
@@ -244,8 +300,7 @@ public class AutoTradeService {
         }
     }
 
-    private SignalTuning resolveSignalTuning(StrategyConfig config) {
-        StrategyProfile profile = StrategyProfile.from(config.profile());
+    private SignalTuning resolveSignalTuning(StrategyProfile profile) {
         double rsiBuy = rsiBuyThreshold;
         double rsiSell = rsiSellThreshold;
         double rsiOver = rsiOverbought;
@@ -364,7 +419,8 @@ public class AutoTradeService {
             BigDecimal cash,
             StrategyConfig config,
             MarketIndicators indicators,
-            SignalTuning tuning
+            SignalTuning tuning,
+            BigDecimal marketMaxOrderKrw
     ) {
         if (indicators == null || indicators.maShort() == null || indicators.maLong() == null || indicators.currentPrice() == null) {
             return new AutoTradeAction(market, "SKIP", "insufficient candles", null, null, null, null, null);
@@ -399,8 +455,7 @@ public class AutoTradeService {
             return new AutoTradeAction(market, "SKIP", "no signal", indicators.currentPrice(), null, null, null, null);
         }
 
-        BigDecimal maxOrderKrw = BigDecimal.valueOf(config.maxOrderKrw());
-        BigDecimal orderFunds = min(cash, maxOrderKrw);
+        BigDecimal orderFunds = min(cash, marketMaxOrderKrw);
         orderFunds = applyVolatilityTarget(orderFunds, indicators.volatilityPct());
         if (orderFunds.compareTo(minOrderKrw) < 0) {
             return new AutoTradeAction(market, "SKIP", "insufficient cash", null, null, orderFunds, null, null);
@@ -595,14 +650,179 @@ public class AutoTradeService {
             return List.of();
         }
         String[] raw = config.split(",");
-        List<String> markets = new ArrayList<>();
+        Set<String> unique = new LinkedHashSet<>();
         for (String item : raw) {
             String trimmed = item.trim();
             if (!trimmed.isEmpty()) {
-                markets.add(trimmed.toUpperCase());
+                unique.add(trimmed.toUpperCase());
             }
         }
-        return markets;
+        return new ArrayList<>(unique);
+    }
+
+    private static Map<String, BigDecimal> parseMarketMaxOrderKrwOverrides(String config) {
+        Map<String, BigDecimal> overrides = new HashMap<>();
+        if (config == null || config.isBlank()) {
+            return overrides;
+        }
+        String[] pairs = config.split(",");
+        for (String raw : pairs) {
+            String[] entry = splitPair(raw);
+            if (entry == null) {
+                continue;
+            }
+            String market = entry[0].trim().toUpperCase();
+            BigDecimal amount = toDecimal(entry[1]);
+            if (market.isEmpty() || amount.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            overrides.put(market, amount);
+        }
+        return overrides;
+    }
+
+    private static Map<String, StrategyProfile> parseMarketProfileOverrides(String config) {
+        Map<String, StrategyProfile> overrides = new HashMap<>();
+        if (config == null || config.isBlank()) {
+            return overrides;
+        }
+        String[] pairs = config.split(",");
+        for (String raw : pairs) {
+            String[] entry = splitPair(raw);
+            if (entry == null) {
+                continue;
+            }
+            String market = entry[0].trim().toUpperCase();
+            StrategyProfile profile = parseProfile(entry[1]);
+            if (market.isEmpty() || profile == null) {
+                continue;
+            }
+            overrides.put(market, profile);
+        }
+        return overrides;
+    }
+
+    private static String[] splitPair(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        int idx = raw.indexOf(':');
+        if (idx < 0) {
+            idx = raw.indexOf('=');
+        }
+        if (idx <= 0 || idx == raw.length() - 1) {
+            return null;
+        }
+        return new String[]{raw.substring(0, idx), raw.substring(idx + 1)};
+    }
+
+    private static StrategyProfile parseProfile(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return StrategyProfile.valueOf(value.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private static Map<String, BigDecimal> mergeMarketMaxOrderKrwOverrides(
+            Map<String, BigDecimal> propertyOverrides,
+            StrategyMarketOverrides runtimeOverrides
+    ) {
+        Map<String, BigDecimal> merged = new HashMap<>();
+        if (propertyOverrides != null) {
+            merged.putAll(propertyOverrides);
+        }
+        if (runtimeOverrides != null && runtimeOverrides.maxOrderKrwByMarket() != null) {
+            for (Map.Entry<String, Double> entry : runtimeOverrides.maxOrderKrwByMarket().entrySet()) {
+                String market = entry.getKey();
+                Double amount = entry.getValue();
+                if (market == null || amount == null || amount <= 0) {
+                    continue;
+                }
+                merged.put(market.toUpperCase(), BigDecimal.valueOf(amount));
+            }
+        }
+        return merged;
+    }
+
+    private static Map<String, StrategyProfile> mergeMarketProfileOverrides(
+            Map<String, StrategyProfile> propertyOverrides,
+            StrategyMarketOverrides runtimeOverrides
+    ) {
+        Map<String, StrategyProfile> merged = new HashMap<>();
+        if (propertyOverrides != null) {
+            merged.putAll(propertyOverrides);
+        }
+        if (runtimeOverrides != null && runtimeOverrides.profileByMarket() != null) {
+            for (Map.Entry<String, String> entry : runtimeOverrides.profileByMarket().entrySet()) {
+                String market = entry.getKey();
+                StrategyProfile profile = parseProfile(entry.getValue());
+                if (market == null || profile == null) {
+                    continue;
+                }
+                merged.put(market.toUpperCase(), profile);
+            }
+        }
+        return merged;
+    }
+
+    private StrategyProfile resolveProfileForMarket(
+            String market,
+            StrategyConfig config,
+            Map<String, StrategyProfile> marketProfileByMarket
+    ) {
+        if (config == null) {
+            return StrategyProfile.BALANCED;
+        }
+        StrategyProfile override = marketProfileByMarket.get(market);
+        if (override != null) {
+            return override;
+        }
+        return StrategyProfile.from(config.profile());
+    }
+
+    private BigDecimal resolveMarketMaxOrderKrw(
+            String market,
+            StrategyConfig config,
+            Map<String, BigDecimal> marketMaxOrderKrwByMarket
+    ) {
+        BigDecimal defaultMaxOrderKrw = BigDecimal.valueOf(Math.max(config.maxOrderKrw(), 0.0));
+        BigDecimal override = marketMaxOrderKrwByMarket.get(market);
+        if (override == null) {
+            return defaultMaxOrderKrw;
+        }
+        return min(defaultMaxOrderKrw, override);
+    }
+
+    private MarketSelection selectMarketsForTick(List<String> markets) {
+        if (markets == null || markets.isEmpty()) {
+            return new MarketSelection(List.of(), List.of());
+        }
+
+        List<String> rotated = rotateMarkets(markets);
+        int safeLimit = maxMarketsPerTick <= 0 ? rotated.size() : Math.max(1, maxMarketsPerTick);
+        if (rotated.size() <= safeLimit) {
+            return new MarketSelection(rotated, List.of());
+        }
+
+        List<String> selected = new ArrayList<>(rotated.subList(0, safeLimit));
+        List<String> deferred = new ArrayList<>(rotated.subList(safeLimit, rotated.size()));
+        return new MarketSelection(selected, deferred);
+    }
+
+    private List<String> rotateMarkets(List<String> markets) {
+        if (markets.size() <= 1) {
+            return new ArrayList<>(markets);
+        }
+        int start = Math.floorMod(marketCursor.getAndIncrement(), markets.size());
+        List<String> ordered = new ArrayList<>(markets.size());
+        for (int i = 0; i < markets.size(); i++) {
+            ordered.add(markets.get((start + i) % markets.size()));
+        }
+        return ordered;
     }
 
     private static BigDecimal toDecimal(Object value) {
@@ -995,8 +1215,10 @@ public class AutoTradeService {
             String market,
             AutoTradeAction action,
             StrategyConfig config,
+            StrategyProfile profile,
             MarketIndicators indicators,
-            SignalTuning tuning
+            SignalTuning tuning,
+            BigDecimal marketMaxOrderKrw
     ) {
         if (action == null || tradeDecisionService == null) {
             return;
@@ -1006,7 +1228,7 @@ public class AutoTradeService {
             entity.setMarket(market);
             entity.setAction(action.action());
             entity.setReason(action.reason());
-            entity.setProfile(config == null ? null : config.profile());
+            entity.setProfile(profile == null ? (config == null ? null : config.profile()) : profile.name());
             entity.setPrice(action.price() != null ? action.price() : (indicators == null ? null : indicators.currentPrice()));
             entity.setQuantity(action.quantity());
             entity.setFunds(action.funds());
@@ -1036,6 +1258,8 @@ public class AutoTradeService {
             details.put("trailingWindow", trailingWindow);
             details.put("volatilityWindow", volatilityWindow);
             details.put("targetVolPct", targetVolPct);
+            details.put("maxMarketsPerTick", maxMarketsPerTick);
+            details.put("marketMaxOrderKrw", marketMaxOrderKrw);
             if (config != null) {
                 details.put("stopExitPct", config.stopExitPct());
                 details.put("trendExitPct", config.trendExitPct());
@@ -1108,33 +1332,31 @@ public class AutoTradeService {
         return value.substring(0, max);
     }
 
-    private boolean isBackoffActive(OffsetDateTime now) {
-        if (!backoffActive.get()) {
+    private boolean isBackoffActive(String key, OffsetDateTime now) {
+        BackoffState state = backoffStates.get(key);
+        if (state == null) {
             return false;
         }
-        OffsetDateTime until = backoffUntil;
+        OffsetDateTime until = state.until();
         if (until == null || now.isAfter(until)) {
-            backoffActive.set(false);
-            backoffUntil = null;
+            backoffStates.remove(key);
             return false;
         }
         return true;
     }
 
-    private void recordFailure(OffsetDateTime now) {
-        int failures = ++consecutiveFailures;
+    private void recordFailure(String key, OffsetDateTime now) {
+        BackoffState previous = backoffStates.get(key);
+        int failures = previous == null ? 1 : previous.consecutiveFailures() + 1;
         long delay = failureBackoffBaseSeconds;
         for (int i = 1; i < failures; i++) {
             delay = Math.min(failureBackoffMaxSeconds, delay * 2);
         }
-        backoffUntil = now.plusSeconds(delay);
-        backoffActive.set(true);
+        backoffStates.put(key, new BackoffState(failures, now.plusSeconds(delay)));
     }
 
-    private void resetFailures() {
-        consecutiveFailures = 0;
-        backoffActive.set(false);
-        backoffUntil = null;
+    private void resetFailure(String key) {
+        backoffStates.remove(key);
     }
 
     private record AccountSnapshot(BigDecimal balance, BigDecimal locked, BigDecimal avgBuyPrice) {
@@ -1145,5 +1367,11 @@ public class AutoTradeService {
         static AccountSnapshot empty() {
             return new AccountSnapshot(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
         }
+    }
+
+    private record MarketSelection(List<String> selected, List<String> deferred) {
+    }
+
+    private record BackoffState(int consecutiveFailures, OffsetDateTime until) {
     }
 }
