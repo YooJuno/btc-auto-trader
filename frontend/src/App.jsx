@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
 const PROFILE_VALUES = ['AGGRESSIVE', 'BALANCED', 'CONSERVATIVE']
+const MARKET_CODE_PATTERN = /^[A-Z]{2,10}-[A-Z0-9]{2,15}$/
 
 function App() {
   const [summary, setSummary] = useState(null)
@@ -34,6 +35,7 @@ function App() {
   const [marketConfigError, setMarketConfigError] = useState(null)
   const [marketConfigNotice, setMarketConfigNotice] = useState(null)
   const [marketRowsBaseline, setMarketRowsBaseline] = useState('')
+  const [newMarketInput, setNewMarketInput] = useState('')
 
   const [orderHistory, setOrderHistory] = useState([])
   const [decisionHistory, setDecisionHistory] = useState([])
@@ -163,6 +165,7 @@ function App() {
       const rows = buildMarketOverrideRows(data)
       setMarketRows(rows)
       setMarketRowsBaseline(buildMarketOverrideSignature(rows))
+      setNewMarketInput('')
     } catch (err) {
       setMarketConfigError(err?.message ?? '마켓 설정 조회 실패')
     } finally {
@@ -432,6 +435,51 @@ function App() {
               </ul>
             )}
           </article>
+
+          <article className="table-card card--elevated order-card">
+            <div className="table-header">
+              <div>
+                <h2>최근 주문 로그</h2>
+                <p className="sub">BUY/SELL 요청 상태와 오류 추적</p>
+              </div>
+            </div>
+            {feedError && <p className="status-error">{feedError}</p>}
+            {orderHistory.length === 0 ? (
+              <div className="empty-state">주문 로그가 없습니다.</div>
+            ) : (
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>시간</th>
+                      <th>마켓</th>
+                      <th>사이드</th>
+                      <th>상태</th>
+                      <th>주문량</th>
+                      <th>주문금액</th>
+                      <th>오류</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderHistory.map((order) => (
+                      <tr key={order.id}>
+                        <td className="mono small">{formatDateTime(order.requestedAt)}</td>
+                        <td>{order.market}</td>
+                        <td className={order.side === 'BUY' ? 'positive' : 'negative'}>{order.side}</td>
+                        <td>
+                          <span className="mono">{order.requestStatus ?? '-'}</span>
+                          <span className="sub compact">{order.state ?? '-'}</span>
+                        </td>
+                        <td className="mono">{formatCoin(order.volume)}</td>
+                        <td className="mono">{formatKRW(order.funds)}</td>
+                        <td className="mono small">{truncateText(order.errorMessage, 36)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </article>
         </div>
 
         <aside className="workspace-side">
@@ -554,7 +602,7 @@ function App() {
             <div className="card-head">
               <div>
                 <h2>마켓별 설정</h2>
-                <p className="sub">종목별 최대 매수 금액(cap)과 프로필 override를 저장합니다.</p>
+                <p className="sub">자동매매 대상 마켓과 종목별 cap/profile을 저장합니다.</p>
               </div>
               <span className={`pill ${marketRowsDirty ? 'pill-warning' : ''}`}>
                 {marketRowsDirty ? '변경 있음' : '저장됨'}
@@ -562,6 +610,41 @@ function App() {
             </div>
             {marketConfigError && <p className="status-error">{marketConfigError}</p>}
             {marketConfigNotice && <p className="status-success">{marketConfigNotice}</p>}
+            <div className="market-add-row">
+              <input
+                type="text"
+                value={newMarketInput}
+                placeholder="예: KRW-ETH"
+                onChange={(event) => setNewMarketInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    addMarketRow(
+                      newMarketInput,
+                      marketRows,
+                      setNewMarketInput,
+                      setMarketRows,
+                      setMarketConfigError,
+                      setMarketConfigNotice
+                    )
+                  }
+                }}
+              />
+              <button
+                className="ghost-button"
+                onClick={() => addMarketRow(
+                  newMarketInput,
+                  marketRows,
+                  setNewMarketInput,
+                  setMarketRows,
+                  setMarketConfigError,
+                  setMarketConfigNotice
+                )}
+                disabled={marketConfigLoading || marketConfigSaving}
+              >
+                마켓 추가
+              </button>
+            </div>
             {marketConfigLoading ? (
               <div className="empty-state">마켓 설정을 불러오는 중입니다…</div>
             ) : marketRows.length === 0 ? (
@@ -572,6 +655,13 @@ function App() {
                   <div className="market-override-row" key={row.market}>
                     <div className="market-override-title">
                       <strong>{row.market}</strong>
+                      <button
+                        className="market-remove-button"
+                        onClick={() => removeMarketRow(setMarketRows, row.market, setMarketConfigNotice, setMarketConfigError)}
+                        disabled={marketConfigSaving}
+                      >
+                        제거
+                      </button>
                     </div>
                     <label className="form-field">
                       <span>최대 매수 KRW</span>
@@ -626,50 +716,6 @@ function App() {
             </div>
           </article>
 
-          <article className="table-card card--elevated order-card">
-            <div className="table-header">
-              <div>
-                <h2>최근 주문 로그</h2>
-                <p className="sub">BUY/SELL 요청 상태와 오류 추적</p>
-              </div>
-            </div>
-            {feedError && <p className="status-error">{feedError}</p>}
-            {orderHistory.length === 0 ? (
-              <div className="empty-state">주문 로그가 없습니다.</div>
-            ) : (
-              <div className="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>시간</th>
-                      <th>마켓</th>
-                      <th>사이드</th>
-                      <th>상태</th>
-                      <th>주문량</th>
-                      <th>주문금액</th>
-                      <th>오류</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orderHistory.map((order) => (
-                      <tr key={order.id}>
-                        <td className="mono small">{formatDateTime(order.requestedAt)}</td>
-                        <td>{order.market}</td>
-                        <td className={order.side === 'BUY' ? 'positive' : 'negative'}>{order.side}</td>
-                        <td>
-                          <span className="mono">{order.requestStatus ?? '-'}</span>
-                          <span className="sub compact">{order.state ?? '-'}</span>
-                        </td>
-                        <td className="mono">{formatCoin(order.volume)}</td>
-                        <td className="mono">{formatKRW(order.funds)}</td>
-                        <td className="mono small">{truncateText(order.errorMessage, 36)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </article>
         </aside>
       </section>
     </div>
@@ -851,6 +897,18 @@ const handleMarketOverridesSave = async (
   setMarketConfigError(null)
   setMarketConfigNotice(null)
   try {
+    const marketsPayload = buildMarketListPayload(rows)
+    const marketResponse = await fetch('/api/strategy/markets', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(marketsPayload),
+    })
+    if (!marketResponse.ok) {
+      const errorPayload = await marketResponse.json().catch(() => null)
+      const message = buildApiErrorMessage(errorPayload, `마켓 저장 실패 ${marketResponse.status}`)
+      throw new Error(message)
+    }
+
     const payload = buildMarketOverridePayload(rows)
     const response = await fetch('/api/strategy/market-overrides', {
       method: 'PUT',
@@ -866,7 +924,7 @@ const handleMarketOverridesSave = async (
     const nextRows = buildMarketOverrideRows(data)
     setMarketRows(nextRows)
     setMarketRowsBaseline(buildMarketOverrideSignature(nextRows))
-    setMarketConfigNotice('마켓 설정이 저장되었습니다.')
+    setMarketConfigNotice('마켓/설정이 저장되었습니다.')
   } catch (err) {
     setMarketConfigError(err?.message ?? '마켓 설정 저장 실패')
   } finally {
@@ -933,6 +991,44 @@ const updateMarketOverrideInput = (setMarketRows, market, field, value) => {
       [field]: value,
     }
   }))
+}
+
+const addMarketRow = (
+  input,
+  rows,
+  setNewMarketInput,
+  setMarketRows,
+  setMarketConfigError,
+  setMarketConfigNotice
+) => {
+  const market = normalizeMarket(input)
+  if (!market) {
+    setMarketConfigError('마켓 코드를 입력해주세요. 예: KRW-ETH')
+    return
+  }
+  if (!isValidMarketCode(market)) {
+    setMarketConfigError('마켓 코드 형식이 올바르지 않습니다. 예: KRW-BTC')
+    return
+  }
+  if (Array.isArray(rows) && rows.some((row) => normalizeMarket(row?.market) === market)) {
+    setMarketConfigError(`${market} 는 이미 추가되어 있습니다.`)
+    return
+  }
+
+  setMarketRows((prev) => [...prev, { market, maxOrderKrw: '', profile: '' }])
+  setNewMarketInput('')
+  setMarketConfigError(null)
+  setMarketConfigNotice(null)
+}
+
+const removeMarketRow = (setMarketRows, market, setMarketConfigNotice, setMarketConfigError) => {
+  const normalized = normalizeMarket(market)
+  if (!normalized) {
+    return
+  }
+  setMarketRows((prev) => prev.filter((row) => normalizeMarket(row?.market) !== normalized))
+  setMarketConfigNotice(null)
+  setMarketConfigError(null)
 }
 
 const normalizeRatioPresets = (payload) => {
@@ -1030,6 +1126,35 @@ const buildMarketOverridePayload = (rows) => {
   return payload
 }
 
+const buildMarketListPayload = (rows) => {
+  if (!Array.isArray(rows)) {
+    throw new Error('마켓 목록이 비어 있습니다.')
+  }
+
+  const markets = []
+  const seen = new Set()
+  rows.forEach((row) => {
+    const market = normalizeMarket(row?.market)
+    if (!market) {
+      return
+    }
+    if (!isValidMarketCode(market)) {
+      throw new Error(`${market} 마켓 코드 형식이 올바르지 않습니다. 예: KRW-BTC`)
+    }
+    if (seen.has(market)) {
+      return
+    }
+    seen.add(market)
+    markets.push(market)
+  })
+
+  if (markets.length === 0) {
+    throw new Error('최소 1개 이상의 마켓이 필요합니다.')
+  }
+
+  return { markets }
+}
+
 const buildMarketOverrideSignature = (rows) => {
   if (!Array.isArray(rows)) {
     return ''
@@ -1113,6 +1238,8 @@ const normalizeMarket = (value) => {
   }
   return normalized
 }
+
+const isValidMarketCode = (value) => MARKET_CODE_PATTERN.test(value)
 
 const toInputValue = (value) => {
   if (value === null || value === undefined) {
