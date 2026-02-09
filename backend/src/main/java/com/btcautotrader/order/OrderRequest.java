@@ -1,11 +1,16 @@
 package com.btcautotrader.order;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+
+import java.math.BigDecimal;
+
 public record OrderRequest(
         String market,
         String side,
         String type,
-        Double price,
-        Double volume,
-        Double funds
+        BigDecimal price,
+        BigDecimal volume,
+        BigDecimal funds,
+        @JsonAlias({"identifier", "client_order_id"}) String clientOrderId
 ) {
 }

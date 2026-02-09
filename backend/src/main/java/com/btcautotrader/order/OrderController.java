@@ -1,11 +1,13 @@
 package com.btcautotrader.order;
 
+import com.btcautotrader.upbit.UpbitApiException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -27,6 +29,7 @@ public class OrderController {
         String market = normalize(request.market());
         String side = normalize(request.side());
         String type = normalize(request.type());
+        String clientOrderId = normalizeClientOrderId(request.clientOrderId());
 
         if (isBlank(market) || isBlank(side) || isBlank(type)) {
             return ResponseEntity.badRequest().body(error("market, side, type are required"));
@@ -39,23 +42,38 @@ public class OrderController {
             return ResponseEntity.badRequest().body(error("type must be MARKET or LIMIT"));
         }
 
-        Double price = request.price();
-        Double volume = request.volume();
-        Double funds = request.funds();
+        BigDecimal price = request.price();
+        BigDecimal volume = request.volume();
+        BigDecimal funds = request.funds();
 
         if (type.equals("MARKET")) {
             if (side.equals("BUY")) {
+                if (funds != null && price != null) {
+                    return ResponseEntity.badRequest().body(error("MARKET BUY requires either funds or price, not both"));
+                }
                 if (funds == null && price == null) {
                     return ResponseEntity.badRequest().body(error("MARKET BUY requires funds (or price as total)") );
                 }
+                if (volume != null) {
+                    return ResponseEntity.badRequest().body(error("MARKET BUY must not include volume"));
+                }
                 if (funds == null) {
                     funds = price;
+                }
+                if (!isPositive(funds)) {
+                    return ResponseEntity.badRequest().body(error("funds must be > 0"));
                 }
                 price = null;
                 volume = null;
             } else {
                 if (volume == null) {
                     return ResponseEntity.badRequest().body(error("MARKET SELL requires volume") );
+                }
+                if (price != null || funds != null) {
+                    return ResponseEntity.badRequest().body(error("MARKET SELL must not include price or funds"));
+                }
+                if (!isPositive(volume)) {
+                    return ResponseEntity.badRequest().body(error("volume must be > 0"));
                 }
                 price = null;
                 funds = null;
@@ -66,11 +84,33 @@ public class OrderController {
             if (price == null || volume == null) {
                 return ResponseEntity.badRequest().body(error("LIMIT requires price and volume") );
             }
+            if (funds != null) {
+                return ResponseEntity.badRequest().body(error("LIMIT must not include funds"));
+            }
+            if (!isPositive(price) || !isPositive(volume)) {
+                return ResponseEntity.badRequest().body(error("price and volume must be > 0"));
+            }
             funds = null;
         }
 
-        OrderRequest normalized = new OrderRequest(market, side, type, price, volume, funds);
-        return ResponseEntity.ok(orderService.create(normalized));
+        OrderRequest normalized = new OrderRequest(market, side, type, price, volume, funds, clientOrderId);
+        try {
+            OrderResponse response = orderService.create(normalized);
+            if ("PENDING".equalsIgnoreCase(response.requestStatus())) {
+                return ResponseEntity.accepted().body(response);
+            }
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException ex) {
+            Map<String, Object> payload = error(ex.getMessage());
+            return ResponseEntity.status(409).body(payload);
+        } catch (UpbitApiException ex) {
+            Map<String, Object> payload = error("upbit api error");
+            payload.put("status", ex.getStatusCode());
+            if (ex.getResponseBody() != null && !ex.getResponseBody().isBlank()) {
+                payload.put("details", ex.getResponseBody());
+            }
+            return ResponseEntity.status(ex.getStatusCode()).body(payload);
+        }
     }
 
     private static String normalize(String value) {
@@ -83,6 +123,18 @@ public class OrderController {
 
     private static boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private static String normalizeClientOrderId(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static boolean isPositive(BigDecimal value) {
+        return value != null && value.compareTo(BigDecimal.ZERO) > 0;
     }
 
     private static Map<String, Object> error(String message) {

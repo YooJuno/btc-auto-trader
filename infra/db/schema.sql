@@ -26,3 +26,33 @@ CREATE INDEX idx_portfolio_snapshot_item_snapshot
 
 CREATE INDEX idx_portfolio_snapshot_item_currency
   ON portfolio_snapshot_item(currency);
+
+-- 주문 기록 (Upbit Spot)
+CREATE TABLE orders (
+  id              BIGSERIAL PRIMARY KEY,
+  external_id     VARCHAR(60) UNIQUE,
+  client_order_id VARCHAR(100) UNIQUE,
+  market          VARCHAR(20) NOT NULL,
+  side            VARCHAR(10) NOT NULL,
+  type            VARCHAR(10) NOT NULL,
+  ord_type        VARCHAR(10) NOT NULL,
+  state           VARCHAR(20),
+  status          VARCHAR(20) NOT NULL,
+  price           NUMERIC(38, 18),
+  volume          NUMERIC(38, 18),
+  funds           NUMERIC(38, 18),
+  requested_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at      TIMESTAMPTZ,
+  raw_request     TEXT,
+  error_message   TEXT,
+  raw_response    TEXT
+);
+
+CREATE INDEX idx_orders_market
+  ON orders(market);
+
+CREATE INDEX idx_orders_requested_at
+  ON orders(requested_at);
+
+CREATE INDEX idx_orders_client_order_id
+  ON orders(client_order_id);

@@ -6,13 +6,21 @@ import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.HexFormat;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -21,6 +29,8 @@ import java.util.UUID;
 public class UpbitService {
     private static final String UPBIT_ACCOUNTS_URL = "https://api.upbit.com/v1/accounts";
     private static final String UPBIT_TICKER_URL = "https://api.upbit.com/v1/ticker";
+    private static final String UPBIT_ORDER_URL = "https://api.upbit.com/v1/orders";
+    private static final String UPBIT_ORDER_DETAIL_URL = "https://api.upbit.com/v1/order";
 
     private final RestTemplate restTemplate;
     private final UpbitCredentials credentials;
@@ -34,7 +44,7 @@ public class UpbitService {
     }
 
     public List<Map<String, Object>> fetchAccounts() {
-        String jwtToken = createJwtToken();
+        String jwtToken = createJwtToken(null);
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + jwtToken);
 
@@ -91,13 +101,106 @@ public class UpbitService {
         return byMarket;
     }
 
-    private String createJwtToken() {
-        String nonce = UUID.randomUUID().toString();
-        Algorithm algorithm = Algorithm.HMAC256(credentials.getSecretKey());
+    public UpbitOrderResponse createOrder(Map<String, String> body, String queryString) {
+        String jwtToken = createJwtToken(queryString);
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + jwtToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
 
-        return JWT.create()
+        HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
+        try {
+            ResponseEntity<UpbitOrderResponse> response = restTemplate.exchange(
+                    UPBIT_ORDER_URL,
+                    HttpMethod.POST,
+                    entity,
+                    UpbitOrderResponse.class
+            );
+            return response.getBody();
+        } catch (HttpStatusCodeException ex) {
+            throw new UpbitApiException(ex.getStatusCode().value(), ex.getResponseBodyAsString());
+        } catch (RestClientException ex) {
+            throw new UpbitApiException(502, ex.getMessage());
+        }
+    }
+
+    public UpbitOrderResponse fetchOrderByIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return null;
+        }
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("identifier", identifier);
+        return fetchOrder(params);
+    }
+
+    private String createJwtToken(String queryString) {
+        String nonce = UUID.randomUUID().toString();
+        Algorithm algorithm = Algorithm.HMAC512(credentials.getSecretKey());
+
+        com.auth0.jwt.JWTCreator.Builder builder = JWT.create()
                 .withClaim("access_key", credentials.getAccessKey())
-                .withClaim("nonce", nonce)
-                .sign(algorithm);
+                .withClaim("nonce", nonce);
+
+        if (queryString != null && !queryString.isBlank()) {
+            builder.withClaim("query_hash", sha512Hex(queryString));
+            builder.withClaim("query_hash_alg", "SHA512");
+        }
+
+        return builder.sign(algorithm);
+    }
+
+    private UpbitOrderResponse fetchOrder(Map<String, String> params) {
+        String queryString = buildQueryString(params);
+        String jwtToken = createJwtToken(queryString);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + jwtToken);
+
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        String url = UPBIT_ORDER_DETAIL_URL + "?" + queryString;
+
+        try {
+            ResponseEntity<UpbitOrderResponse> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    entity,
+                    UpbitOrderResponse.class
+            );
+            return response.getBody();
+        } catch (HttpStatusCodeException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                return null;
+            }
+            throw new UpbitApiException(ex.getStatusCode().value(), ex.getResponseBodyAsString());
+        } catch (RestClientException ex) {
+            throw new UpbitApiException(502, ex.getMessage());
+        }
+    }
+
+    private static String sha512Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-512");
+            byte[] hashed = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hashed);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Failed to create SHA-512 hash", ex);
+        }
+    }
+
+    private static String buildQueryString(Map<String, String> params) {
+        StringBuilder builder = new StringBuilder();
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (entry.getValue() == null) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append("&");
+            }
+            builder.append(encode(entry.getKey())).append("=").append(encode(entry.getValue()));
+        }
+        return builder.toString();
+    }
+
+    private static String encode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 }
