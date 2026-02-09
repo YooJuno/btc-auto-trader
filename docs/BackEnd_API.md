@@ -7,35 +7,6 @@
 
 ---
 
-## 계좌
-
-### GET /api/account/balance
-Upbit 계좌 잔고 조회.
-
-**호출**
-```bash
-curl "http://localhost:8080/api/account/balance"
-```
-
-**응답**
-```jsonc
-{
-  "queriedAt": "2026-02-03T03:45:12.345+09:00", // 서버 기준 조회 시간(ISO-8601)
-  "accounts": [ // Upbit 계좌 배열
-    {
-      "currency": "KRW", // 통화 (예: KRW, BTC)
-      "balance": "123456.789", // 사용 가능 잔고
-      "locked": "0", // 주문 등으로 잠긴 잔고
-      "avg_buy_price": "0", // 평균 매수 단가
-      "avg_buy_price_modified": false, // 평균 단가 수정 여부
-      "unit_currency": "KRW" // 기준 통화 (예: KRW)
-    }
-  ]
-}
-```
-
----
-
 ## 시세
 
 ### GET /api/market/price
