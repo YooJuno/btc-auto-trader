@@ -27,18 +27,34 @@ public class StrategyConfigEntity {
     @Column(name = "stop_loss_pct", nullable = false)
     private double stopLossPct;
 
+    @Column(name = "trailing_stop_pct")
+    private double trailingStopPct;
+
+    @Column(name = "partial_take_profit_pct")
+    private double partialTakeProfitPct;
+
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
     public StrategyConfigEntity() {
     }
 
-    public StrategyConfigEntity(Long id, boolean enabled, double maxOrderKrw, double takeProfitPct, double stopLossPct) {
+    public StrategyConfigEntity(
+            Long id,
+            boolean enabled,
+            double maxOrderKrw,
+            double takeProfitPct,
+            double stopLossPct,
+            double trailingStopPct,
+            double partialTakeProfitPct
+    ) {
         this.id = id;
         this.enabled = enabled;
         this.maxOrderKrw = maxOrderKrw;
         this.takeProfitPct = takeProfitPct;
         this.stopLossPct = stopLossPct;
+        this.trailingStopPct = trailingStopPct;
+        this.partialTakeProfitPct = partialTakeProfitPct;
     }
 
     public static StrategyConfigEntity from(Long id, StrategyConfig config) {
@@ -47,7 +63,9 @@ public class StrategyConfigEntity {
                 config.enabled(),
                 config.maxOrderKrw(),
                 config.takeProfitPct(),
-                config.stopLossPct()
+                config.stopLossPct(),
+                config.trailingStopPct(),
+                config.partialTakeProfitPct()
         );
     }
 
@@ -56,7 +74,9 @@ public class StrategyConfigEntity {
                 enabled,
                 maxOrderKrw,
                 takeProfitPct,
-                stopLossPct
+                stopLossPct,
+                trailingStopPct,
+                partialTakeProfitPct
         );
     }
 
@@ -65,6 +85,8 @@ public class StrategyConfigEntity {
         this.maxOrderKrw = config.maxOrderKrw();
         this.takeProfitPct = config.takeProfitPct();
         this.stopLossPct = config.stopLossPct();
+        this.trailingStopPct = config.trailingStopPct();
+        this.partialTakeProfitPct = config.partialTakeProfitPct();
     }
 
     @PrePersist
@@ -111,6 +133,22 @@ public class StrategyConfigEntity {
 
     public void setStopLossPct(double stopLossPct) {
         this.stopLossPct = stopLossPct;
+    }
+
+    public double getTrailingStopPct() {
+        return trailingStopPct;
+    }
+
+    public void setTrailingStopPct(double trailingStopPct) {
+        this.trailingStopPct = trailingStopPct;
+    }
+
+    public double getPartialTakeProfitPct() {
+        return partialTakeProfitPct;
+    }
+
+    public void setPartialTakeProfitPct(double partialTakeProfitPct) {
+        this.partialTakeProfitPct = partialTakeProfitPct;
     }
 
     public OffsetDateTime getUpdatedAt() {

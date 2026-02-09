@@ -36,9 +36,10 @@
 ## 자동매매 엔진
 ### 동작 요약
 - `engine.tick-ms` 주기로 동작 (엔진 ON 상태일 때만)
-- 계좌(Upbit)와 현재가를 조회해 매수/매도 판단
-- 매수: 보유 없고 현금이 충분할 때 시장가 매수
-- 매도: 보유 중일 때 손익 기준(익절/손절) 충족 시 시장가 매도
+- 캔들 기반 MA(단기/장기) + RSI/MACD/돌파 신호로 매수 판단
+- 매수: `MA_SHORT > MA_LONG` + 확인 신호(기본 2개 이상) 충족 시 시장가 매수
+- 매도: 손절/트레일링 스탑/모멘텀 약화/MA 이탈/익절(부분 익절 가능)
+- 변동성 타깃이 설정되어 있으면 주문 금액을 축소
 - 최근 주문/대기 중 주문은 재주문 방지
 - 장애 발생 시 지수 백오프로 호출 빈도 제한
 
@@ -49,6 +50,26 @@
 - `engine.failure-backoff-max-seconds`
 - `trading.markets`
 - `trading.min-krw`
+- `signal.timeframe-unit`
+- `signal.ma-short`
+- `signal.ma-long`
+- `signal.rsi-period`
+- `signal.rsi-buy-threshold`
+- `signal.rsi-sell-threshold`
+- `signal.rsi-overbought`
+- `signal.macd-fast`
+- `signal.macd-slow`
+- `signal.macd-signal`
+- `signal.breakout-lookback`
+- `signal.breakout-pct`
+- `signal.min-confirmations`
+- `risk.trailing-window`
+- `risk.partial-take-profit-cooldown-minutes`
+- `risk.volatility-window`
+- `risk.target-vol-pct`
+
+전략 API 값:
+- `enabled`, `maxOrderKrw`, `takeProfitPct`, `stopLossPct`, `trailingStopPct`, `partialTakeProfitPct`
 
 ## 데이터베이스
 ### 주문 테이블

@@ -6,7 +6,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class StrategyService {
     private static final long CONFIG_ID = 1L;
-    private static final StrategyConfig DEFAULT_CONFIG = new StrategyConfig(true, 10000.0, 3.0, 1.5);
+    private static final StrategyConfig DEFAULT_CONFIG =
+            new StrategyConfig(true, 10000.0, 3.0, 1.5, 2.0, 50.0);
 
     private final StrategyConfigRepository repository;
 
@@ -16,12 +17,16 @@ public class StrategyService {
 
     @Transactional
     public StrategyConfig getConfig() {
-        return repository.findById(CONFIG_ID)
-                .map(StrategyConfigEntity::toRecord)
-                .orElseGet(() -> {
-                    StrategyConfigEntity created = StrategyConfigEntity.from(CONFIG_ID, DEFAULT_CONFIG);
-                    return repository.save(created).toRecord();
-                });
+        StrategyConfigEntity entity = repository.findById(CONFIG_ID)
+                .orElseGet(() -> repository.save(StrategyConfigEntity.from(CONFIG_ID, DEFAULT_CONFIG)));
+
+        if (entity.getTrailingStopPct() == 0.0 && entity.getPartialTakeProfitPct() == 0.0) {
+            entity.setTrailingStopPct(DEFAULT_CONFIG.trailingStopPct());
+            entity.setPartialTakeProfitPct(DEFAULT_CONFIG.partialTakeProfitPct());
+            entity = repository.save(entity);
+        }
+
+        return entity.toRecord();
     }
 
     @Transactional

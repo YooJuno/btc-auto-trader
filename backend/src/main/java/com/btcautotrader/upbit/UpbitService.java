@@ -29,6 +29,7 @@ import java.util.UUID;
 public class UpbitService {
     private static final String UPBIT_ACCOUNTS_URL = "https://api.upbit.com/v1/accounts";
     private static final String UPBIT_TICKER_URL = "https://api.upbit.com/v1/ticker";
+    private static final String UPBIT_CANDLES_MINUTE_URL = "https://api.upbit.com/v1/candles/minutes";
     private static final String UPBIT_ORDER_URL = "https://api.upbit.com/v1/orders";
     private static final String UPBIT_ORDER_DETAIL_URL = "https://api.upbit.com/v1/order";
 
@@ -72,6 +73,21 @@ public class UpbitService {
         }
 
         return body.get(0);
+    }
+
+    public List<Map<String, Object>> fetchMinuteCandles(String market, int unit, int count) {
+        if (unit <= 0) {
+            throw new IllegalArgumentException("unit must be positive");
+        }
+        int safeCount = Math.max(1, Math.min(count, 200));
+        String url = UriComponentsBuilder.fromHttpUrl(UPBIT_CANDLES_MINUTE_URL + "/" + unit)
+                .queryParam("market", market)
+                .queryParam("count", safeCount)
+                .toUriString();
+
+        ResponseEntity<List> response = restTemplate.getForEntity(url, List.class);
+        List<Map<String, Object>> body = response.getBody();
+        return body == null ? List.of() : body;
     }
 
     public Map<String, Map<String, Object>> fetchTickers(List<String> markets) {
