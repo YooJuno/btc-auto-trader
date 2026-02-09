@@ -534,9 +534,34 @@ h3 {
   padding-right: 3px;
 }
 
+.market-add-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.market-add-row input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid rgba(16, 44, 56, 0.18);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--text);
+  font-size: 0.82rem;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.market-add-row input:focus {
+  outline: none;
+  border-color: rgba(14, 140, 124, 0.62);
+  box-shadow: 0 0 0 2px rgba(14, 140, 124, 0.12);
+  background: rgba(255, 255, 255, 0.94);
+}
+
 .market-override-row {
   display: grid;
-  grid-template-columns: 100px minmax(0, 1fr) 150px;
+  grid-template-columns: 168px minmax(0, 1fr) 150px;
   gap: 8px;
   align-items: end;
   padding: 8px;
@@ -547,8 +572,33 @@ h3 {
 
 .market-override-title {
   display: flex;
+  justify-content: space-between;
   align-items: center;
+  gap: 8px;
   font-size: 0.81rem;
+}
+
+.market-remove-button {
+  border: 1px solid rgba(176, 74, 58, 0.32);
+  background: rgba(255, 255, 255, 0.78);
+  color: rgba(176, 74, 58, 0.95);
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.market-remove-button:hover:not(:disabled) {
+  border-color: rgba(176, 74, 58, 0.64);
+  background: rgba(176, 74, 58, 0.1);
+}
+
+.market-remove-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .table-header {
@@ -811,6 +861,10 @@ tbody tr:hover {
 
   .market-override-row {
     grid-template-columns: 1fr;
+  }
+
+  .market-add-row {
+    flex-direction: column;
   }
 
   table {

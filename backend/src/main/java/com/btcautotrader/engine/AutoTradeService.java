@@ -16,12 +16,12 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -38,7 +38,6 @@ public class AutoTradeService {
     private final OrderRepository orderRepository;
     private final TradeDecisionService tradeDecisionService;
 
-    private final String marketsConfig;
     private final Map<String, BigDecimal> propertyMarketMaxOrderKrwOverrides;
     private final Map<String, StrategyProfile> propertyMarketProfileOverrides;
     private final BigDecimal minOrderKrw;
@@ -57,6 +56,10 @@ public class AutoTradeService {
     private final int macdFast;
     private final int macdSlow;
     private final int macdSignal;
+    private final int adxPeriod;
+    private final double minAdx;
+    private final int volumeLookback;
+    private final double minVolumeRatio;
     private final int breakoutLookback;
     private final double breakoutPct;
     private final double maxExtensionPct;
@@ -65,6 +68,10 @@ public class AutoTradeService {
     private final int trailingWindow;
     private final long partialTakeProfitCooldownMinutes;
     private final long stopLossCooldownMinutes;
+    private final long reentryCooldownMinutes;
+    private final long stopLossGuardLookbackMinutes;
+    private final int stopLossGuardTriggerCount;
+    private final long stopLossGuardLockMinutes;
     private final int volatilityWindow;
     private final BigDecimal targetVolPct;
 
@@ -73,6 +80,9 @@ public class AutoTradeService {
     private final Map<String, BackoffState> backoffStates = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> lastPartialTakeProfitAt = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> lastStopLossAt = new ConcurrentHashMap<>();
+    private final Map<String, OffsetDateTime> lastExitAt = new ConcurrentHashMap<>();
+    private final Map<String, Deque<OffsetDateTime>> stopLossEventsByMarket = new ConcurrentHashMap<>();
+    private final Map<String, OffsetDateTime> stopLossGuardUntilByMarket = new ConcurrentHashMap<>();
 
     public AutoTradeService(
             UpbitService upbitService,
@@ -81,7 +91,6 @@ public class AutoTradeService {
             EngineService engineService,
             OrderRepository orderRepository,
             TradeDecisionService tradeDecisionService,
-            @Value("${trading.markets:KRW-BTC}") String marketsConfig,
             @Value("${trading.market-max-order-krw:}") String marketMaxOrderKrwConfig,
             @Value("${trading.market-profile:}") String marketProfileConfig,
             @Value("${trading.min-krw:5000}") BigDecimal minOrderKrw,
@@ -100,6 +109,10 @@ public class AutoTradeService {
             @Value("${signal.macd-fast:12}") int macdFast,
             @Value("${signal.macd-slow:26}") int macdSlow,
             @Value("${signal.macd-signal:9}") int macdSignal,
+            @Value("${signal.adx-period:14}") int adxPeriod,
+            @Value("${signal.min-adx:18}") double minAdx,
+            @Value("${signal.volume-lookback:20}") int volumeLookback,
+            @Value("${signal.min-volume-ratio:0.8}") double minVolumeRatio,
             @Value("${signal.breakout-lookback:20}") int breakoutLookback,
             @Value("${signal.breakout-pct:0.3}") double breakoutPct,
             @Value("${signal.max-extension-pct:1.2}") double maxExtensionPct,
@@ -108,6 +121,10 @@ public class AutoTradeService {
             @Value("${risk.trailing-window:20}") int trailingWindow,
             @Value("${risk.partial-take-profit-cooldown-minutes:120}") long partialTakeProfitCooldownMinutes,
             @Value("${risk.stop-loss-cooldown-minutes:30}") long stopLossCooldownMinutes,
+            @Value("${risk.reentry-cooldown-minutes:15}") long reentryCooldownMinutes,
+            @Value("${risk.stop-loss-guard-lookback-minutes:180}") long stopLossGuardLookbackMinutes,
+            @Value("${risk.stop-loss-guard-trigger-count:3}") int stopLossGuardTriggerCount,
+            @Value("${risk.stop-loss-guard-lock-minutes:180}") long stopLossGuardLockMinutes,
             @Value("${risk.volatility-window:30}") int volatilityWindow,
             @Value("${risk.target-vol-pct:0.5}") BigDecimal targetVolPct
     ) {
@@ -117,7 +134,6 @@ public class AutoTradeService {
         this.engineService = engineService;
         this.orderRepository = orderRepository;
         this.tradeDecisionService = tradeDecisionService;
-        this.marketsConfig = marketsConfig;
         this.propertyMarketMaxOrderKrwOverrides = Map.copyOf(parseMarketMaxOrderKrwOverrides(marketMaxOrderKrwConfig));
         this.propertyMarketProfileOverrides = Map.copyOf(parseMarketProfileOverrides(marketProfileConfig));
         this.minOrderKrw = minOrderKrw;
@@ -136,6 +152,10 @@ public class AutoTradeService {
         this.macdFast = macdFast;
         this.macdSlow = macdSlow;
         this.macdSignal = macdSignal;
+        this.adxPeriod = adxPeriod;
+        this.minAdx = minAdx;
+        this.volumeLookback = volumeLookback;
+        this.minVolumeRatio = minVolumeRatio;
         this.breakoutLookback = breakoutLookback;
         this.breakoutPct = breakoutPct;
         this.maxExtensionPct = maxExtensionPct;
@@ -144,6 +164,10 @@ public class AutoTradeService {
         this.trailingWindow = trailingWindow;
         this.partialTakeProfitCooldownMinutes = partialTakeProfitCooldownMinutes;
         this.stopLossCooldownMinutes = stopLossCooldownMinutes;
+        this.reentryCooldownMinutes = reentryCooldownMinutes;
+        this.stopLossGuardLookbackMinutes = stopLossGuardLookbackMinutes;
+        this.stopLossGuardTriggerCount = stopLossGuardTriggerCount;
+        this.stopLossGuardLockMinutes = stopLossGuardLockMinutes;
         this.volatilityWindow = volatilityWindow;
         this.targetVolPct = targetVolPct;
     }
@@ -182,7 +206,7 @@ public class AutoTradeService {
                     propertyMarketProfileOverrides,
                     runtimeOverrides
             );
-            List<String> markets = parseMarkets(marketsConfig);
+            List<String> markets = strategyService.configuredMarkets();
             if (markets.isEmpty()) {
                 return new AutoTradeResult(now.toString(), List.of());
             }
@@ -304,6 +328,8 @@ public class AutoTradeService {
         double rsiBuy = rsiBuyThreshold;
         double rsiSell = rsiSellThreshold;
         double rsiOver = rsiOverbought;
+        double minAdxThreshold = minAdx;
+        double minVolumeRatioThreshold = minVolumeRatio;
         double breakout = breakoutPct;
         double maxExtension = maxExtensionPct;
         double minSlope = 0.0;
@@ -314,6 +340,8 @@ public class AutoTradeService {
                 rsiBuy -= 5.0;
                 rsiSell -= 5.0;
                 rsiOver += 10.0;
+                minAdxThreshold -= 4.0;
+                minVolumeRatioThreshold -= 0.15;
                 breakout *= 0.5;
                 maxExtension *= 1.5;
                 minSlope = -0.1;
@@ -323,6 +351,8 @@ public class AutoTradeService {
                 rsiBuy += 5.0;
                 rsiSell += 5.0;
                 rsiOver -= 5.0;
+                minAdxThreshold += 4.0;
+                minVolumeRatioThreshold += 0.15;
                 breakout *= 1.5;
                 maxExtension *= 0.7;
                 minSlope = 0.05;
@@ -335,12 +365,24 @@ public class AutoTradeService {
         rsiBuy = clamp(rsiBuy, 40.0, 80.0);
         rsiSell = clamp(rsiSell, 30.0, 70.0);
         rsiOver = clamp(rsiOver, 60.0, 90.0);
+        minAdxThreshold = clamp(minAdxThreshold, 5.0, 60.0);
+        minVolumeRatioThreshold = clamp(minVolumeRatioThreshold, 0.1, 3.0);
         breakout = clamp(breakout, 0.05, 3.0);
         maxExtension = clamp(maxExtension, 0.2, 5.0);
         minSlope = clamp(minSlope, -0.5, 1.0);
         confirmations = clamp(confirmations, 1, 3);
 
-        return new SignalTuning(rsiBuy, rsiSell, rsiOver, breakout, confirmations, maxExtension, minSlope);
+        return new SignalTuning(
+                rsiBuy,
+                rsiSell,
+                rsiOver,
+                minAdxThreshold,
+                minVolumeRatioThreshold,
+                breakout,
+                confirmations,
+                maxExtension,
+                minSlope
+        );
     }
 
     private AutoTradeAction handleSell(
@@ -441,6 +483,22 @@ public class AutoTradeService {
                 return new AutoTradeAction(market, "SKIP", "overextended", indicators.currentPrice(), null, null, null, null);
             }
         }
+        if (tuning.minAdx() > 0) {
+            if (indicators.adx() == null) {
+                return new AutoTradeAction(market, "SKIP", "no adx", indicators.currentPrice(), null, null, null, null);
+            }
+            if (indicators.adx().doubleValue() < tuning.minAdx()) {
+                return new AutoTradeAction(market, "SKIP", "weak_trend", indicators.currentPrice(), null, null, null, null);
+            }
+        }
+        if (tuning.minVolumeRatio() > 0) {
+            if (indicators.volumeRatio() == null) {
+                return new AutoTradeAction(market, "SKIP", "no volume", indicators.currentPrice(), null, null, null, null);
+            }
+            if (indicators.volumeRatio().doubleValue() < tuning.minVolumeRatio()) {
+                return new AutoTradeAction(market, "SKIP", "low_volume", indicators.currentPrice(), null, null, null, null);
+            }
+        }
 
         boolean rsiOk = indicators.rsi() != null
                 && indicators.rsi().doubleValue() >= tuning.rsiBuyThreshold()
@@ -461,6 +519,12 @@ public class AutoTradeService {
             return new AutoTradeAction(market, "SKIP", "insufficient cash", null, null, orderFunds, null, null);
         }
 
+        if (isStopLossGuardActive(market)) {
+            return new AutoTradeAction(market, "SKIP", "stop_loss_guard", null, null, orderFunds, null, null);
+        }
+        if (isReentryCooldown(market)) {
+            return new AutoTradeAction(market, "SKIP", "reentry_cooldown", null, null, orderFunds, null, null);
+        }
         if (isStopLossCooldown(market)) {
             return new AutoTradeAction(market, "SKIP", "stop_loss_cooldown", null, null, orderFunds, null, null);
         }
@@ -500,9 +564,7 @@ public class AutoTradeService {
 
         OrderRequest request = new OrderRequest(market, "SELL", "MARKET", null, volume, null, null);
         OrderResponse response = orderService.create(request);
-        if (shouldRecordStopLoss(reason, response)) {
-            lastStopLossAt.put(market, OffsetDateTime.now());
-        }
+        recordSellEvent(market, reason, response);
 
         return new AutoTradeAction(
                 market,
@@ -556,9 +618,7 @@ public class AutoTradeService {
 
         OrderRequest request = new OrderRequest(market, "SELL", "MARKET", null, volume, null, null);
         OrderResponse response = orderService.create(request);
-        if (shouldRecordStopLoss(reason, response)) {
-            lastStopLossAt.put(market, OffsetDateTime.now());
-        }
+        recordSellEvent(market, reason, response);
 
         return new AutoTradeAction(
                 market,
@@ -643,21 +703,6 @@ public class AutoTradeService {
             return null;
         }
         return market.substring(idx + 1).trim().toUpperCase();
-    }
-
-    private static List<String> parseMarkets(String config) {
-        if (config == null || config.isBlank()) {
-            return List.of();
-        }
-        String[] raw = config.split(",");
-        Set<String> unique = new LinkedHashSet<>();
-        for (String item : raw) {
-            String trimmed = item.trim();
-            if (!trimmed.isEmpty()) {
-                unique.add(trimmed.toUpperCase());
-            }
-        }
-        return new ArrayList<>(unique);
     }
 
     private static Map<String, BigDecimal> parseMarketMaxOrderKrwOverrides(String config) {
@@ -857,6 +902,8 @@ public class AutoTradeService {
         int macdFastWindow = Math.max(2, macdFast);
         int macdSlowWindow = Math.max(macdFastWindow + 1, macdSlow);
         int macdSignalWindow = Math.max(2, macdSignal);
+        int adxWindow = Math.max(2, adxPeriod);
+        int volumeWindow = Math.max(1, volumeLookback);
         int breakoutWindow = Math.max(0, breakoutLookback);
         int trailingWindowSafe = Math.max(0, trailingWindow);
         int slopeLookback = Math.max(0, maLongSlopeLookback);
@@ -864,6 +911,8 @@ public class AutoTradeService {
         int count = required;
         count = Math.max(count, rsiWindow + 1);
         count = Math.max(count, macdSlowWindow + macdSignalWindow);
+        count = Math.max(count, adxWindow * 2 + 1);
+        count = Math.max(count, volumeWindow + 1);
         if (breakoutWindow > 1) {
             count = Math.max(count, breakoutWindow + 1);
         }
@@ -886,12 +935,20 @@ public class AutoTradeService {
 
         List<BigDecimal> closes = new ArrayList<>();
         List<BigDecimal> highs = new ArrayList<>();
+        List<BigDecimal> lows = new ArrayList<>();
+        List<BigDecimal> quoteVolumes = new ArrayList<>();
         for (Map<String, Object> candle : candles) {
             BigDecimal close = toDecimal(candle.get("trade_price"));
             BigDecimal high = toDecimal(candle.get("high_price"));
-            if (close.compareTo(BigDecimal.ZERO) > 0 && high.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal low = toDecimal(candle.get("low_price"));
+            BigDecimal quoteVolume = toDecimal(candle.get("candle_acc_trade_price"));
+            if (close.compareTo(BigDecimal.ZERO) > 0
+                    && high.compareTo(BigDecimal.ZERO) > 0
+                    && low.compareTo(BigDecimal.ZERO) > 0) {
                 closes.add(close);
                 highs.add(high);
+                lows.add(low);
+                quoteVolumes.add(quoteVolume.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : quoteVolume);
             }
         }
         if (closes.size() < required) {
@@ -899,6 +956,8 @@ public class AutoTradeService {
         }
         reverseInPlace(closes);
         reverseInPlace(highs);
+        reverseInPlace(lows);
+        reverseInPlace(quoteVolumes);
 
         BigDecimal currentPrice = closes.get(closes.size() - 1);
         BigDecimal maShortValue = averageLast(closes, maShort);
@@ -910,6 +969,8 @@ public class AutoTradeService {
 
         BigDecimal rsiValue = computeRsi(closes, rsiWindow);
         BigDecimal macdHistogram = computeMacdHistogram(closes, macdFastWindow, macdSlowWindow, macdSignalWindow);
+        BigDecimal adxValue = computeAdx(highs, lows, closes, adxWindow);
+        BigDecimal volumeRatio = computeVolumeRatio(quoteVolumes, volumeWindow);
         BigDecimal maLongSlopePct = null;
         if (slopeLookback > 0) {
             BigDecimal maLongPrev = averageLastWithOffset(closes, maLong, slopeLookback);
@@ -940,6 +1001,8 @@ public class AutoTradeService {
                 volatilityPct,
                 rsiValue,
                 macdHistogram,
+                adxValue,
+                volumeRatio,
                 breakoutLevel,
                 trailingHigh,
                 maLongSlopePct
@@ -1073,6 +1136,97 @@ public class AutoTradeService {
         return BigDecimal.valueOf(macd - signalValue);
     }
 
+    private static BigDecimal computeAdx(List<BigDecimal> highs, List<BigDecimal> lows, List<BigDecimal> closes, int period) {
+        if (highs == null || lows == null || closes == null || period < 2) {
+            return null;
+        }
+        int size = Math.min(highs.size(), Math.min(lows.size(), closes.size()));
+        if (size < period * 2 + 1) {
+            return null;
+        }
+
+        double trSmooth = 0.0;
+        double plusDmSmooth = 0.0;
+        double minusDmSmooth = 0.0;
+        for (int i = 1; i <= period; i++) {
+            double tr = trueRange(highs.get(i), lows.get(i), closes.get(i - 1));
+            double upMove = highs.get(i).subtract(highs.get(i - 1)).doubleValue();
+            double downMove = lows.get(i - 1).subtract(lows.get(i)).doubleValue();
+            double plusDm = (upMove > downMove && upMove > 0.0) ? upMove : 0.0;
+            double minusDm = (downMove > upMove && downMove > 0.0) ? downMove : 0.0;
+            trSmooth += tr;
+            plusDmSmooth += plusDm;
+            minusDmSmooth += minusDm;
+        }
+
+        List<Double> dxValues = new ArrayList<>();
+        dxValues.add(computeDx(trSmooth, plusDmSmooth, minusDmSmooth));
+        for (int i = period + 1; i < size; i++) {
+            double tr = trueRange(highs.get(i), lows.get(i), closes.get(i - 1));
+            double upMove = highs.get(i).subtract(highs.get(i - 1)).doubleValue();
+            double downMove = lows.get(i - 1).subtract(lows.get(i)).doubleValue();
+            double plusDm = (upMove > downMove && upMove > 0.0) ? upMove : 0.0;
+            double minusDm = (downMove > upMove && downMove > 0.0) ? downMove : 0.0;
+
+            trSmooth = trSmooth - (trSmooth / period) + tr;
+            plusDmSmooth = plusDmSmooth - (plusDmSmooth / period) + plusDm;
+            minusDmSmooth = minusDmSmooth - (minusDmSmooth / period) + minusDm;
+            dxValues.add(computeDx(trSmooth, plusDmSmooth, minusDmSmooth));
+        }
+
+        if (dxValues.size() < period) {
+            return null;
+        }
+        double adx = 0.0;
+        for (int i = 0; i < period; i++) {
+            adx += dxValues.get(i);
+        }
+        adx /= period;
+        for (int i = period; i < dxValues.size(); i++) {
+            adx = ((adx * (period - 1)) + dxValues.get(i)) / period;
+        }
+        return BigDecimal.valueOf(adx);
+    }
+
+    private static double trueRange(BigDecimal high, BigDecimal low, BigDecimal prevClose) {
+        double h = high.doubleValue();
+        double l = low.doubleValue();
+        double pc = prevClose.doubleValue();
+        double range1 = h - l;
+        double range2 = Math.abs(h - pc);
+        double range3 = Math.abs(l - pc);
+        return Math.max(range1, Math.max(range2, range3));
+    }
+
+    private static double computeDx(double trSmooth, double plusDmSmooth, double minusDmSmooth) {
+        if (trSmooth <= 0.0) {
+            return 0.0;
+        }
+        double plusDi = 100.0 * (plusDmSmooth / trSmooth);
+        double minusDi = 100.0 * (minusDmSmooth / trSmooth);
+        double diSum = plusDi + minusDi;
+        if (diSum <= 0.0) {
+            return 0.0;
+        }
+        return 100.0 * Math.abs(plusDi - minusDi) / diSum;
+    }
+
+    private static BigDecimal computeVolumeRatio(List<BigDecimal> quoteVolumes, int lookback) {
+        if (quoteVolumes == null || lookback <= 0 || quoteVolumes.size() < lookback + 1) {
+            return null;
+        }
+        int end = quoteVolumes.size() - 1;
+        BigDecimal current = quoteVolumes.get(end);
+        if (current == null || current.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal avg = averageRange(quoteVolumes, end - lookback, end - 1);
+        if (avg == null || avg.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        return current.divide(avg, 8, RoundingMode.HALF_UP);
+    }
+
     private static List<Double> emaSeriesFromDecimal(List<BigDecimal> values, int period) {
         if (values == null || values.isEmpty() || period <= 0) {
             return List.of();
@@ -1130,6 +1284,26 @@ public class AutoTradeService {
         return max;
     }
 
+    private static BigDecimal averageRange(List<BigDecimal> values, int start, int end) {
+        if (values == null || values.isEmpty() || start < 0 || end < start || end >= values.size()) {
+            return null;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        int count = 0;
+        for (int i = start; i <= end; i++) {
+            BigDecimal value = values.get(i);
+            if (value == null) {
+                continue;
+            }
+            sum = sum.add(value);
+            count++;
+        }
+        if (count == 0) {
+            return null;
+        }
+        return sum.divide(BigDecimal.valueOf(count), 8, RoundingMode.HALF_UP);
+    }
+
     private String buildEntryReason(boolean rsiOk, boolean macdOk, boolean breakoutOk) {
         List<String> parts = new ArrayList<>();
         if (rsiOk) {
@@ -1175,9 +1349,10 @@ public class AutoTradeService {
         }
         OrderRequest request = new OrderRequest(market, "SELL", "MARKET", null, volume, null, null);
         OrderResponse response = orderService.create(request);
-        if (response.requestStatus() != null && !"FAILED".equalsIgnoreCase(response.requestStatus())) {
+        if (isAcceptedOrder(response)) {
             lastPartialTakeProfitAt.put(market, now);
         }
+        recordSellEvent(market, "take_profit_partial", response);
         return new AutoTradeAction(
                 market,
                 "SELL",
@@ -1201,20 +1376,75 @@ public class AutoTradeService {
         return last.isAfter(OffsetDateTime.now().minusMinutes(stopLossCooldownMinutes));
     }
 
-    private boolean shouldRecordStopLoss(String reason, OrderResponse response) {
-        if (reason == null) {
+    private boolean isReentryCooldown(String market) {
+        if (reentryCooldownMinutes <= 0) {
             return false;
         }
-        boolean stopLike = reason.contains("stop_loss")
-                || reason.contains("trailing_stop")
-                || reason.contains("momentum_reversal");
-        if (!stopLike) {
+        OffsetDateTime last = lastExitAt.get(market);
+        if (last == null) {
             return false;
         }
+        return last.isAfter(OffsetDateTime.now().minusMinutes(reentryCooldownMinutes));
+    }
+
+    private boolean isStopLossGuardActive(String market) {
+        if (stopLossGuardLockMinutes <= 0) {
+            return false;
+        }
+        OffsetDateTime until = stopLossGuardUntilByMarket.get(market);
+        if (until == null) {
+            return false;
+        }
+        OffsetDateTime now = OffsetDateTime.now();
+        if (now.isAfter(until)) {
+            stopLossGuardUntilByMarket.remove(market);
+            return false;
+        }
+        return true;
+    }
+
+    private void recordSellEvent(String market, String reason, OrderResponse response) {
+        if (!isAcceptedOrder(response)) {
+            return;
+        }
+        OffsetDateTime now = OffsetDateTime.now();
+        lastExitAt.put(market, now);
+        if (isStopLikeReason(reason)) {
+            lastStopLossAt.put(market, now);
+            if (stopLossGuardTriggerCount > 0 && stopLossGuardLookbackMinutes > 0 && stopLossGuardLockMinutes > 0) {
+                registerStopLossEvent(market, now);
+            }
+        }
+    }
+
+    private void registerStopLossEvent(String market, OffsetDateTime occurredAt) {
+        Deque<OffsetDateTime> events = stopLossEventsByMarket.computeIfAbsent(market, key -> new ArrayDeque<>());
+        synchronized (events) {
+            OffsetDateTime threshold = occurredAt.minusMinutes(stopLossGuardLookbackMinutes);
+            while (!events.isEmpty() && events.peekFirst().isBefore(threshold)) {
+                events.pollFirst();
+            }
+            events.addLast(occurredAt);
+            if (events.size() >= stopLossGuardTriggerCount) {
+                stopLossGuardUntilByMarket.put(market, occurredAt.plusMinutes(stopLossGuardLockMinutes));
+            }
+        }
+    }
+
+    private static boolean isAcceptedOrder(OrderResponse response) {
         if (response == null || response.requestStatus() == null) {
             return false;
         }
         return !"FAILED".equalsIgnoreCase(response.requestStatus());
+    }
+
+    private static boolean isStopLikeReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return false;
+        }
+        return reason.contains("stop_loss")
+                || reason.contains("trailing_stop")
+                || reason.contains("momentum_reversal");
     }
 
     private void recordDecision(
@@ -1260,10 +1490,18 @@ public class AutoTradeService {
             details.put("macdFast", macdFast);
             details.put("macdSlow", macdSlow);
             details.put("macdSignal", macdSignal);
+            details.put("adxPeriod", adxPeriod);
+            details.put("minAdx", minAdx);
+            details.put("volumeLookback", volumeLookback);
+            details.put("minVolumeRatio", minVolumeRatio);
             details.put("breakoutLookback", breakoutLookback);
             details.put("trailingWindow", trailingWindow);
             details.put("volatilityWindow", volatilityWindow);
             details.put("targetVolPct", targetVolPct);
+            details.put("reentryCooldownMinutes", reentryCooldownMinutes);
+            details.put("stopLossGuardLookbackMinutes", stopLossGuardLookbackMinutes);
+            details.put("stopLossGuardTriggerCount", stopLossGuardTriggerCount);
+            details.put("stopLossGuardLockMinutes", stopLossGuardLockMinutes);
             details.put("maxMarketsPerTick", maxMarketsPerTick);
             details.put("marketMaxOrderKrw", marketMaxOrderKrw);
             if (config != null) {
@@ -1280,6 +1518,12 @@ public class AutoTradeService {
                 details.put("minConfirmations", tuning.minConfirmations());
                 details.put("maxExtensionPct", tuning.maxExtensionPct());
                 details.put("minMaLongSlopePct", tuning.minMaLongSlopePct());
+                details.put("tuningMinAdx", tuning.minAdx());
+                details.put("tuningMinVolumeRatio", tuning.minVolumeRatio());
+            }
+            if (indicators != null) {
+                details.put("adx", indicators.adx());
+                details.put("volumeRatio", indicators.volumeRatio());
             }
 
             tradeDecisionService.record(entity, details);
@@ -1314,6 +1558,8 @@ public class AutoTradeService {
             BigDecimal volatilityPct,
             BigDecimal rsi,
             BigDecimal macdHistogram,
+            BigDecimal adx,
+            BigDecimal volumeRatio,
             BigDecimal breakoutLevel,
             BigDecimal trailingHigh,
             BigDecimal maLongSlopePct
@@ -1324,6 +1570,8 @@ public class AutoTradeService {
             double rsiBuyThreshold,
             double rsiSellThreshold,
             double rsiOverbought,
+            double minAdx,
+            double minVolumeRatio,
             double breakoutPct,
             int minConfirmations,
             double maxExtensionPct,

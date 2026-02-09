@@ -22,6 +22,8 @@ For stability, consider 5m or 15m as your production default.
 - **Trend filter:** `MA_SHORT > MA_LONG` and price above `MA_LONG`.
 - **Slope filter (optional):** `MA_LONG` must be flat-to-up over recent candles.
 - **Overextension filter:** skip entries if price is too far above `MA_LONG`.
+- **Trend strength filter:** require ADX above a minimum threshold.
+- **Volume quality filter:** require current quote-volume ratio above baseline.
 - **Confirmation signals (need 2 of 3 by default):**
   - RSI: `RSI >= RSI_BUY` and not overbought.
   - MACD: MACD histogram > 0.
@@ -86,6 +88,8 @@ Use multiple layers to avoid oversized risk:
 - **Trailing stop:** protects gains without fixed take-profit
 - **Partial take-profit:** locks some profit while keeping exposure
 - **Stop-loss cooldown:** avoid immediate re-entry after a loss
+- **Re-entry cooldown:** avoid immediate buy after any sell exit
+- **Stop-loss guard:** if stop-like exits cluster in a short window, lock buys temporarily
 - **Decision logging:** each tick stores reason/indicator snapshot for audit
 
 Upbit KRW minimum order amount and tick size rules:  
@@ -125,6 +129,10 @@ signal.rsi-overbought=70
 signal.macd-fast=12
 signal.macd-slow=26
 signal.macd-signal=9
+signal.adx-period=14
+signal.min-adx=18
+signal.volume-lookback=20
+signal.min-volume-ratio=0.8
 signal.breakout-lookback=20
 signal.breakout-pct=0.3
 signal.max-extension-pct=1.2
@@ -136,6 +144,10 @@ engine.max-markets-per-tick=0
 risk.trailing-window=20
 risk.partial-take-profit-cooldown-minutes=120
 risk.stop-loss-cooldown-minutes=30
+risk.reentry-cooldown-minutes=15
+risk.stop-loss-guard-lookback-minutes=180
+risk.stop-loss-guard-trigger-count=3
+risk.stop-loss-guard-lock-minutes=180
 risk.volatility-window=30
 risk.target-vol-pct=0.5
 upbit.rate-limit.enabled=true

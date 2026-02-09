@@ -44,6 +44,7 @@ public class StrategyService {
     );
 
     private final StrategyConfigRepository repository;
+    private final StrategyMarketRepository marketRepository;
     private final StrategyMarketOverrideRepository marketOverrideRepository;
     private final StrategyPresetRepository presetRepository;
     private final String forcedProfile;
@@ -51,12 +52,14 @@ public class StrategyService {
 
     public StrategyService(
             StrategyConfigRepository repository,
+            StrategyMarketRepository marketRepository,
             StrategyMarketOverrideRepository marketOverrideRepository,
             StrategyPresetRepository presetRepository,
             @Value("${trading.markets:KRW-BTC}") String marketsConfig,
             @Value("${strategy.force-profile:}") String forcedProfile
     ) {
         this.repository = repository;
+        this.marketRepository = marketRepository;
         this.marketOverrideRepository = marketOverrideRepository;
         this.presetRepository = presetRepository;
         this.marketsConfig = marketsConfig;
@@ -145,7 +148,46 @@ public class StrategyService {
 
     @Transactional(readOnly = true)
     public List<String> configuredMarkets() {
+        List<String> configured = marketRepository.findAllByOrderByMarketAsc()
+                .stream()
+                .map(StrategyMarketEntity::getMarket)
+                .map(StrategyService::normalizeMarket)
+                .filter(market -> market != null && !market.isBlank())
+                .toList();
+        if (!configured.isEmpty()) {
+            return configured;
+        }
         return parseMarkets(marketsConfig);
+    }
+
+    @Transactional(readOnly = true)
+    public StrategyMarketsResponse getMarkets() {
+        return new StrategyMarketsResponse(configuredMarkets());
+    }
+
+    @Transactional
+    public StrategyMarketsResponse replaceMarkets(List<String> markets) {
+        List<String> normalized = normalizeMarkets(markets);
+        marketRepository.deleteAllInBatch();
+        if (!normalized.isEmpty()) {
+            List<StrategyMarketEntity> entities = normalized.stream()
+                    .map(StrategyMarketEntity::new)
+                    .toList();
+            marketRepository.saveAll(entities);
+        }
+
+        Set<String> allowed = new LinkedHashSet<>(normalized);
+        List<String> staleOverrideMarkets = marketOverrideRepository.findAll()
+                .stream()
+                .map(StrategyMarketOverrideEntity::getMarket)
+                .map(StrategyService::normalizeMarket)
+                .filter(market -> market != null && !allowed.contains(market))
+                .toList();
+        if (!staleOverrideMarkets.isEmpty()) {
+            marketOverrideRepository.deleteAllByIdInBatch(staleOverrideMarkets);
+        }
+
+        return new StrategyMarketsResponse(normalized);
     }
 
     @Transactional(readOnly = true)
@@ -233,6 +275,20 @@ public class StrategyService {
         Set<String> unique = new LinkedHashSet<>();
         for (String item : raw) {
             String market = normalizeMarket(item);
+            if (market != null) {
+                unique.add(market);
+            }
+        }
+        return new ArrayList<>(unique);
+    }
+
+    private static List<String> normalizeMarkets(List<String> markets) {
+        if (markets == null || markets.isEmpty()) {
+            return List.of();
+        }
+        Set<String> unique = new LinkedHashSet<>();
+        for (String raw : markets) {
+            String market = normalizeMarket(raw);
             if (market != null) {
                 unique.add(market);
             }

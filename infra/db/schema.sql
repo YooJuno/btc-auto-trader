@@ -73,6 +73,12 @@ CREATE TABLE strategy_config (
   updated_at              TIMESTAMPTZ NOT NULL
 );
 
+-- 자동매매 대상 마켓 목록
+CREATE TABLE strategy_markets (
+  market                  VARCHAR(20) PRIMARY KEY,
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- 전략 프리셋 (공격형/안정형 등)
 CREATE TABLE strategy_presets (
   code                    VARCHAR(40) PRIMARY KEY,

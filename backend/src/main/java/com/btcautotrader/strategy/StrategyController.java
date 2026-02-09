@@ -10,14 +10,19 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api/strategy")
 public class StrategyController {
+    private static final Pattern MARKET_CODE_PATTERN = Pattern.compile("^[A-Z]{2,10}-[A-Z0-9]{2,15}$");
+
     private final StrategyService strategyService;
 
     public StrategyController(StrategyService strategyService) {
@@ -37,6 +42,34 @@ public class StrategyController {
     @GetMapping("/presets")
     public ResponseEntity<List<StrategyPresetItem>> getPresets() {
         return ResponseEntity.ok(strategyService.getPresets());
+    }
+
+    @GetMapping("/markets")
+    public ResponseEntity<StrategyMarketsResponse> getMarkets() {
+        return ResponseEntity.ok(strategyService.getMarkets());
+    }
+
+    @PutMapping("/markets")
+    public ResponseEntity<?> replaceMarkets(@RequestBody(required = false) StrategyMarketsRequest request) {
+        if (request == null || request.markets() == null) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "request body is required");
+            return ResponseEntity.badRequest().body(error);
+        }
+
+        Map<String, String> errors = new LinkedHashMap<>();
+        List<String> markets = normalizeMarkets(request.markets(), errors);
+        if (markets.isEmpty()) {
+            errors.put("markets", "at least one market is required");
+        }
+        if (!errors.isEmpty()) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "invalid market values");
+            error.put("fields", errors);
+            return ResponseEntity.badRequest().body(error);
+        }
+
+        return ResponseEntity.ok(strategyService.replaceMarkets(markets));
     }
 
     @PutMapping
@@ -209,6 +242,29 @@ public class StrategyController {
         String normalized = market.trim().toUpperCase();
         if (normalized.isEmpty()) {
             return null;
+        }
+        return normalized;
+    }
+
+    private static List<String> normalizeMarkets(List<String> source, Map<String, String> errors) {
+        if (source == null) {
+            return List.of();
+        }
+        Set<String> unique = new LinkedHashSet<>();
+        List<String> normalized = new ArrayList<>();
+        for (int i = 0; i < source.size(); i++) {
+            String market = normalizeMarket(source.get(i));
+            if (market == null) {
+                errors.put("markets[" + i + "]", "market is required");
+                continue;
+            }
+            if (!MARKET_CODE_PATTERN.matcher(market).matches()) {
+                errors.put("markets[" + i + "]", "invalid market format (e.g. KRW-BTC)");
+                continue;
+            }
+            if (unique.add(market)) {
+                normalized.add(market);
+            }
         }
         return normalized;
     }
