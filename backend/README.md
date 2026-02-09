@@ -39,6 +39,7 @@
 - 캔들 기반 MA(단기/장기) + RSI/MACD/돌파 신호로 매수 판단
 - 매수: `MA_SHORT > MA_LONG` + 확인 신호(기본 2개 이상) 충족 시 시장가 매수
 - 매도: 손절/트레일링 스탑/모멘텀 약화/MA 이탈/익절(부분 익절 가능)
+- 프로필(`AGGRESSIVE/BALANCED/CONSERVATIVE`)에 따라 신호 민감도 자동 조정
 - 변동성 타깃이 설정되어 있으면 주문 금액을 축소
 - 최근 주문/대기 중 주문은 재주문 방지
 - 장애 발생 시 지수 백오프로 호출 빈도 제한
@@ -62,9 +63,12 @@
 - `signal.macd-signal`
 - `signal.breakout-lookback`
 - `signal.breakout-pct`
+- `signal.max-extension-pct`
+- `signal.ma-long-slope-lookback`
 - `signal.min-confirmations`
 - `risk.trailing-window`
 - `risk.partial-take-profit-cooldown-minutes`
+- `risk.stop-loss-cooldown-minutes`
 - `risk.volatility-window`
 - `risk.target-vol-pct`
 

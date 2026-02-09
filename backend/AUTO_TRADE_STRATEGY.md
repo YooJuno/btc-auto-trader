@@ -20,6 +20,8 @@ For stability, consider 5m or 15m as your production default.
 **Trend-following with confirmation signals**
 - Compute `MA_SHORT` and `MA_LONG` on closing prices.
 - **Trend filter:** `MA_SHORT > MA_LONG` and price above `MA_LONG`.
+- **Slope filter (optional):** `MA_LONG` must be flat-to-up over recent candles.
+- **Overextension filter:** skip entries if price is too far above `MA_LONG`.
 - **Confirmation signals (need 2 of 3 by default):**
   - RSI: `RSI >= RSI_BUY` and not overbought.
   - MACD: MACD histogram > 0.
@@ -51,6 +53,7 @@ Profiles adjust confirmation strictness without changing your core MA settings.
   - Fewer confirmations (min-confirmations - 1, min 1)
   - Lower RSI entry threshold
   - Smaller breakout buffer
+  - Allows larger MA extension, gentler slope requirement
   - Higher overbought ceiling
 - **BALANCED**
   - Defaults as listed above
@@ -58,6 +61,7 @@ Profiles adjust confirmation strictness without changing your core MA settings.
   - More confirmations (min-confirmations + 1, max 3)
   - Higher RSI entry threshold
   - Larger breakout buffer
+  - Tighter MA extension, positive MA slope required
   - Lower overbought ceiling
 
 These values are conservative and easy to reason about. Adjust per timeframe:
@@ -73,6 +77,7 @@ Use multiple layers to avoid oversized risk:
 - **Pending protection:** do not submit new orders while an open request exists
 - **Trailing stop:** protects gains without fixed take-profit
 - **Partial take-profit:** locks some profit while keeping exposure
+- **Stop-loss cooldown:** avoid immediate re-entry after a loss
 
 Upbit KRW minimum order amount and tick size rules:  
 https://docs.upbit.com/kr/docs/krw-market-info
@@ -111,9 +116,12 @@ signal.macd-slow=26
 signal.macd-signal=9
 signal.breakout-lookback=20
 signal.breakout-pct=0.3
+signal.max-extension-pct=1.2
+signal.ma-long-slope-lookback=5
 signal.min-confirmations=2
 risk.trailing-window=20
 risk.partial-take-profit-cooldown-minutes=120
+risk.stop-loss-cooldown-minutes=30
 risk.volatility-window=30
 risk.target-vol-pct=0.5
 ```

@@ -50,9 +50,12 @@ public class AutoTradeService {
     private final int macdSignal;
     private final int breakoutLookback;
     private final double breakoutPct;
+    private final double maxExtensionPct;
+    private final int maLongSlopeLookback;
     private final int minConfirmations;
     private final int trailingWindow;
     private final long partialTakeProfitCooldownMinutes;
+    private final long stopLossCooldownMinutes;
     private final int volatilityWindow;
     private final BigDecimal targetVolPct;
 
@@ -61,6 +64,7 @@ public class AutoTradeService {
     private volatile OffsetDateTime backoffUntil;
     private volatile int consecutiveFailures;
     private final Map<String, OffsetDateTime> lastPartialTakeProfitAt = new ConcurrentHashMap<>();
+    private final Map<String, OffsetDateTime> lastStopLossAt = new ConcurrentHashMap<>();
 
     public AutoTradeService(
             UpbitService upbitService,
@@ -86,9 +90,12 @@ public class AutoTradeService {
             @Value("${signal.macd-signal:9}") int macdSignal,
             @Value("${signal.breakout-lookback:20}") int breakoutLookback,
             @Value("${signal.breakout-pct:0.3}") double breakoutPct,
+            @Value("${signal.max-extension-pct:1.2}") double maxExtensionPct,
+            @Value("${signal.ma-long-slope-lookback:5}") int maLongSlopeLookback,
             @Value("${signal.min-confirmations:2}") int minConfirmations,
             @Value("${risk.trailing-window:20}") int trailingWindow,
             @Value("${risk.partial-take-profit-cooldown-minutes:120}") long partialTakeProfitCooldownMinutes,
+            @Value("${risk.stop-loss-cooldown-minutes:30}") long stopLossCooldownMinutes,
             @Value("${risk.volatility-window:30}") int volatilityWindow,
             @Value("${risk.target-vol-pct:0.5}") BigDecimal targetVolPct
     ) {
@@ -115,9 +122,12 @@ public class AutoTradeService {
         this.macdSignal = macdSignal;
         this.breakoutLookback = breakoutLookback;
         this.breakoutPct = breakoutPct;
+        this.maxExtensionPct = maxExtensionPct;
+        this.maLongSlopeLookback = maLongSlopeLookback;
         this.minConfirmations = minConfirmations;
         this.trailingWindow = trailingWindow;
         this.partialTakeProfitCooldownMinutes = partialTakeProfitCooldownMinutes;
+        this.stopLossCooldownMinutes = stopLossCooldownMinutes;
         this.volatilityWindow = volatilityWindow;
         this.targetVolPct = targetVolPct;
     }
@@ -232,6 +242,8 @@ public class AutoTradeService {
         double rsiSell = rsiSellThreshold;
         double rsiOver = rsiOverbought;
         double breakout = breakoutPct;
+        double maxExtension = maxExtensionPct;
+        double minSlope = 0.0;
         int confirmations = minConfirmations;
 
         switch (profile) {
@@ -240,6 +252,8 @@ public class AutoTradeService {
                 rsiSell -= 5.0;
                 rsiOver += 10.0;
                 breakout *= 0.5;
+                maxExtension *= 1.5;
+                minSlope = -0.1;
                 confirmations = minConfirmations - 1;
             }
             case CONSERVATIVE -> {
@@ -247,6 +261,8 @@ public class AutoTradeService {
                 rsiSell += 5.0;
                 rsiOver -= 5.0;
                 breakout *= 1.5;
+                maxExtension *= 0.7;
+                minSlope = 0.05;
                 confirmations = minConfirmations + 1;
             }
             case BALANCED -> {
@@ -257,9 +273,11 @@ public class AutoTradeService {
         rsiSell = clamp(rsiSell, 30.0, 70.0);
         rsiOver = clamp(rsiOver, 60.0, 90.0);
         breakout = clamp(breakout, 0.05, 3.0);
+        maxExtension = clamp(maxExtension, 0.2, 5.0);
+        minSlope = clamp(minSlope, -0.5, 1.0);
         confirmations = clamp(confirmations, 1, 3);
 
-        return new SignalTuning(rsiBuy, rsiSell, rsiOver, breakout, confirmations);
+        return new SignalTuning(rsiBuy, rsiSell, rsiOver, breakout, confirmations, maxExtension, minSlope);
     }
 
     private AutoTradeAction handleSell(
@@ -346,6 +364,19 @@ public class AutoTradeService {
         if (indicators.maShort().compareTo(indicators.maLong()) <= 0 || indicators.currentPrice().compareTo(indicators.maLong()) <= 0) {
             return new AutoTradeAction(market, "SKIP", "no trend", indicators.currentPrice(), null, null, null, null);
         }
+        if (tuning.minMaLongSlopePct() > 0 && indicators.maLongSlopePct() == null) {
+            return new AutoTradeAction(market, "SKIP", "no trend slope", indicators.currentPrice(), null, null, null, null);
+        }
+        if (indicators.maLongSlopePct() != null
+                && indicators.maLongSlopePct().doubleValue() < tuning.minMaLongSlopePct()) {
+            return new AutoTradeAction(market, "SKIP", "trend weakening", indicators.currentPrice(), null, null, null, null);
+        }
+        if (tuning.maxExtensionPct() > 0 && indicators.maLong() != null) {
+            BigDecimal maxEntryPrice = indicators.maLong().multiply(percentFactor(tuning.maxExtensionPct()));
+            if (indicators.currentPrice().compareTo(maxEntryPrice) > 0) {
+                return new AutoTradeAction(market, "SKIP", "overextended", indicators.currentPrice(), null, null, null, null);
+            }
+        }
 
         boolean rsiOk = indicators.rsi() != null
                 && indicators.rsi().doubleValue() >= tuning.rsiBuyThreshold()
@@ -367,6 +398,9 @@ public class AutoTradeService {
             return new AutoTradeAction(market, "SKIP", "insufficient cash", null, null, orderFunds, null, null);
         }
 
+        if (isStopLossCooldown(market)) {
+            return new AutoTradeAction(market, "SKIP", "stop_loss_cooldown", null, null, orderFunds, null, null);
+        }
         if (hasOpenRequest(market, "BUY")) {
             return new AutoTradeAction(market, "SKIP", "pending", null, null, orderFunds, null, null);
         }
@@ -403,6 +437,9 @@ public class AutoTradeService {
 
         OrderRequest request = new OrderRequest(market, "SELL", "MARKET", null, volume, null, null);
         OrderResponse response = orderService.create(request);
+        if (shouldRecordStopLoss(reason, response)) {
+            lastStopLossAt.put(market, OffsetDateTime.now());
+        }
 
         return new AutoTradeAction(
                 market,
@@ -538,6 +575,7 @@ public class AutoTradeService {
         int macdSignalWindow = Math.max(2, macdSignal);
         int breakoutWindow = Math.max(0, breakoutLookback);
         int trailingWindowSafe = Math.max(0, trailingWindow);
+        int slopeLookback = Math.max(0, maLongSlopeLookback);
 
         int count = required;
         count = Math.max(count, rsiWindow + 1);
@@ -547,6 +585,9 @@ public class AutoTradeService {
         }
         if (trailingWindowSafe > 1) {
             count = Math.max(count, trailingWindowSafe);
+        }
+        if (slopeLookback > 0) {
+            count = Math.max(count, required + slopeLookback);
         }
         if (targetVolPct != null && targetVolPct.compareTo(BigDecimal.ZERO) > 0) {
             count = Math.max(count, volWindow + 1);
@@ -585,6 +626,15 @@ public class AutoTradeService {
 
         BigDecimal rsiValue = computeRsi(closes, rsiWindow);
         BigDecimal macdHistogram = computeMacdHistogram(closes, macdFastWindow, macdSlowWindow, macdSignalWindow);
+        BigDecimal maLongSlopePct = null;
+        if (slopeLookback > 0) {
+            BigDecimal maLongPrev = averageLastWithOffset(closes, maLong, slopeLookback);
+            if (maLongPrev != null && maLongPrev.compareTo(BigDecimal.ZERO) > 0 && maLongValue != null) {
+                maLongSlopePct = maLongValue.subtract(maLongPrev)
+                        .divide(maLongPrev, 8, RoundingMode.HALF_UP)
+                        .multiply(HUNDRED);
+            }
+        }
 
         BigDecimal breakoutLevel = null;
         if (breakoutWindow > 1 && highs.size() >= breakoutWindow + 1) {
@@ -607,7 +657,8 @@ public class AutoTradeService {
                 rsiValue,
                 macdHistogram,
                 breakoutLevel,
-                trailingHigh
+                trailingHigh,
+                maLongSlopePct
         );
     }
 
@@ -634,6 +685,22 @@ public class AutoTradeService {
         }
         BigDecimal sum = BigDecimal.ZERO;
         for (int i = values.size() - window; i < values.size(); i++) {
+            sum = sum.add(values.get(i));
+        }
+        return sum.divide(BigDecimal.valueOf(window), 8, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal averageLastWithOffset(List<BigDecimal> values, int window, int offset) {
+        if (values == null || values.isEmpty() || window <= 0 || offset < 0) {
+            return null;
+        }
+        int end = values.size() - 1 - offset;
+        int start = end - window + 1;
+        if (start < 0 || end < 0) {
+            return null;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        for (int i = start; i <= end; i++) {
             sum = sum.add(values.get(i));
         }
         return sum.divide(BigDecimal.valueOf(window), 8, RoundingMode.HALF_UP);
@@ -833,6 +900,33 @@ public class AutoTradeService {
         );
     }
 
+    private boolean isStopLossCooldown(String market) {
+        if (stopLossCooldownMinutes <= 0) {
+            return false;
+        }
+        OffsetDateTime last = lastStopLossAt.get(market);
+        if (last == null) {
+            return false;
+        }
+        return last.isAfter(OffsetDateTime.now().minusMinutes(stopLossCooldownMinutes));
+    }
+
+    private boolean shouldRecordStopLoss(String reason, OrderResponse response) {
+        if (reason == null) {
+            return false;
+        }
+        boolean stopLike = reason.contains("stop_loss")
+                || reason.contains("trailing_stop")
+                || reason.contains("momentum_reversal");
+        if (!stopLike) {
+            return false;
+        }
+        if (response == null || response.requestStatus() == null) {
+            return false;
+        }
+        return !"FAILED".equalsIgnoreCase(response.requestStatus());
+    }
+
     private boolean canTakePartialProfit(String market, OffsetDateTime now) {
         if (partialTakeProfitCooldownMinutes <= 0) {
             return true;
@@ -860,7 +954,8 @@ public class AutoTradeService {
             BigDecimal rsi,
             BigDecimal macdHistogram,
             BigDecimal breakoutLevel,
-            BigDecimal trailingHigh
+            BigDecimal trailingHigh,
+            BigDecimal maLongSlopePct
     ) {
     }
 
@@ -869,7 +964,9 @@ public class AutoTradeService {
             double rsiSellThreshold,
             double rsiOverbought,
             double breakoutPct,
-            int minConfirmations
+            int minConfirmations,
+            double maxExtensionPct,
+            double minMaLongSlopePct
     ) {
     }
 
