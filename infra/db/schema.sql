@@ -57,6 +57,22 @@ CREATE INDEX idx_orders_requested_at
 CREATE INDEX idx_orders_client_order_id
   ON orders(client_order_id);
 
+-- 전략 설정
+CREATE TABLE strategy_config (
+  id                      BIGINT PRIMARY KEY,
+  enabled                 BOOLEAN NOT NULL,
+  max_order_krw           DOUBLE PRECISION NOT NULL,
+  take_profit_pct         DOUBLE PRECISION NOT NULL,
+  stop_loss_pct           DOUBLE PRECISION NOT NULL,
+  trailing_stop_pct       DOUBLE PRECISION,
+  partial_take_profit_pct DOUBLE PRECISION,
+  profile                 VARCHAR(255),
+  stop_exit_pct           DOUBLE PRECISION,
+  trend_exit_pct          DOUBLE PRECISION,
+  momentum_exit_pct       DOUBLE PRECISION,
+  updated_at              TIMESTAMPTZ NOT NULL
+);
+
 -- 매매 결정 기록 (매수/매도/스킵/에러)
 CREATE TABLE trade_decisions (
   id                BIGSERIAL PRIMARY KEY,
