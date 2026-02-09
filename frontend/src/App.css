@@ -126,6 +126,109 @@ h3 {
   gap: 16px;
 }
 
+.control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.control-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pill {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.primary-button,
+.danger-button {
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.primary-button {
+  background: linear-gradient(135deg, #23d18b, #2aa6ff);
+  color: #0b1116;
+}
+
+.danger-button {
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff9b9b;
+  border-color: rgba(255, 107, 107, 0.4);
+}
+
+.primary-button:hover,
+.danger-button:hover {
+  transform: translateY(-1px);
+}
+
+.primary-button:disabled,
+.danger-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.form-field input {
+  background: rgba(7, 10, 13, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85rem;
+}
+
 .summary-card {
   background: var(--surface);
   border: 1px solid var(--border);
