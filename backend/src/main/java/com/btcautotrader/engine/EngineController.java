@@ -3,10 +3,12 @@ package com.btcautotrader.engine;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -33,7 +35,23 @@ public class EngineController {
     }
 
     @PostMapping("/tick")
-    public ResponseEntity<AutoTradeResult> tick() {
+    public ResponseEntity<AutoTradeResult> tick(
+            @RequestParam(name = "force", defaultValue = "false") boolean force
+    ) {
+        if (!force && !engineService.isRunning()) {
+            AutoTradeAction action = new AutoTradeAction(
+                    "SYSTEM",
+                    "SKIP",
+                    "engine_stopped",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+            AutoTradeResult result = new AutoTradeResult(OffsetDateTime.now().toString(), List.of(action));
+            return ResponseEntity.status(409).body(result);
+        }
         return ResponseEntity.ok(autoTradeService.runOnce());
     }
 

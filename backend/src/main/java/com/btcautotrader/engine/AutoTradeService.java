@@ -31,6 +31,7 @@ public class AutoTradeService {
     private final StrategyService strategyService;
     private final EngineService engineService;
     private final OrderRepository orderRepository;
+    private final TradeDecisionService tradeDecisionService;
 
     private final String marketsConfig;
     private final BigDecimal minOrderKrw;
@@ -72,6 +73,7 @@ public class AutoTradeService {
             StrategyService strategyService,
             EngineService engineService,
             OrderRepository orderRepository,
+            TradeDecisionService tradeDecisionService,
             @Value("${trading.markets:KRW-BTC}") String marketsConfig,
             @Value("${trading.min-krw:5000}") BigDecimal minOrderKrw,
             @Value("${engine.order-cooldown-seconds:30}") long cooldownSeconds,
@@ -104,6 +106,7 @@ public class AutoTradeService {
         this.strategyService = strategyService;
         this.engineService = engineService;
         this.orderRepository = orderRepository;
+        this.tradeDecisionService = tradeDecisionService;
         this.marketsConfig = marketsConfig;
         this.minOrderKrw = minOrderKrw;
         this.cooldownSeconds = cooldownSeconds;
@@ -148,9 +151,9 @@ public class AutoTradeService {
         try {
             OffsetDateTime now = OffsetDateTime.now();
             if (isBackoffActive(now)) {
-                return new AutoTradeResult(now.toString(), List.of(
-                        new AutoTradeAction("SYSTEM", "SKIP", "backoff", null, null, null, null, null)
-                ));
+                AutoTradeAction action = new AutoTradeAction("SYSTEM", "SKIP", "backoff", null, null, null, null, null);
+                recordDecision("SYSTEM", action, null, null, null);
+                return new AutoTradeResult(now.toString(), List.of(action));
             }
 
             StrategyConfig config = strategyService.getConfig();
@@ -178,6 +181,7 @@ public class AutoTradeService {
             List<AutoTradeAction> actions = new ArrayList<>();
             boolean hadFailure = false;
             for (String market : markets) {
+                MarketIndicators indicators = null;
                 try {
                     String currency = extractCurrency(market);
                     if (currency == null) {
@@ -187,7 +191,7 @@ public class AutoTradeService {
 
                     AccountSnapshot position = accounts.getOrDefault(currency, AccountSnapshot.empty());
                     BigDecimal total = position.total();
-                    MarketIndicators indicators = fetchIndicators(market, tuning);
+                    indicators = fetchIndicators(market, tuning);
 
                     if (total.compareTo(BigDecimal.ZERO) <= 0) {
                         lastPartialTakeProfitAt.remove(market);
@@ -197,6 +201,7 @@ public class AutoTradeService {
                         AutoTradeAction action = handleSell(market, position, config, indicators, tuning);
                         if (action != null) {
                             actions.add(action);
+                            recordDecision(market, action, config, indicators, tuning);
                         }
                         continue;
                     }
@@ -204,6 +209,7 @@ public class AutoTradeService {
                     AutoTradeAction action = handleBuy(market, remainingCash, config, indicators, tuning);
                     if (action != null) {
                         actions.add(action);
+                        recordDecision(market, action, config, indicators, tuning);
                         if ("BUY".equalsIgnoreCase(action.action()) && action.funds() != null) {
                             remainingCash = remainingCash.subtract(action.funds());
                             if (remainingCash.compareTo(BigDecimal.ZERO) < 0) {
@@ -214,7 +220,7 @@ public class AutoTradeService {
                 } catch (RuntimeException ex) {
                     hadFailure = true;
                     recordFailure(now);
-                    actions.add(new AutoTradeAction(
+                    AutoTradeAction action = new AutoTradeAction(
                             market,
                             "ERROR",
                             truncate(ex.getMessage(), 200),
@@ -223,7 +229,9 @@ public class AutoTradeService {
                             null,
                             null,
                             null
-                    ));
+                    );
+                    actions.add(action);
+                    recordDecision(market, action, config, indicators, tuning);
                 }
             }
 
@@ -925,6 +933,67 @@ public class AutoTradeService {
             return false;
         }
         return !"FAILED".equalsIgnoreCase(response.requestStatus());
+    }
+
+    private void recordDecision(
+            String market,
+            AutoTradeAction action,
+            StrategyConfig config,
+            MarketIndicators indicators,
+            SignalTuning tuning
+    ) {
+        if (action == null || tradeDecisionService == null) {
+            return;
+        }
+        try {
+            TradeDecisionEntity entity = new TradeDecisionEntity();
+            entity.setMarket(market);
+            entity.setAction(action.action());
+            entity.setReason(action.reason());
+            entity.setProfile(config == null ? null : config.profile());
+            entity.setPrice(action.price() != null ? action.price() : (indicators == null ? null : indicators.currentPrice()));
+            entity.setQuantity(action.quantity());
+            entity.setFunds(action.funds());
+            entity.setOrderId(action.orderId());
+            entity.setRequestStatus(action.requestStatus());
+
+            if (indicators != null) {
+                entity.setMaShort(indicators.maShort());
+                entity.setMaLong(indicators.maLong());
+                entity.setRsi(indicators.rsi());
+                entity.setMacdHistogram(indicators.macdHistogram());
+                entity.setBreakoutLevel(indicators.breakoutLevel());
+                entity.setTrailingHigh(indicators.trailingHigh());
+                entity.setMaLongSlopePct(indicators.maLongSlopePct());
+                entity.setVolatilityPct(indicators.volatilityPct());
+            }
+
+            Map<String, Object> details = new HashMap<>();
+            details.put("timeframeUnit", candleUnitMinutes);
+            details.put("maShortWindow", maShort);
+            details.put("maLongWindow", maLong);
+            details.put("rsiPeriod", rsiPeriod);
+            details.put("macdFast", macdFast);
+            details.put("macdSlow", macdSlow);
+            details.put("macdSignal", macdSignal);
+            details.put("breakoutLookback", breakoutLookback);
+            details.put("trailingWindow", trailingWindow);
+            details.put("volatilityWindow", volatilityWindow);
+            details.put("targetVolPct", targetVolPct);
+            if (tuning != null) {
+                details.put("rsiBuyThreshold", tuning.rsiBuyThreshold());
+                details.put("rsiSellThreshold", tuning.rsiSellThreshold());
+                details.put("rsiOverbought", tuning.rsiOverbought());
+                details.put("breakoutPct", tuning.breakoutPct());
+                details.put("minConfirmations", tuning.minConfirmations());
+                details.put("maxExtensionPct", tuning.maxExtensionPct());
+                details.put("minMaLongSlopePct", tuning.minMaLongSlopePct());
+            }
+
+            tradeDecisionService.record(entity, details);
+        } catch (RuntimeException ex) {
+            // Do not fail trading due to decision logging issues.
+        }
     }
 
     private boolean canTakePartialProfit(String market, OffsetDateTime now) {

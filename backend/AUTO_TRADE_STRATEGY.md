@@ -78,6 +78,7 @@ Use multiple layers to avoid oversized risk:
 - **Trailing stop:** protects gains without fixed take-profit
 - **Partial take-profit:** locks some profit while keeping exposure
 - **Stop-loss cooldown:** avoid immediate re-entry after a loss
+- **Decision logging:** each tick stores reason/indicator snapshot for audit
 
 Upbit KRW minimum order amount and tick size rules:  
 https://docs.upbit.com/kr/docs/krw-market-info

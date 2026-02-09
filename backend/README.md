@@ -36,10 +36,12 @@
 ## 자동매매 엔진
 ### 동작 요약
 - `engine.tick-ms` 주기로 동작 (엔진 ON 상태일 때만)
+- `/api/engine/tick`은 기본적으로 엔진 ON 상태에서만 실행됨 (`?force=true`로 강제 가능)
 - 캔들 기반 MA(단기/장기) + RSI/MACD/돌파 신호로 매수 판단
 - 매수: `MA_SHORT > MA_LONG` + 확인 신호(기본 2개 이상) 충족 시 시장가 매수
 - 매도: 손절/트레일링 스탑/모멘텀 약화/MA 이탈/익절(부분 익절 가능)
 - 프로필(`AGGRESSIVE/BALANCED/CONSERVATIVE`)에 따라 신호 민감도 자동 조정
+- 매매 결정(매수/매도/스킵)과 지표 스냅샷을 `trade_decisions` 테이블에 기록
 - 변동성 타깃이 설정되어 있으면 주문 금액을 축소
 - 최근 주문/대기 중 주문은 재주문 방지
 - 장애 발생 시 지수 백오프로 호출 빈도 제한
@@ -86,6 +88,10 @@
 - `state`: Upbit 상태값
 - `raw_request`, `raw_response`, `error_message` 포함
 
+스키마: `infra/db/schema.sql`
+
+### 매매 결정 테이블
+`trade_decisions` 테이블에 매매/스킵 사유와 지표 스냅샷을 저장합니다.
 스키마: `infra/db/schema.sql`
 
 ## 실행/운영 메모

@@ -56,3 +56,33 @@ CREATE INDEX idx_orders_requested_at
 
 CREATE INDEX idx_orders_client_order_id
   ON orders(client_order_id);
+
+-- 매매 결정 기록 (매수/매도/스킵/에러)
+CREATE TABLE trade_decisions (
+  id                BIGSERIAL PRIMARY KEY,
+  market            VARCHAR(20) NOT NULL,
+  action            VARCHAR(20) NOT NULL,
+  reason            VARCHAR(200),
+  executed_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  profile           VARCHAR(20),
+  price             NUMERIC(38, 18),
+  quantity          NUMERIC(38, 18),
+  funds             NUMERIC(38, 18),
+  order_id          VARCHAR(60),
+  request_status    VARCHAR(20),
+  ma_short          NUMERIC(38, 18),
+  ma_long           NUMERIC(38, 18),
+  rsi               NUMERIC(38, 18),
+  macd_histogram    NUMERIC(38, 18),
+  breakout_level    NUMERIC(38, 18),
+  trailing_high     NUMERIC(38, 18),
+  ma_long_slope_pct NUMERIC(38, 18),
+  volatility_pct    NUMERIC(38, 18),
+  details           TEXT
+);
+
+CREATE INDEX idx_trade_decisions_executed_at
+  ON trade_decisions(executed_at);
+
+CREATE INDEX idx_trade_decisions_market
+  ON trade_decisions(market);
