@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class StrategyService {
@@ -17,20 +18,47 @@ public class StrategyService {
     private static final StrategyConfig DEFAULT_CONFIG =
             new StrategyConfig(true, 10000.0, 4.0, 2.0, 2.0, 50.0, StrategyProfile.CONSERVATIVE.name(),
                     100.0, 50.0, 50.0);
+    private static final List<StrategyPresetItem> DEFAULT_PRESETS = List.of(
+            new StrategyPresetItem(
+                    "AGGRESSIVE",
+                    "공격형",
+                    6.0,
+                    2.5,
+                    3.0,
+                    30.0,
+                    100.0,
+                    30.0,
+                    30.0
+            ),
+            new StrategyPresetItem(
+                    "CONSERVATIVE",
+                    "안정형",
+                    4.0,
+                    2.0,
+                    2.0,
+                    50.0,
+                    100.0,
+                    50.0,
+                    50.0
+            )
+    );
 
     private final StrategyConfigRepository repository;
     private final StrategyMarketOverrideRepository marketOverrideRepository;
+    private final StrategyPresetRepository presetRepository;
     private final String forcedProfile;
     private final String marketsConfig;
 
     public StrategyService(
             StrategyConfigRepository repository,
             StrategyMarketOverrideRepository marketOverrideRepository,
+            StrategyPresetRepository presetRepository,
             @Value("${trading.markets:KRW-BTC}") String marketsConfig,
             @Value("${strategy.force-profile:}") String forcedProfile
     ) {
         this.repository = repository;
         this.marketOverrideRepository = marketOverrideRepository;
+        this.presetRepository = presetRepository;
         this.marketsConfig = marketsConfig;
         this.forcedProfile = forcedProfile == null ? "" : forcedProfile.trim();
     }
@@ -104,6 +132,15 @@ public class StrategyService {
         }
 
         return repository.save(entity).toRecord();
+    }
+
+    @Transactional
+    public List<StrategyPresetItem> getPresets() {
+        ensureDefaultPresets();
+        return presetRepository.findAllByOrderByCodeAsc()
+                .stream()
+                .map(StrategyPresetEntity::toItem)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -208,6 +245,41 @@ public class StrategyService {
             return null;
         }
         String normalized = market.trim().toUpperCase();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private void ensureDefaultPresets() {
+        List<StrategyPresetEntity> existing = presetRepository.findAllByOrderByCodeAsc();
+        Set<String> existingCodes = existing.stream()
+                .map(StrategyPresetEntity::getCode)
+                .map(StrategyService::normalizePresetCode)
+                .filter(code -> code != null && !code.isBlank())
+                .collect(Collectors.toSet());
+
+        List<StrategyPresetEntity> toInsert = new ArrayList<>();
+        for (StrategyPresetItem defaultPreset : DEFAULT_PRESETS) {
+            String code = normalizePresetCode(defaultPreset.code());
+            if (code == null || existingCodes.contains(code)) {
+                continue;
+            }
+            StrategyPresetEntity entity = StrategyPresetEntity.from(defaultPreset);
+            entity.setCode(code);
+            toInsert.add(entity);
+        }
+
+        if (!toInsert.isEmpty()) {
+            presetRepository.saveAll(toInsert);
+        }
+    }
+
+    private static String normalizePresetCode(String code) {
+        if (code == null) {
+            return null;
+        }
+        String normalized = code.trim().toUpperCase();
         if (normalized.isEmpty()) {
             return null;
         }

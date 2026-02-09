@@ -42,9 +42,10 @@ public class EngineController {
 
     @GetMapping("/decisions")
     public ResponseEntity<List<TradeDecisionItem>> decisions(
-            @RequestParam(name = "limit", defaultValue = "30") int limit
+            @RequestParam(name = "limit", defaultValue = "30") int limit,
+            @RequestParam(name = "includeSkips", defaultValue = "true") boolean includeSkips
     ) {
-        return ResponseEntity.ok(tradeDecisionService.listRecent(limit));
+        return ResponseEntity.ok(tradeDecisionService.listRecent(limit, includeSkips));
     }
 
     @PostMapping("/stop")

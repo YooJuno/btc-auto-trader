@@ -31,10 +31,16 @@ public class TradeDecisionService {
     }
 
     public List<TradeDecisionItem> listRecent(int limit) {
+        return listRecent(limit, true);
+    }
+
+    public List<TradeDecisionItem> listRecent(int limit, boolean includeSkips) {
         int safeLimit = normalizeLimit(limit);
         PageRequest pageRequest = PageRequest.of(0, safeLimit, Sort.by(Sort.Direction.DESC, "executedAt"));
-        return repository.findAll(pageRequest)
-                .getContent()
+        List<TradeDecisionEntity> entities = includeSkips
+                ? repository.findAll(pageRequest).getContent()
+                : repository.findByActionIn(List.of("BUY", "SELL"), pageRequest).getContent();
+        return entities
                 .stream()
                 .map(this::toItem)
                 .toList();

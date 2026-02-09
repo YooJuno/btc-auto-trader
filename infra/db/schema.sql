@@ -73,6 +73,20 @@ CREATE TABLE strategy_config (
   updated_at              TIMESTAMPTZ NOT NULL
 );
 
+-- 전략 프리셋 (공격형/안정형 등)
+CREATE TABLE strategy_presets (
+  code                    VARCHAR(40) PRIMARY KEY,
+  display_name            VARCHAR(60) NOT NULL,
+  take_profit_pct         DOUBLE PRECISION NOT NULL,
+  stop_loss_pct           DOUBLE PRECISION NOT NULL,
+  trailing_stop_pct       DOUBLE PRECISION NOT NULL,
+  partial_take_profit_pct DOUBLE PRECISION NOT NULL,
+  stop_exit_pct           DOUBLE PRECISION NOT NULL,
+  trend_exit_pct          DOUBLE PRECISION NOT NULL,
+  momentum_exit_pct       DOUBLE PRECISION NOT NULL,
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- 마켓별 전략 override 설정 (cap/profile)
 CREATE TABLE strategy_market_overrides (
   market         VARCHAR(20) PRIMARY KEY,
@@ -110,3 +124,10 @@ CREATE INDEX idx_trade_decisions_executed_at
 
 CREATE INDEX idx_trade_decisions_market
   ON trade_decisions(market);
+
+-- 엔진 실행 상태 (재시작 시 마지막 ON/OFF 복원)
+CREATE TABLE engine_state (
+  id          BIGINT PRIMARY KEY,
+  running     BOOLEAN NOT NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

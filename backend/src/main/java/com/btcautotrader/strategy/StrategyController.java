@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -31,6 +32,11 @@ public class StrategyController {
     @GetMapping("/market-overrides")
     public ResponseEntity<StrategyMarketOverridesResponse> getMarketOverrides() {
         return ResponseEntity.ok(strategyService.getMarketOverrides());
+    }
+
+    @GetMapping("/presets")
+    public ResponseEntity<List<StrategyPresetItem>> getPresets() {
+        return ResponseEntity.ok(strategyService.getPresets());
     }
 
     @PutMapping
