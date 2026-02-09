@@ -35,17 +35,24 @@ For stability, consider 5m or 15m as your production default.
 - **Take-profit:** optional partial take-profit before full exit.
  - **Exit sizing:** non-stop exits can be partial; stop/trailing defaults to full exit.
 
-**Suggested defaults (balanced)**
+**Suggested defaults (popular baseline)**
 - `MA_SHORT = 20`
 - `MA_LONG = 100`
 - `RSI_PERIOD = 14`
 - `RSI_BUY = 55`, `RSI_SELL = 45`, `RSI_OVERBOUGHT = 70`
 - `MACD = (12, 26, 9)`
 - `BREAKOUT_LOOKBACK = 20`, `BREAKOUT_PCT = 0.3%`
-- `STOP_LOSS = 1.5%`
-- `TAKE_PROFIT = 3.0%`
+- `STOP_LOSS = 2.0%`
+- `TAKE_PROFIT = 4.0%` (1:2 risk/reward baseline)
 - `TRAILING_STOP = 2.0%`
 - `PARTIAL_TAKE_PROFIT = 50%` (sell half at take-profit, let rest run)
+- `STOP_EXIT = 100%` (full exit on stop/trailing)
+- `TREND_EXIT = 50%` (partial exit on trend break)
+- `MOMENTUM_EXIT = 50%` (partial exit on momentum reversal)
+
+These align with commonly cited risk/reward conventions (1:2 to 1:3) and default
+indicator settings (MACD 12-26-9, RSI 70/30 overbought/oversold) used widely in
+technical analysis literature and broker education.
 
 ## 2-1) Profile Selection (Aggressive/Balanced/Conservative)
 Profiles adjust confirmation strictness without changing your core MA settings.

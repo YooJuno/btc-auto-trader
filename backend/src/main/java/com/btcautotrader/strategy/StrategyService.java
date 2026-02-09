@@ -8,8 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 public class StrategyService {
     private static final long CONFIG_ID = 1L;
     private static final StrategyConfig DEFAULT_CONFIG =
-            new StrategyConfig(true, 10000.0, 3.0, 1.5, 2.0, 50.0, StrategyProfile.CONSERVATIVE.name(),
-                    100.0, 70.0, 70.0);
+            new StrategyConfig(true, 10000.0, 4.0, 2.0, 2.0, 50.0, StrategyProfile.CONSERVATIVE.name(),
+                    100.0, 50.0, 50.0);
 
     private final StrategyConfigRepository repository;
     private final String forcedProfile;
