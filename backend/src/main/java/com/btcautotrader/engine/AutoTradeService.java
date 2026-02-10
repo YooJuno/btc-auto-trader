@@ -79,6 +79,7 @@ public class AutoTradeService {
     private final int volatilityWindow;
     private final BigDecimal targetVolPct;
     private final boolean regimeFilterEnabled;
+    private final boolean regimeFilterPerMarket;
     private final String regimeMarket;
     private final int regimeTimeframeUnit;
     private final int regimeMaShort;
@@ -147,6 +148,7 @@ public class AutoTradeService {
             @Value("${risk.volatility-window:30}") int volatilityWindow,
             @Value("${risk.target-vol-pct:0.5}") BigDecimal targetVolPct,
             @Value("${regime.filter.enabled:true}") boolean regimeFilterEnabled,
+            @Value("${regime.filter.per-market:false}") boolean regimeFilterPerMarket,
             @Value("${regime.filter.market:KRW-BTC}") String regimeMarket,
             @Value("${regime.filter.timeframe-unit:15}") int regimeTimeframeUnit,
             @Value("${regime.filter.ma-short:40}") int regimeMaShort,
@@ -205,6 +207,7 @@ public class AutoTradeService {
         this.volatilityWindow = volatilityWindow;
         this.targetVolPct = targetVolPct;
         this.regimeFilterEnabled = regimeFilterEnabled;
+        this.regimeFilterPerMarket = regimeFilterPerMarket;
         this.regimeMarket = normalizeMarket(regimeMarket, "KRW-BTC");
         this.regimeTimeframeUnit = Math.max(1, regimeTimeframeUnit);
         this.regimeMaShort = Math.max(2, Math.min(regimeMaShort, 199));
@@ -282,12 +285,19 @@ public class AutoTradeService {
                 recordDecision(SYSTEM_KEY, action, null, null, null, null, null, null, null);
                 return new AutoTradeResult(now.toString(), List.of(action));
             }
-            RegimeSnapshot regime = evaluateRegime();
+            RegimeSnapshot globalRegime = null;
+            Map<String, RegimeSnapshot> regimeByMarket = new HashMap<>();
+            if (!regimeFilterPerMarket) {
+                globalRegime = evaluateRegime(regimeMarket);
+            }
             MarketSelection selection = selectMarketsForTick(markets, accounts);
             BigDecimal remainingCash = accounts.getOrDefault("KRW", AccountSnapshot.empty()).balance();
 
             List<AutoTradeAction> actions = new ArrayList<>();
             for (String market : selection.selected()) {
+                RegimeSnapshot regime = regimeFilterPerMarket
+                        ? regimeByMarket.computeIfAbsent(normalizeMarket(market, regimeMarket), this::evaluateRegime)
+                        : globalRegime;
                 StrategyConfig marketConfig = resolveConfigForMarket(market, config, runtimeOverrides);
                 StrategyProfile profile = resolveProfileForMarket(market, marketConfig, marketProfileByMarket);
                 SignalTuning tuning = resolveSignalTuning(profile);
@@ -314,7 +324,7 @@ public class AutoTradeService {
 
                     if (total.compareTo(BigDecimal.ZERO) <= 0) {
                         lastPartialTakeProfitAt.remove(market);
-                        if (!regime.allowEntries()) {
+                        if (regime != null && !regime.allowEntries()) {
                             AutoTradeAction action = new AutoTradeAction(
                                     market,
                                     "SKIP",
@@ -415,6 +425,9 @@ public class AutoTradeService {
 
             for (Map.Entry<String, String> deferred : selection.deferredReasonsByMarket().entrySet()) {
                 String market = deferred.getKey();
+                RegimeSnapshot regime = regimeFilterPerMarket
+                        ? regimeByMarket.computeIfAbsent(normalizeMarket(market, regimeMarket), this::evaluateRegime)
+                        : globalRegime;
                 StrategyConfig marketConfig = resolveConfigForMarket(market, config, runtimeOverrides);
                 StrategyProfile profile = resolveProfileForMarket(market, marketConfig, marketProfileByMarket);
                 SignalTuning tuning = resolveSignalTuning(profile);
@@ -1170,9 +1183,10 @@ public class AutoTradeService {
                 .add(shortReturnPct.multiply(RELATIVE_MOMENTUM_SHORT_WEIGHT));
     }
 
-    private RegimeSnapshot evaluateRegime() {
+    private RegimeSnapshot evaluateRegime(String market) {
+        String regimeTarget = normalizeMarket(market, regimeMarket);
         if (!regimeFilterEnabled) {
-            return RegimeSnapshot.allow("regime_disabled", regimeMarket, null, null, null, null, null);
+            return RegimeSnapshot.allow("regime_disabled", regimeTarget, null, null, null, null, null);
         }
 
         int shortWindow = regimeMaShort;
@@ -1190,21 +1204,21 @@ public class AutoTradeService {
 
         List<Map<String, Object>> candles;
         try {
-            candles = upbitService.fetchMinuteCandles(regimeMarket, regimeTimeframeUnit, count);
+            candles = upbitService.fetchMinuteCandles(regimeTarget, regimeTimeframeUnit, count);
         } catch (RuntimeException ex) {
-            return RegimeSnapshot.block("regime_unavailable", regimeMarket, null, null, null, null, null);
+            return RegimeSnapshot.block("regime_unavailable", regimeTarget, null, null, null, null, null);
         }
 
         List<BigDecimal> closes = extractSortedCloses(candles);
         if (closes.size() < longWindow) {
-            return RegimeSnapshot.block("regime_insufficient_data", regimeMarket, null, null, null, null, null);
+            return RegimeSnapshot.block("regime_insufficient_data", regimeTarget, null, null, null, null, null);
         }
 
         BigDecimal currentPrice = closes.get(closes.size() - 1);
         BigDecimal maShortValue = averageLast(closes, shortWindow);
         BigDecimal maLongValue = averageLast(closes, longWindow);
         if (maShortValue == null || maLongValue == null || maLongValue.compareTo(BigDecimal.ZERO) <= 0) {
-            return RegimeSnapshot.block("regime_invalid_trend", regimeMarket, currentPrice, maShortValue, maLongValue, null, null);
+            return RegimeSnapshot.block("regime_invalid_trend", regimeTarget, currentPrice, maShortValue, maLongValue, null, null);
         }
 
         BigDecimal slopePct = null;
@@ -1217,7 +1231,7 @@ public class AutoTradeService {
             } else if (regimeMinMaLongSlopePct > 0) {
                 return RegimeSnapshot.block(
                         "regime_missing_slope",
-                        regimeMarket,
+                        regimeTarget,
                         currentPrice,
                         maShortValue,
                         maLongValue,
@@ -1235,7 +1249,7 @@ public class AutoTradeService {
         if (currentPrice.compareTo(maLongValue) <= 0 || maShortValue.compareTo(maLongValue) <= 0) {
             return RegimeSnapshot.block(
                     "regime_trend_off",
-                    regimeMarket,
+                    regimeTarget,
                     currentPrice,
                     maShortValue,
                     maLongValue,
@@ -1248,7 +1262,7 @@ public class AutoTradeService {
                 && slopePct.doubleValue() < regimeMinMaLongSlopePct) {
             return RegimeSnapshot.block(
                     "regime_slope_off",
-                    regimeMarket,
+                    regimeTarget,
                     currentPrice,
                     maShortValue,
                     maLongValue,
@@ -1262,7 +1276,7 @@ public class AutoTradeService {
                 && volatilityPct.compareTo(regimeMaxVolatilityPct) > 0) {
             return RegimeSnapshot.block(
                     "regime_high_vol",
-                    regimeMarket,
+                    regimeTarget,
                     currentPrice,
                     maShortValue,
                     maLongValue,
@@ -1273,7 +1287,7 @@ public class AutoTradeService {
 
         return RegimeSnapshot.allow(
                 "regime_on",
-                regimeMarket,
+                regimeTarget,
                 currentPrice,
                 maShortValue,
                 maLongValue,
@@ -1976,7 +1990,8 @@ public class AutoTradeService {
             details.put("maxMarketsPerTick", maxMarketsPerTick);
             details.put("marketMaxOrderKrw", marketMaxOrderKrw);
             details.put("regimeFilterEnabled", regimeFilterEnabled);
-            details.put("regimeMarket", regimeMarket);
+            details.put("regimeFilterPerMarket", regimeFilterPerMarket);
+            details.put("regimeMarket", regime != null ? regime.market() : regimeMarket);
             details.put("regimeTimeframeUnit", regimeTimeframeUnit);
             details.put("relativeMomentumEnabled", relativeMomentumEnabled);
             details.put("relativeMomentumTopN", relativeMomentumTopN);
