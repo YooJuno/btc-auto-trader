@@ -70,6 +70,10 @@ public class AutoTradeService {
     private final double minAdx;
     private final int volumeLookback;
     private final double minVolumeRatio;
+    private final int bollingerWindow;
+    private final double bollingerStdDev;
+    private final double bollingerMinBandwidthPct;
+    private final double bollingerMaxPercentB;
     private final int breakoutLookback;
     private final double breakoutPct;
     private final double maxExtensionPct;
@@ -149,6 +153,10 @@ public class AutoTradeService {
             @Value("${signal.min-adx:18}") double minAdx,
             @Value("${signal.volume-lookback:20}") int volumeLookback,
             @Value("${signal.min-volume-ratio:0.8}") double minVolumeRatio,
+            @Value("${signal.bollinger.window:20}") int bollingerWindow,
+            @Value("${signal.bollinger.stddev:2.0}") double bollingerStdDev,
+            @Value("${signal.bollinger.min-bandwidth-pct:0.6}") double bollingerMinBandwidthPct,
+            @Value("${signal.bollinger.max-percent-b:1.05}") double bollingerMaxPercentB,
             @Value("${signal.breakout-lookback:20}") int breakoutLookback,
             @Value("${signal.breakout-pct:0.3}") double breakoutPct,
             @Value("${signal.max-extension-pct:1.2}") double maxExtensionPct,
@@ -217,6 +225,10 @@ public class AutoTradeService {
         this.minAdx = minAdx;
         this.volumeLookback = volumeLookback;
         this.minVolumeRatio = minVolumeRatio;
+        this.bollingerWindow = Math.max(0, Math.min(bollingerWindow, 200));
+        this.bollingerStdDev = Math.max(0.1, Math.min(bollingerStdDev, 6.0));
+        this.bollingerMinBandwidthPct = Math.max(0.0, bollingerMinBandwidthPct);
+        this.bollingerMaxPercentB = bollingerMaxPercentB;
         this.breakoutLookback = breakoutLookback;
         this.breakoutPct = breakoutPct;
         this.maxExtensionPct = maxExtensionPct;
@@ -769,6 +781,24 @@ public class AutoTradeService {
             }
             if (indicators.volumeRatio().doubleValue() < tuning.minVolumeRatio()) {
                 return new AutoTradeAction(market, "SKIP", "low_volume", indicators.currentPrice(), null, null, null, null);
+            }
+        }
+        if (bollingerWindow > 1) {
+            if (bollingerMinBandwidthPct > 0) {
+                if (indicators.bollingerBandwidthPct() == null) {
+                    return new AutoTradeAction(market, "SKIP", "bollinger_unavailable", indicators.currentPrice(), null, null, null, null);
+                }
+                if (indicators.bollingerBandwidthPct().doubleValue() < bollingerMinBandwidthPct) {
+                    return new AutoTradeAction(market, "SKIP", "bollinger_squeeze", indicators.currentPrice(), null, null, null, null);
+                }
+            }
+            if (bollingerMaxPercentB > 0) {
+                if (indicators.bollingerPercentB() == null) {
+                    return new AutoTradeAction(market, "SKIP", "bollinger_unavailable", indicators.currentPrice(), null, null, null, null);
+                }
+                if (indicators.bollingerPercentB().doubleValue() > bollingerMaxPercentB) {
+                    return new AutoTradeAction(market, "SKIP", "bollinger_overbought", indicators.currentPrice(), null, null, null, null);
+                }
             }
         }
 
@@ -1657,6 +1687,7 @@ public class AutoTradeService {
         int macdSignalWindow = Math.max(2, macdSignal);
         int adxWindow = Math.max(2, adxPeriod);
         int volumeWindow = Math.max(1, volumeLookback);
+        int bollingerWindowSafe = Math.max(0, bollingerWindow);
         int breakoutWindow = Math.max(0, breakoutLookback);
         int trailingWindowSafe = Math.max(0, trailingWindow);
         int slopeLookback = Math.max(0, maLongSlopeLookback);
@@ -1666,6 +1697,9 @@ public class AutoTradeService {
         count = Math.max(count, macdSlowWindow + macdSignalWindow);
         count = Math.max(count, adxWindow * 2 + 1);
         count = Math.max(count, volumeWindow + 1);
+        if (bollingerWindowSafe > 1) {
+            count = Math.max(count, bollingerWindowSafe);
+        }
         if (breakoutWindow > 1) {
             count = Math.max(count, breakoutWindow + 1);
         }
@@ -1735,6 +1769,7 @@ public class AutoTradeService {
         BigDecimal macdHistogram = computeMacdHistogram(closes, macdFastWindow, macdSlowWindow, macdSignalWindow);
         BigDecimal adxValue = computeAdx(highs, lows, closes, adxWindow);
         BigDecimal volumeRatio = computeVolumeRatio(quoteVolumes, volumeWindow);
+        BollingerSnapshot bollinger = computeBollinger(closes, bollingerWindowSafe, currentPrice);
         BigDecimal maLongSlopePct = null;
         if (slopeLookback > 0) {
             BigDecimal maLongPrev = averageLastWithOffset(closes, maLong, slopeLookback);
@@ -1767,6 +1802,11 @@ public class AutoTradeService {
                 macdHistogram,
                 adxValue,
                 volumeRatio,
+                bollinger == null ? null : bollinger.middle(),
+                bollinger == null ? null : bollinger.upper(),
+                bollinger == null ? null : bollinger.lower(),
+                bollinger == null ? null : bollinger.bandwidthPct(),
+                bollinger == null ? null : bollinger.percentB(),
                 breakoutLevel,
                 trailingHigh,
                 maLongSlopePct
@@ -1989,6 +2029,50 @@ public class AutoTradeService {
             return null;
         }
         return current.divide(avg, 8, RoundingMode.HALF_UP);
+    }
+
+    private BollingerSnapshot computeBollinger(List<BigDecimal> closes, int window, BigDecimal currentPrice) {
+        if (window <= 1 || closes == null || closes.size() < window) {
+            return null;
+        }
+        BigDecimal middle = averageLast(closes, window);
+        if (middle == null) {
+            return null;
+        }
+        BigDecimal stdev = computeStdDev(closes, window, middle);
+        if (stdev == null) {
+            return null;
+        }
+        BigDecimal deviation = stdev.multiply(BigDecimal.valueOf(bollingerStdDev));
+        BigDecimal upper = middle.add(deviation);
+        BigDecimal lower = middle.subtract(deviation);
+        BigDecimal band = upper.subtract(lower);
+
+        BigDecimal bandwidthPct = null;
+        if (middle.compareTo(BigDecimal.ZERO) > 0) {
+            bandwidthPct = band.divide(middle, 8, RoundingMode.HALF_UP).multiply(HUNDRED);
+        }
+
+        BigDecimal percentB = null;
+        if (currentPrice != null && band.compareTo(BigDecimal.ZERO) > 0) {
+            percentB = currentPrice.subtract(lower).divide(band, 8, RoundingMode.HALF_UP);
+        }
+
+        return new BollingerSnapshot(middle, upper, lower, bandwidthPct, percentB);
+    }
+
+    private static BigDecimal computeStdDev(List<BigDecimal> values, int window, BigDecimal mean) {
+        if (values == null || mean == null || window <= 1 || values.size() < window) {
+            return null;
+        }
+        double avg = mean.doubleValue();
+        double sum = 0.0;
+        for (int i = values.size() - window; i < values.size(); i++) {
+            double diff = values.get(i).doubleValue() - avg;
+            sum += diff * diff;
+        }
+        double variance = sum / window;
+        return BigDecimal.valueOf(Math.sqrt(variance));
     }
 
     private static List<Double> emaSeriesFromDecimal(List<BigDecimal> values, int period) {
@@ -2267,6 +2351,10 @@ public class AutoTradeService {
             details.put("minAdx", minAdx);
             details.put("volumeLookback", volumeLookback);
             details.put("minVolumeRatio", minVolumeRatio);
+            details.put("bollingerWindow", bollingerWindow);
+            details.put("bollingerStdDev", bollingerStdDev);
+            details.put("bollingerMinBandwidthPct", bollingerMinBandwidthPct);
+            details.put("bollingerMaxPercentB", bollingerMaxPercentB);
             details.put("breakoutLookback", breakoutLookback);
             details.put("trailingWindow", trailingWindow);
             details.put("entryTrailingHigh", entryTrailingHigh);
@@ -2314,6 +2402,11 @@ public class AutoTradeService {
             if (indicators != null) {
                 details.put("adx", indicators.adx());
                 details.put("volumeRatio", indicators.volumeRatio());
+                details.put("bollingerMiddle", indicators.bollingerMiddle());
+                details.put("bollingerUpper", indicators.bollingerUpper());
+                details.put("bollingerLower", indicators.bollingerLower());
+                details.put("bollingerBandwidthPct", indicators.bollingerBandwidthPct());
+                details.put("bollingerPercentB", indicators.bollingerPercentB());
             }
             if (regime != null) {
                 details.put("regimeAllowEntries", regime.allowEntries());
@@ -2381,9 +2474,23 @@ public class AutoTradeService {
             BigDecimal macdHistogram,
             BigDecimal adx,
             BigDecimal volumeRatio,
+            BigDecimal bollingerMiddle,
+            BigDecimal bollingerUpper,
+            BigDecimal bollingerLower,
+            BigDecimal bollingerBandwidthPct,
+            BigDecimal bollingerPercentB,
             BigDecimal breakoutLevel,
             BigDecimal trailingHigh,
             BigDecimal maLongSlopePct
+    ) {
+    }
+
+    private record BollingerSnapshot(
+            BigDecimal middle,
+            BigDecimal upper,
+            BigDecimal lower,
+            BigDecimal bandwidthPct,
+            BigDecimal percentB
     ) {
     }
 
