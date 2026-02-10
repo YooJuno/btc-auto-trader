@@ -294,6 +294,7 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
     "maLongSlopePct": 0.02,
     "volatilityPct": 0.38,
     "details": {
+      "useClosedCandle": true,
       "regimeFilterEnabled": true,
       "regimeFilterPerMarket": true,
       "regimeMarket": "KRW-BTC"

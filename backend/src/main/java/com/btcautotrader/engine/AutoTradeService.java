@@ -78,6 +78,7 @@ public class AutoTradeService {
     private final long stopLossGuardLockMinutes;
     private final int volatilityWindow;
     private final BigDecimal targetVolPct;
+    private final boolean useClosedCandle;
     private final boolean regimeFilterEnabled;
     private final boolean regimeFilterPerMarket;
     private final String regimeMarket;
@@ -147,6 +148,7 @@ public class AutoTradeService {
             @Value("${risk.stop-loss-guard-lock-minutes:180}") long stopLossGuardLockMinutes,
             @Value("${risk.volatility-window:30}") int volatilityWindow,
             @Value("${risk.target-vol-pct:0.5}") BigDecimal targetVolPct,
+            @Value("${signal.use-closed-candle:true}") boolean useClosedCandle,
             @Value("${regime.filter.enabled:true}") boolean regimeFilterEnabled,
             @Value("${regime.filter.per-market:false}") boolean regimeFilterPerMarket,
             @Value("${regime.filter.market:KRW-BTC}") String regimeMarket,
@@ -206,6 +208,7 @@ public class AutoTradeService {
         this.stopLossGuardLockMinutes = stopLossGuardLockMinutes;
         this.volatilityWindow = volatilityWindow;
         this.targetVolPct = targetVolPct;
+        this.useClosedCandle = useClosedCandle;
         this.regimeFilterEnabled = regimeFilterEnabled;
         this.regimeFilterPerMarket = regimeFilterPerMarket;
         this.regimeMarket = normalizeMarket(regimeMarket, "KRW-BTC");
@@ -1163,12 +1166,15 @@ public class AutoTradeService {
         return scores;
     }
 
-    private static BigDecimal computeRelativeMomentumScore(
+    private BigDecimal computeRelativeMomentumScore(
             List<Map<String, Object>> candles,
             int shortLookback,
             int longLookback
     ) {
         List<BigDecimal> closes = extractSortedCloses(candles);
+        if (useClosedCandle) {
+            dropLast(closes);
+        }
         if (closes.isEmpty()) {
             return null;
         }
@@ -1210,6 +1216,9 @@ public class AutoTradeService {
         }
 
         List<BigDecimal> closes = extractSortedCloses(candles);
+        if (useClosedCandle) {
+            dropLast(closes);
+        }
         if (closes.size() < longWindow) {
             return RegimeSnapshot.block("regime_insufficient_data", regimeTarget, null, null, null, null, null);
         }
@@ -1411,7 +1420,8 @@ public class AutoTradeService {
         if (required <= 1) {
             return null;
         }
-        List<Map<String, Object>> candles = upbitService.fetchMinuteCandles(market, candleUnitMinutes, count);
+        int requestCount = useClosedCandle ? count + 1 : count;
+        List<Map<String, Object>> candles = upbitService.fetchMinuteCandles(market, candleUnitMinutes, requestCount);
         if (candles == null || candles.isEmpty()) {
             return null;
         }
@@ -1441,6 +1451,16 @@ public class AutoTradeService {
         reverseInPlace(highs);
         reverseInPlace(lows);
         reverseInPlace(quoteVolumes);
+
+        if (useClosedCandle) {
+            dropLast(closes);
+            dropLast(highs);
+            dropLast(lows);
+            dropLast(quoteVolumes);
+        }
+        if (closes.size() < required) {
+            return null;
+        }
 
         BigDecimal currentPrice = closes.get(closes.size() - 1);
         BigDecimal maShortValue = averageLast(closes, maShort);
@@ -1989,6 +2009,7 @@ public class AutoTradeService {
             details.put("stopLossGuardLockMinutes", stopLossGuardLockMinutes);
             details.put("maxMarketsPerTick", maxMarketsPerTick);
             details.put("marketMaxOrderKrw", marketMaxOrderKrw);
+            details.put("useClosedCandle", useClosedCandle);
             details.put("regimeFilterEnabled", regimeFilterEnabled);
             details.put("regimeFilterPerMarket", regimeFilterPerMarket);
             details.put("regimeMarket", regime != null ? regime.market() : regimeMarket);
@@ -2053,6 +2074,13 @@ public class AutoTradeService {
             values.set(i, values.get(j));
             values.set(j, tmp);
         }
+    }
+
+    private static void dropLast(List<BigDecimal> values) {
+        if (values == null || values.size() <= 1) {
+            return;
+        }
+        values.remove(values.size() - 1);
     }
 
     private record MarketIndicators(
