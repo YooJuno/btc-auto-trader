@@ -263,6 +263,34 @@ function App() {
     () => buildMarketOverrideSignature(marketRows) !== marketRowsBaseline,
     [marketRows, marketRowsBaseline]
   )
+  const decisionByOrderId = useMemo(() => {
+    const map = new Map()
+    decisionHistory.forEach((decision) => {
+      const orderId = decision?.orderId
+      if (!orderId) {
+        return
+      }
+      const existing = map.get(orderId)
+      if (!existing) {
+        map.set(orderId, decision)
+        return
+      }
+      const nextAt = Date.parse(decision?.executedAt ?? '')
+      const prevAt = Date.parse(existing?.executedAt ?? '')
+      if (Number.isFinite(nextAt) && (!Number.isFinite(prevAt) || nextAt > prevAt)) {
+        map.set(orderId, decision)
+      }
+    })
+    return map
+  }, [decisionHistory])
+  const mergedOrderHistory = useMemo(
+    () =>
+      orderHistory.map((order) => ({
+        ...order,
+        decision: order?.orderId ? decisionByOrderId.get(order.orderId) : null,
+      })),
+    [orderHistory, decisionByOrderId]
+  )
   const performanceTotal = performance?.total
 
   const handleMarketReload = useCallback(() => {
@@ -434,53 +462,6 @@ function App() {
             )}
           </section>
 
-          <section className="table-card table-card--elevated decision-card">
-            <div className="table-header">
-              <div>
-                <h2>매매 스냅샷</h2>
-                <p className="sub">매수/매도 이유와 당시 지표</p>
-              </div>
-            </div>
-            {decisionHistory.length === 0 ? (
-              <div className="empty-state">매수/매도 의사결정 로그가 없습니다.</div>
-            ) : (
-              <div className="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>시간</th>
-                      <th>마켓</th>
-                      <th>액션</th>
-                      <th>사유</th>
-                      <th>RSI</th>
-                      <th>MACD</th>
-                      <th>MA Slope%</th>
-                      <th>가격</th>
-                      <th>프로필</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {decisionHistory.map((decision) => (
-                      <tr key={decision.id}>
-                        <td className="mono small">{formatDateTime(decision.executedAt)}</td>
-                        <td>{decision.market}</td>
-                        <td className={decision.action === 'BUY' ? 'positive' : decision.action === 'SELL' ? 'negative' : 'neutral'}>
-                          {decision.action}
-                        </td>
-                        <td className="mono small">{decision.reason ?? '-'}</td>
-                        <td className="mono">{formatFixed(decision.rsi, 2)}</td>
-                        <td className="mono">{formatFixed(decision.macdHistogram, 4)}</td>
-                        <td className="mono">{formatFixed(decision.maLongSlopePct, 3)}</td>
-                        <td className="mono">{formatKRW(decision.price)}</td>
-                        <td>{decision.profile ?? '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
           {/* <article className="table-card card--elevated feed-card">
             <div className="table-header">
               <div>
@@ -510,11 +491,11 @@ function App() {
             <div className="table-header">
               <div>
                 <h2>최근 주문 로그</h2>
-                <p className="sub">BUY/SELL 요청 상태와 오류 추적</p>
+                <p className="sub">주문 상태 + 매매 사유/지표 스냅샷 통합</p>
               </div>
             </div>
             {feedError && <p className="status-error">{feedError}</p>}
-            {orderHistory.length === 0 ? (
+            {mergedOrderHistory.length === 0 ? (
               <div className="empty-state">주문 로그가 없습니다.</div>
             ) : (
               <div className="table-wrapper">
@@ -527,24 +508,39 @@ function App() {
                       <th>상태</th>
                       <th>주문량</th>
                       <th>주문금액</th>
+                      <th>사유</th>
+                      <th>RSI</th>
+                      <th>MACD</th>
+                      <th>MA Slope%</th>
+                      <th>가격</th>
+                      <th>프로필</th>
                       <th>오류</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {orderHistory.map((order) => (
-                      <tr key={order.id}>
-                        <td className="mono small">{formatDateTime(order.requestedAt)}</td>
-                        <td>{order.market}</td>
-                        <td className={order.side === 'BUY' ? 'positive' : 'negative'}>{order.side}</td>
-                        <td>
-                          <span className="mono">{order.requestStatus ?? '-'}</span>
-                          <span className="sub compact">{order.state ?? '-'}</span>
-                        </td>
-                        <td className="mono">{formatCoin(order.volume)}</td>
-                        <td className="mono">{formatKRW(order.funds)}</td>
-                        <td className="mono small">{truncateText(order.errorMessage, 36)}</td>
-                      </tr>
-                    ))}
+                    {mergedOrderHistory.map((order) => {
+                      const decision = order.decision
+                      return (
+                        <tr key={order.id}>
+                          <td className="mono small">{formatDateTime(order.requestedAt)}</td>
+                          <td>{order.market}</td>
+                          <td className={order.side === 'BUY' ? 'positive' : 'negative'}>{order.side}</td>
+                          <td>
+                            <span className="mono">{order.requestStatus ?? '-'}</span>
+                            <span className="sub compact">{order.state ?? '-'}</span>
+                          </td>
+                          <td className="mono">{formatCoin(order.volume)}</td>
+                          <td className="mono">{formatKRW(order.funds)}</td>
+                          <td className="mono small">{decision?.reason ?? '-'}</td>
+                          <td className="mono">{formatFixed(decision?.rsi, 2)}</td>
+                          <td className="mono">{formatFixed(decision?.macdHistogram, 4)}</td>
+                          <td className="mono">{formatFixed(decision?.maLongSlopePct, 3)}</td>
+                          <td className="mono">{formatKRW(decision?.price)}</td>
+                          <td>{decision?.profile ?? '-'}</td>
+                          <td className="mono small">{truncateText(order.errorMessage, 36)}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
