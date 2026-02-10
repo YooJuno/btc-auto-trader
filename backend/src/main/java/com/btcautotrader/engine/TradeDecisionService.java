@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 @Service
 public class TradeDecisionService {
     private static final Pattern OID_LITERAL_PATTERN = Pattern.compile("^\\d{5,19}$");
+    private static final List<String> TRADE_ACTIONS = List.of("BUY", "SELL");
 
     private final TradeDecisionRepository repository;
     private final ObjectMapper objectMapper;
@@ -51,7 +52,7 @@ public class TradeDecisionService {
         PageRequest pageRequest = PageRequest.of(0, safeLimit, Sort.by(Sort.Direction.DESC, "executedAt"));
         List<TradeDecisionEntity> entities = includeSkips
                 ? repository.findAll(pageRequest).getContent()
-                : repository.findByActionIn(List.of("BUY", "SELL"), pageRequest).getContent();
+                : repository.findByActionIn(TRADE_ACTIONS, pageRequest).getContent();
         return entities
                 .stream()
                 .map(this::toItem)

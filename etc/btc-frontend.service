@@ -1,0 +1,14 @@
+[Unit]
+Description=BTC Auto Trader Frontend (preview)
+After=network.target
+
+[Service]
+Type=simple
+User=juno
+WorkingDirectory=/home/juno/Workspace/btc-auto-trader/frontend
+ExecStart=/usr/bin/env npm run preview -- --host 0.0.0.0 --port 5173
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -188,7 +188,7 @@ function App() {
         if (prev && rows.some((row) => row.market === prev)) {
           return prev
         }
-        return rows.length > 0 ? rows[0].market : null
+        return null
       })
     } catch (err) {
       setMarketConfigError(err?.message ?? '마켓 설정 조회 실패')
@@ -437,7 +437,7 @@ function App() {
           <section className="table-card table-card--elevated decision-card">
             <div className="table-header">
               <div>
-                <h2>매매 사유 스냅샷</h2>
+                <h2>매매 스냅샷</h2>
                 <p className="sub">매수/매도 이유와 당시 지표</p>
               </div>
             </div>
@@ -481,7 +481,7 @@ function App() {
             )}
           </section>
 
-          <article className="table-card card--elevated feed-card">
+          {/* <article className="table-card card--elevated feed-card">
             <div className="table-header">
               <div>
                 <h2>실시간 알림</h2>
@@ -504,7 +504,7 @@ function App() {
                 ))}
               </ul>
             )}
-          </article>
+          </article> */}
 
           <article className="table-card card--elevated order-card">
             <div className="table-header">
@@ -1416,6 +1416,14 @@ const buildMarketOverrideRows = (payload) => {
     orderedMarkets.push(normalized)
   })
   Object.keys(profileByMarket).forEach((market) => {
+    const normalized = normalizeMarket(market)
+    if (!normalized || seen.has(normalized)) {
+      return
+    }
+    seen.add(normalized)
+    orderedMarkets.push(normalized)
+  })
+  Object.keys(ratiosByMarket).forEach((market) => {
     const normalized = normalizeMarket(market)
     if (!normalized || seen.has(normalized)) {
       return

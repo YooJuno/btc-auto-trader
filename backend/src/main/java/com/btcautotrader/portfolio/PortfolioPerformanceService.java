@@ -19,6 +19,7 @@ import java.util.Map;
 @Service
 public class PortfolioPerformanceService {
     private static final BigDecimal ZERO = BigDecimal.ZERO;
+    private static final BigDecimal EPSILON_QUANTITY = new BigDecimal("0.000000000001");
     private static final int CALC_SCALE = 18;
     private static final ZoneId REPORT_ZONE = ZoneId.of("Asia/Seoul");
     private static final List<String> TRADE_ACTIONS = List.of("BUY", "SELL");
@@ -213,7 +214,7 @@ public class PortfolioPerformanceService {
 
             quantity = quantity.subtract(matchedQuantity);
             cost = cost.subtract(costBasis);
-            if (quantity.compareTo(new BigDecimal("0.000000000001")) <= 0) {
+            if (quantity.compareTo(EPSILON_QUANTITY) <= 0) {
                 quantity = ZERO;
                 cost = ZERO;
             } else if (cost.compareTo(ZERO) < 0) {

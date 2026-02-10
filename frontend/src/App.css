@@ -495,8 +495,8 @@ h3 {
 .danger-button {
   border: 1px solid rgba(255, 125, 115, 0.44);
   padding: 9px 12px;
-  color: #ff9f97;
-  background: rgba(255, 125, 115, 0.14);
+  color: #640c04;
+  background: rgba(252, 88, 76, 0.548);
 }
 
 .primary-button:hover,
