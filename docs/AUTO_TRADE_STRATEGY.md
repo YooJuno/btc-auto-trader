@@ -31,7 +31,7 @@ For stability, consider 5m or 15m as your production default.
 
 **Exit logic**
 - **Stop-loss:** price below `avg_buy_price * (1 - STOP_LOSS%)`.
-- **Trailing stop:** price drops below recent-high * (1 - TRAILING_STOP%).
+- **Trailing stop:** price drops below **entry 이후 최고가** * (1 - TRAILING_STOP%).
 - **Momentum reversal:** RSI below `RSI_SELL` and MACD histogram < 0.
 - **Trend break:** price below `MA_LONG`.
 - **Take-profit:** optional partial take-profit before full exit.
@@ -90,6 +90,8 @@ Use multiple layers to avoid oversized risk:
 - **Stop-loss cooldown:** avoid immediate re-entry after a loss
 - **Re-entry cooldown:** avoid immediate buy after any sell exit
 - **Stop-loss guard:** if stop-like exits cluster in a short window, lock buys temporarily
+- **Order chance pre-check:** Upbit `orders/chance`로 최소 주문 금액 사전 확인
+- **Fee/slippage buffer:** 매수 자금 산정 시 보수적 버퍼 반영
 - **Decision logging:** each tick stores reason/indicator snapshot for audit
 
 Upbit KRW minimum order amount and tick size rules:  
@@ -120,6 +122,7 @@ Ref: https://global-docs.upbit.com/reference/order
 These keys are wired into the current auto-trade engine:
 ```
 signal.timeframe-unit=1
+signal.use-closed-candle=true
 signal.ma-short=20
 signal.ma-long=100
 signal.rsi-period=14
@@ -140,6 +143,8 @@ signal.ma-long-slope-lookback=5
 signal.min-confirmations=2
 trading.market-max-order-krw=
 trading.market-profile=
+trading.fee-rate=0.0005
+trading.slippage-pct=0.001
 engine.max-markets-per-tick=0
 risk.trailing-window=20
 risk.partial-take-profit-cooldown-minutes=120
@@ -154,6 +159,7 @@ upbit.rate-limit.enabled=true
 upbit.rate-limit.min-interval-ms=120
 upbit.rate-limit.max-requests-per-second=8
 upbit.rate-limit.max-requests-per-minute=240
+orders.chance-cache-minutes=5
 ```
 
 Risk parameters `takeProfitPct` / `stopLossPct` / `trailingStopPct`
@@ -173,4 +179,3 @@ strategy.force-profile=CONSERVATIVE
 
 ## 7) Next Implementation Steps (If You Approve)
 1. Add optional limit-entry with timeout + fallback to market.
-2. Add Upbit `orders/chance` pre-check to validate order constraints before submission.

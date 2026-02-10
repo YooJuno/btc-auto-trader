@@ -2,6 +2,7 @@ package com.btcautotrader.portfolio;
 
 import com.btcautotrader.engine.TradeDecisionEntity;
 import com.btcautotrader.engine.TradeDecisionRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,9 +26,20 @@ public class PortfolioPerformanceService {
     private static final List<String> TRADE_ACTIONS = List.of("BUY", "SELL");
 
     private final TradeDecisionRepository tradeDecisionRepository;
+    private final BigDecimal feeRate;
+    private final BigDecimal slippagePct;
+    private final BigDecimal tradeCostRate;
 
-    public PortfolioPerformanceService(TradeDecisionRepository tradeDecisionRepository) {
+    public PortfolioPerformanceService(
+            TradeDecisionRepository tradeDecisionRepository,
+            @Value("${trading.fee-rate:0.0005}") BigDecimal feeRate,
+            @Value("${trading.slippage-pct:0.001}") BigDecimal slippagePct
+    ) {
         this.tradeDecisionRepository = tradeDecisionRepository;
+        this.feeRate = normalizeRate(feeRate);
+        this.slippagePct = normalizeRate(slippagePct);
+        BigDecimal combined = this.feeRate.add(this.slippagePct);
+        this.tradeCostRate = combined.compareTo(ZERO) < 0 ? ZERO : combined;
     }
 
     @Transactional(readOnly = true)
@@ -55,7 +67,7 @@ public class PortfolioPerformanceService {
                 continue;
             }
 
-            EventMetrics event = toEvent(decision, inventoryByMarket);
+            EventMetrics event = toEvent(decision, inventoryByMarket, tradeCostRate);
             if (event == null) {
                 continue;
             }
@@ -81,7 +93,7 @@ public class PortfolioPerformanceService {
         return new PortfolioPerformanceResponse(
                 REPORT_ZONE.getId(),
                 true,
-                "자동매매 BUY/SELL 의사결정 로그 기반 추정치입니다.",
+                "자동매매 BUY/SELL 의사결정 로그 기반 추정치이며 수수료/슬리피지 추정치를 포함합니다.",
                 fromDate.toString(),
                 toDate.toString(),
                 total.toMetrics("TOTAL"),
@@ -92,7 +104,8 @@ public class PortfolioPerformanceService {
 
     private static EventMetrics toEvent(
             TradeDecisionEntity decision,
-            Map<String, PositionState> inventoryByMarket
+            Map<String, PositionState> inventoryByMarket,
+            BigDecimal tradeCostRate
     ) {
         String action = normalize(decision.getAction());
         String market = normalize(decision.getMarket());
@@ -119,8 +132,10 @@ public class PortfolioPerformanceService {
                 return null;
             }
 
-            inventory.addBuy(quantity, funds);
-            return EventMetrics.buy(funds);
+            BigDecimal fee = computeFee(funds, tradeCostRate);
+            BigDecimal buyCost = funds.add(fee);
+            inventory.addBuy(quantity, buyCost);
+            return EventMetrics.buy(funds, fee);
         }
 
         if (quantity == null && funds != null && price != null) {
@@ -132,14 +147,25 @@ public class PortfolioPerformanceService {
         if (funds == null) {
             funds = quantity.multiply(price);
         }
-
-        SellAccounting sellAccounting = inventory.applySell(quantity, funds, ZERO);
+        BigDecimal fee = computeFee(funds, tradeCostRate);
+        SellAccounting sellAccounting = inventory.applySell(quantity, funds, fee);
         return EventMetrics.sell(
                 funds,
                 sellAccounting.realizedPnl(),
                 sellAccounting.unmatchedNotional(),
-                sellAccounting.matchedQuantity()
+                sellAccounting.matchedQuantity(),
+                fee
         );
+    }
+
+    private static BigDecimal computeFee(BigDecimal notional, BigDecimal tradeCostRate) {
+        if (notional == null || tradeCostRate == null) {
+            return ZERO;
+        }
+        if (notional.compareTo(ZERO) <= 0 || tradeCostRate.compareTo(ZERO) <= 0) {
+            return ZERO;
+        }
+        return notional.multiply(tradeCostRate);
     }
 
     private static String normalize(String value) {
@@ -161,6 +187,19 @@ public class PortfolioPerformanceService {
             return null;
         }
         return numerator.divide(denominator, CALC_SCALE, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal normalizeRate(BigDecimal rate) {
+        if (rate == null) {
+            return ZERO;
+        }
+        if (rate.compareTo(ZERO) < 0) {
+            return ZERO;
+        }
+        if (rate.compareTo(BigDecimal.ONE) > 0) {
+            return BigDecimal.ONE;
+        }
+        return rate;
     }
 
     private static final class PositionState {
@@ -240,19 +279,25 @@ public class PortfolioPerformanceService {
             BigDecimal sellNotional,
             BigDecimal realizedPnl,
             BigDecimal unmatchedSellNotional,
+            BigDecimal feeKrw,
+            BigDecimal cashFlowDeltaKrw,
             boolean buy,
             boolean sell,
             boolean matchedSell,
             boolean winningSell,
             boolean losingSell
     ) {
-        static EventMetrics buy(BigDecimal notional) {
+        static EventMetrics buy(BigDecimal notional, BigDecimal fee) {
             BigDecimal safeNotional = notional == null ? ZERO : notional;
+            BigDecimal safeFee = fee == null ? ZERO : fee;
+            BigDecimal cashFlow = safeNotional.add(safeFee).negate();
             return new EventMetrics(
                     safeNotional,
                     ZERO,
                     ZERO,
                     ZERO,
+                    safeFee,
+                    cashFlow,
                     true,
                     false,
                     false,
@@ -265,12 +310,15 @@ public class PortfolioPerformanceService {
                 BigDecimal notional,
                 BigDecimal realized,
                 BigDecimal unmatched,
-                BigDecimal matchedQty
+                BigDecimal matchedQty,
+                BigDecimal fee
         ) {
             BigDecimal safeNotional = notional == null ? ZERO : notional;
             BigDecimal safeRealized = realized == null ? ZERO : realized;
             BigDecimal safeUnmatched = unmatched == null ? ZERO : unmatched;
             BigDecimal safeMatchedQty = matchedQty == null ? ZERO : matchedQty;
+            BigDecimal safeFee = fee == null ? ZERO : fee;
+            BigDecimal cashFlow = safeNotional.subtract(safeFee);
             boolean matchedSell = safeMatchedQty.compareTo(ZERO) > 0;
             boolean winningSell = matchedSell && safeRealized.compareTo(ZERO) > 0;
             boolean losingSell = matchedSell && safeRealized.compareTo(ZERO) < 0;
@@ -279,6 +327,8 @@ public class PortfolioPerformanceService {
                     safeNotional,
                     safeRealized,
                     safeUnmatched,
+                    safeFee,
+                    cashFlow,
                     false,
                     true,
                     matchedSell,
@@ -316,13 +366,15 @@ public class PortfolioPerformanceService {
             if (event.buy()) {
                 buyCount++;
                 buyNotionalKrw = buyNotionalKrw.add(event.buyNotional());
-                netCashFlowKrw = netCashFlowKrw.subtract(event.buyNotional());
+                estimatedFeeKrw = estimatedFeeKrw.add(event.feeKrw());
+                netCashFlowKrw = netCashFlowKrw.add(event.cashFlowDeltaKrw());
             }
             if (event.sell()) {
                 sellCount++;
                 sellNotionalKrw = sellNotionalKrw.add(event.sellNotional());
                 unmatchedSellNotionalKrw = unmatchedSellNotionalKrw.add(event.unmatchedSellNotional());
-                netCashFlowKrw = netCashFlowKrw.add(event.sellNotional());
+                estimatedFeeKrw = estimatedFeeKrw.add(event.feeKrw());
+                netCashFlowKrw = netCashFlowKrw.add(event.cashFlowDeltaKrw());
                 estimatedRealizedPnlKrw = estimatedRealizedPnlKrw.add(event.realizedPnl());
                 if (event.matchedSell()) {
                     matchedSellCount++;

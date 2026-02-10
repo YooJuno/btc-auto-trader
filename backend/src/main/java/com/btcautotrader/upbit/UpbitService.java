@@ -31,6 +31,7 @@ public class UpbitService {
     private static final String UPBIT_TICKER_URL = "https://api.upbit.com/v1/ticker";
     private static final String UPBIT_CANDLES_MINUTE_URL = "https://api.upbit.com/v1/candles/minutes";
     private static final String UPBIT_ORDER_URL = "https://api.upbit.com/v1/orders";
+    private static final String UPBIT_ORDER_CHANCE_URL = "https://api.upbit.com/v1/orders/chance";
     private static final String UPBIT_ORDER_DETAIL_URL = "https://api.upbit.com/v1/order";
 
     private final RestTemplate restTemplate;
@@ -158,6 +159,39 @@ public class UpbitService {
         Map<String, String> params = new LinkedHashMap<>();
         params.put("identifier", identifier);
         return fetchOrder(params);
+    }
+
+    public Map<String, Object> fetchOrderChance(String market) {
+        if (market == null || market.isBlank()) {
+            return Map.of();
+        }
+        rateLimiter.acquire("order-chance");
+
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("market", market);
+        String queryString = buildQueryString(params);
+        String jwtToken = createJwtToken(queryString);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + jwtToken);
+
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        String url = UPBIT_ORDER_CHANCE_URL + "?" + queryString;
+
+        try {
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    entity,
+                    Map.class
+            );
+            Map<String, Object> body = response.getBody();
+            return body == null ? Map.of() : body;
+        } catch (HttpStatusCodeException ex) {
+            throw new UpbitApiException(ex.getStatusCode().value(), ex.getResponseBodyAsString());
+        } catch (RestClientException ex) {
+            throw new UpbitApiException(502, ex.getMessage());
+        }
     }
 
     private String createJwtToken(String queryString) {

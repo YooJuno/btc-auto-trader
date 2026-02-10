@@ -189,7 +189,7 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
 {
   "timezone": "Asia/Seoul",
   "estimated": true,
-  "note": "자동매매 BUY/SELL 의사결정 로그 기반 추정치입니다.",
+  "note": "자동매매 BUY/SELL 의사결정 로그 기반 추정치이며 수수료/슬리피지 추정치를 포함합니다.",
   "from": "2026-02-01",
   "to": "2026-02-10",
   "total": {
@@ -295,6 +295,13 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
     "volatilityPct": 0.38,
     "details": {
       "useClosedCandle": true,
+      "entryTrailingHigh": 105000000,
+      "windowTrailingHigh": 105000000,
+      "feeRate": 0.0005,
+      "slippagePct": 0.001,
+      "tradeCostRate": 0.0015,
+      "orderChanceBidMinTotal": 5000,
+      "orderChanceAskMinTotal": 5000,
       "regimeFilterEnabled": true,
       "regimeFilterPerMarket": true,
       "regimeMarket": "KRW-BTC"
