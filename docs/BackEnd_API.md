@@ -4,6 +4,7 @@
 - Base URL: `http://localhost:8080`
 - 응답은 JSON 형식이며, 시간은 ISO-8601 문자열입니다.
 - 오류 응답은 보통 아래 형태입니다.
+- `api.auth.enabled=true`인 경우 `X-API-KEY` 헤더(또는 `api.auth.header` 지정값)가 필요합니다.
 
 ```jsonc
 {
@@ -80,7 +81,7 @@ curl -X POST "http://localhost:8080/api/order" \
 {
   "orderId": "upbit-order-uuid",
   "status": "wait",            // Upbit 상태값
-  "requestStatus": "SUBMITTED", // 내부 요청 상태: REQUESTED | PENDING | SUBMITTED | FAILED
+  "requestStatus": "SUBMITTED", // 내부 요청 상태: REQUESTED | PENDING | SUBMITTED | FILLED | CANCELED | FAILED
   "errorMessage": null,
   "receivedAt": "2026-02-10T01:45:12.345Z",
   "market": "KRW-BTC",

@@ -10,7 +10,9 @@ import com.btcautotrader.strategy.StrategyMarketRatios;
 import com.btcautotrader.strategy.StrategyProfile;
 import com.btcautotrader.strategy.StrategyService;
 import com.btcautotrader.upbit.UpbitService;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -40,6 +42,7 @@ public class AutoTradeService {
     private final StrategyService strategyService;
     private final EngineService engineService;
     private final OrderRepository orderRepository;
+    private final TradeDecisionRepository tradeDecisionRepository;
     private final TradeDecisionService tradeDecisionService;
 
     private final Map<String, BigDecimal> propertyMarketMaxOrderKrwOverrides;
@@ -98,7 +101,9 @@ public class AutoTradeService {
     private final int relativeMomentumLongLookback;
     private final int relativeMomentumTopN;
     private final double relativeMomentumMinScorePct;
+    private final long relativeMomentumCacheMinutes;
     private final long orderChanceCacheMinutes;
+    private final int stateRestoreLimit;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger marketCursor = new AtomicInteger(0);
@@ -110,6 +115,7 @@ public class AutoTradeService {
     private final Map<String, OffsetDateTime> stopLossGuardUntilByMarket = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> trailingHighByMarket = new ConcurrentHashMap<>();
     private final Map<String, OrderChanceSnapshot> orderChanceCache = new ConcurrentHashMap<>();
+    private final Map<String, MomentumSnapshot> relativeMomentumCache = new ConcurrentHashMap<>();
 
     public AutoTradeService(
             UpbitService upbitService,
@@ -117,6 +123,7 @@ public class AutoTradeService {
             StrategyService strategyService,
             EngineService engineService,
             OrderRepository orderRepository,
+            TradeDecisionRepository tradeDecisionRepository,
             TradeDecisionService tradeDecisionService,
             @Value("${trading.market-max-order-krw:}") String marketMaxOrderKrwConfig,
             @Value("${trading.market-profile:}") String marketProfileConfig,
@@ -173,13 +180,16 @@ public class AutoTradeService {
             @Value("${signal.relative-momentum.long-lookback:96}") int relativeMomentumLongLookback,
             @Value("${signal.relative-momentum.top-n:3}") int relativeMomentumTopN,
             @Value("${signal.relative-momentum.min-score-pct:0.0}") double relativeMomentumMinScorePct,
-            @Value("${orders.chance-cache-minutes:5}") long orderChanceCacheMinutes
+            @Value("${signal.relative-momentum.cache-minutes:5}") long relativeMomentumCacheMinutes,
+            @Value("${orders.chance-cache-minutes:5}") long orderChanceCacheMinutes,
+            @Value("${engine.state-restore-limit:500}") int stateRestoreLimit
     ) {
         this.upbitService = upbitService;
         this.orderService = orderService;
         this.strategyService = strategyService;
         this.engineService = engineService;
         this.orderRepository = orderRepository;
+        this.tradeDecisionRepository = tradeDecisionRepository;
         this.tradeDecisionService = tradeDecisionService;
         this.propertyMarketMaxOrderKrwOverrides = Map.copyOf(parseMarketMaxOrderKrwOverrides(marketMaxOrderKrwConfig));
         this.propertyMarketProfileOverrides = Map.copyOf(parseMarketProfileOverrides(marketProfileConfig));
@@ -241,7 +251,65 @@ public class AutoTradeService {
         );
         this.relativeMomentumTopN = relativeMomentumTopN;
         this.relativeMomentumMinScorePct = relativeMomentumMinScorePct;
+        this.relativeMomentumCacheMinutes = Math.max(0, relativeMomentumCacheMinutes);
         this.orderChanceCacheMinutes = Math.max(0, orderChanceCacheMinutes);
+        this.stateRestoreLimit = Math.max(0, stateRestoreLimit);
+    }
+
+    @PostConstruct
+    void restoreExitState() {
+        if (tradeDecisionRepository == null || stateRestoreLimit <= 0) {
+            return;
+        }
+        List<TradeDecisionEntity> decisions = tradeDecisionRepository.findByActionOrderByExecutedAtDesc(
+                "SELL",
+                PageRequest.of(0, stateRestoreLimit)
+        ).getContent();
+        if (decisions.isEmpty()) {
+            return;
+        }
+
+        OffsetDateTime stopLossThreshold = null;
+        if (stopLossGuardLookbackMinutes > 0) {
+            stopLossThreshold = OffsetDateTime.now().minusMinutes(stopLossGuardLookbackMinutes);
+        }
+
+        Map<String, List<OffsetDateTime>> stopEvents = new HashMap<>();
+
+        for (TradeDecisionEntity decision : decisions) {
+            if (decision == null || decision.getExecutedAt() == null) {
+                continue;
+            }
+            String market = normalizeMarketKey(decision.getMarket());
+            if (market == null) {
+                continue;
+            }
+
+            if (!lastExitAt.containsKey(market)) {
+                lastExitAt.put(market, decision.getExecutedAt());
+            }
+
+            String reason = decision.getReason();
+            if (!isStopLikeReason(reason)) {
+                continue;
+            }
+            if (stopLossThreshold != null && decision.getExecutedAt().isBefore(stopLossThreshold)) {
+                continue;
+            }
+            stopEvents.computeIfAbsent(market, key -> new ArrayList<>()).add(decision.getExecutedAt());
+        }
+
+        for (Map.Entry<String, List<OffsetDateTime>> entry : stopEvents.entrySet()) {
+            List<OffsetDateTime> events = entry.getValue();
+            if (events == null || events.isEmpty()) {
+                continue;
+            }
+            events.sort(OffsetDateTime::compareTo);
+            for (OffsetDateTime occurredAt : events) {
+                registerStopLossEvent(entry.getKey(), occurredAt);
+            }
+            lastStopLossAt.put(entry.getKey(), events.get(events.size() - 1));
+        }
     }
 
     @Scheduled(fixedDelayString = "${engine.tick-ms:5000}")
@@ -854,7 +922,11 @@ public class AutoTradeService {
         return orderRepository.existsByMarketAndSideAndStatusInAndRequestedAtAfter(
                 market,
                 side,
-                List.of(com.btcautotrader.order.OrderStatus.REQUESTED, com.btcautotrader.order.OrderStatus.PENDING),
+                List.of(
+                        com.btcautotrader.order.OrderStatus.REQUESTED,
+                        com.btcautotrader.order.OrderStatus.PENDING,
+                        com.btcautotrader.order.OrderStatus.SUBMITTED
+                ),
                 after
         );
     }
@@ -1308,19 +1380,40 @@ public class AutoTradeService {
         int count = Math.max(shortLookback, longLookback) + 1;
 
         Map<String, BigDecimal> scores = new HashMap<>();
+        OffsetDateTime now = OffsetDateTime.now();
         for (String market : markets) {
+            String key = normalizeMarketKey(market);
+            if (key == null) {
+                continue;
+            }
+            MomentumSnapshot cached = relativeMomentumCache.get(key);
+            if (cached != null && cached.score() != null) {
+                if (relativeMomentumCacheMinutes > 0 && cached.fetchedAt() != null) {
+                    OffsetDateTime threshold = now.minusMinutes(relativeMomentumCacheMinutes);
+                    if (cached.fetchedAt().isAfter(threshold)) {
+                        scores.put(market, cached.score());
+                        continue;
+                    }
+                }
+            }
             try {
                 List<Map<String, Object>> candles = upbitService.fetchMinuteCandles(
-                        market,
+                        key,
                         relativeMomentumTimeframeUnit,
                         count
                 );
                 BigDecimal score = computeRelativeMomentumScore(candles, shortLookback, longLookback);
                 if (score != null) {
                     scores.put(market, score);
+                    relativeMomentumCache.put(key, new MomentumSnapshot(score, OffsetDateTime.now()));
+                } else if (cached != null && cached.score() != null) {
+                    scores.put(market, cached.score());
                 }
             } catch (RuntimeException ignored) {
                 // Momentum score is optional and should not block sell-side safety handling.
+                if (cached != null && cached.score() != null) {
+                    scores.put(market, cached.score());
+                }
             }
         }
         return scores;
@@ -2200,6 +2293,7 @@ public class AutoTradeService {
             details.put("relativeMomentumEnabled", relativeMomentumEnabled);
             details.put("relativeMomentumTopN", relativeMomentumTopN);
             details.put("relativeMomentumMinScorePct", relativeMomentumMinScorePct);
+            details.put("relativeMomentumCacheMinutes", relativeMomentumCacheMinutes);
             if (config != null) {
                 details.put("stopExitPct", config.stopExitPct());
                 details.put("trendExitPct", config.trendExitPct());
@@ -2311,6 +2405,12 @@ public class AutoTradeService {
             BigDecimal askMinTotal,
             BigDecimal bidFee,
             BigDecimal askFee,
+            OffsetDateTime fetchedAt
+    ) {
+    }
+
+    private record MomentumSnapshot(
+            BigDecimal score,
             OffsetDateTime fetchedAt
     ) {
     }

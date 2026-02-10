@@ -107,6 +107,9 @@ public class PortfolioPerformanceService {
             Map<String, PositionState> inventoryByMarket,
             BigDecimal tradeCostRate
     ) {
+        if (isFailedDecision(decision)) {
+            return null;
+        }
         String action = normalize(decision.getAction());
         String market = normalize(decision.getMarket());
         if (action == null || market == null) {
@@ -156,6 +159,17 @@ public class PortfolioPerformanceService {
                 sellAccounting.matchedQuantity(),
                 fee
         );
+    }
+
+    private static boolean isFailedDecision(TradeDecisionEntity decision) {
+        if (decision == null) {
+            return true;
+        }
+        String status = decision.getRequestStatus();
+        if (status == null || status.isBlank()) {
+            return false;
+        }
+        return "FAILED".equalsIgnoreCase(status.trim());
     }
 
     private static BigDecimal computeFee(BigDecimal notional, BigDecimal tradeCostRate) {

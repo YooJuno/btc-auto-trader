@@ -43,7 +43,7 @@ public class OrderReconcileService {
         }
         OffsetDateTime after = OffsetDateTime.now().minusMinutes(lookbackMinutes);
         List<OrderEntity> pending = orderRepository.findByStatusInAndRequestedAtAfter(
-                List.of(OrderStatus.REQUESTED, OrderStatus.PENDING),
+                List.of(OrderStatus.REQUESTED, OrderStatus.PENDING, OrderStatus.SUBMITTED),
                 after
         );
 
@@ -61,7 +61,7 @@ public class OrderReconcileService {
 
                 order.setExternalId(response.uuid());
                 order.setState(response.state());
-                order.setStatus(OrderStatus.SUBMITTED);
+                order.setStatus(resolveStatus(response.state(), order.getStatus()));
                 order.setCreatedAt(parseOffsetDateTime(response.createdAt()));
                 order.setRawResponse(safeSerialize(response));
                 orderRepository.save(order);
@@ -73,7 +73,7 @@ public class OrderReconcileService {
 
         OffsetDateTime staleCutoff = OffsetDateTime.now().minusMinutes(staleMinutes);
         List<OrderEntity> stale = orderRepository.findByStatusInAndRequestedAtBefore(
-                List.of(OrderStatus.REQUESTED, OrderStatus.PENDING),
+                List.of(OrderStatus.REQUESTED, OrderStatus.PENDING, OrderStatus.SUBMITTED),
                 staleCutoff
         );
 
@@ -91,17 +91,17 @@ public class OrderReconcileService {
                 if (response != null) {
                     order.setExternalId(response.uuid());
                     order.setState(response.state());
-                    order.setStatus(OrderStatus.SUBMITTED);
+                    order.setStatus(resolveStatus(response.state(), order.getStatus()));
                     order.setCreatedAt(parseOffsetDateTime(response.createdAt()));
                     order.setRawResponse(safeSerialize(response));
                     orderRepository.save(order);
                     continue;
                 }
-                order.setStatus(OrderStatus.FAILED);
+                order.setStatus(OrderStatus.SUBMITTED);
                 order.setErrorMessage("reconcile timeout");
                 orderRepository.save(order);
             } catch (RuntimeException ex) {
-                order.setStatus(OrderStatus.FAILED);
+                order.setStatus(OrderStatus.SUBMITTED);
                 order.setErrorMessage(truncate(ex.getMessage(), 2000));
                 orderRepository.save(order);
             }
@@ -132,5 +132,17 @@ public class OrderReconcileService {
             return value;
         }
         return value.substring(0, max);
+    }
+
+    private static OrderStatus resolveStatus(String state, OrderStatus fallback) {
+        if (state == null) {
+            return fallback == null ? OrderStatus.SUBMITTED : fallback;
+        }
+        return switch (state.toLowerCase()) {
+            case "done" -> OrderStatus.FILLED;
+            case "cancel" -> OrderStatus.CANCELED;
+            case "wait" -> OrderStatus.SUBMITTED;
+            default -> fallback == null ? OrderStatus.SUBMITTED : fallback;
+        };
     }
 }

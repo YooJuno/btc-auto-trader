@@ -11,6 +11,8 @@ import java.util.List;
 public interface TradeDecisionRepository extends JpaRepository<TradeDecisionEntity, Long> {
     Page<TradeDecisionEntity> findByActionIn(Collection<String> actions, Pageable pageable);
 
+    Page<TradeDecisionEntity> findByActionOrderByExecutedAtDesc(String action, Pageable pageable);
+
     List<TradeDecisionEntity> findByActionInAndExecutedAtBeforeOrderByExecutedAtAsc(
             Collection<String> actions,
             OffsetDateTime executedAt

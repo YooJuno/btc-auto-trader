@@ -92,6 +92,7 @@ Use multiple layers to avoid oversized risk:
 - **Stop-loss guard:** if stop-like exits cluster in a short window, lock buys temporarily
 - **Order chance pre-check:** Upbit `orders/chance`로 최소 주문 금액 사전 확인
 - **Fee/slippage buffer:** 매수 자금 산정 시 보수적 버퍼 반영
+- **State restore:** 재시작 시 최근 SELL 로그로 쿨다운/가드 상태 복원
 - **Decision logging:** each tick stores reason/indicator snapshot for audit
 
 Upbit KRW minimum order amount and tick size rules:  
@@ -141,11 +142,19 @@ signal.breakout-pct=0.3
 signal.max-extension-pct=1.2
 signal.ma-long-slope-lookback=5
 signal.min-confirmations=2
+signal.relative-momentum.enabled=true
+signal.relative-momentum.timeframe-unit=15
+signal.relative-momentum.short-lookback=24
+signal.relative-momentum.long-lookback=96
+signal.relative-momentum.top-n=3
+signal.relative-momentum.min-score-pct=0.0
+signal.relative-momentum.cache-minutes=5
 trading.market-max-order-krw=
 trading.market-profile=
 trading.fee-rate=0.0005
 trading.slippage-pct=0.001
 engine.max-markets-per-tick=0
+engine.state-restore-limit=500
 risk.trailing-window=20
 risk.partial-take-profit-cooldown-minutes=120
 risk.stop-loss-cooldown-minutes=30
@@ -160,6 +169,9 @@ upbit.rate-limit.min-interval-ms=120
 upbit.rate-limit.max-requests-per-second=8
 upbit.rate-limit.max-requests-per-minute=240
 orders.chance-cache-minutes=5
+api.auth.enabled=false
+api.auth.header=X-API-KEY
+api.auth.key=
 ```
 
 Risk parameters `takeProfitPct` / `stopLossPct` / `trailingStopPct`
