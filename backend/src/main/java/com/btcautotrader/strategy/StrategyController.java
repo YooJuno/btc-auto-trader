@@ -156,6 +156,11 @@ public class StrategyController {
                 configuredMarkets,
                 errors
         );
+        Map<String, Boolean> tradePausedByMarket = normalizeTradePausedMap(
+                request.tradePausedByMarket(),
+                configuredMarkets,
+                errors
+        );
         Map<String, StrategyMarketRatios> ratiosByMarket = normalizeRatiosMap(
                 request.ratiosByMarket(),
                 configuredMarkets,
@@ -171,6 +176,7 @@ public class StrategyController {
         StrategyMarketOverridesRequest normalized = new StrategyMarketOverridesRequest(
                 maxOrderKrwByMarket,
                 profileByMarket,
+                tradePausedByMarket,
                 ratiosByMarket
         );
         return ResponseEntity.ok(strategyService.replaceMarketOverrides(normalized));
@@ -244,6 +250,34 @@ public class StrategyController {
                 continue;
             }
             normalized.put(market, profile.name());
+        }
+        return normalized;
+    }
+
+    private static Map<String, Boolean> normalizeTradePausedMap(
+            Map<String, Boolean> source,
+            Set<String> configuredMarkets,
+            Map<String, String> errors
+    ) {
+        Map<String, Boolean> normalized = new HashMap<>();
+        if (source == null) {
+            return normalized;
+        }
+        for (Map.Entry<String, Boolean> entry : source.entrySet()) {
+            String market = normalizeMarket(entry.getKey());
+            if (market == null) {
+                errors.put("tradePausedByMarket", "market key is required");
+                continue;
+            }
+            if (!configuredMarkets.contains(market)) {
+                errors.put("tradePausedByMarket." + market, "market is not configured");
+                continue;
+            }
+            Boolean value = entry.getValue();
+            if (value == null) {
+                continue;
+            }
+            normalized.put(market, value);
         }
         return normalized;
     }

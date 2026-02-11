@@ -441,6 +441,8 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
 ### PUT /api/strategy/market-overrides
 마켓별 override 전체 교체.
 
+`tradePausedByMarket` 값이 `true`이면 해당 마켓의 신규 매수는 중단되고, 보유 물량의 매도 로직은 계속 동작합니다.
+
 **요청**
 ```jsonc
 {
@@ -449,6 +451,10 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
   },
   "profileByMarket": {
     "KRW-BTC": "BALANCED"
+  },
+  "tradePausedByMarket": {
+    "KRW-BTC": false,
+    "KRW-ETH": true
   },
   "ratiosByMarket": {
     "KRW-BTC": {
@@ -473,6 +479,10 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
   },
   "profileByMarket": {
     "KRW-BTC": "CONSERVATIVE"
+  },
+  "tradePausedByMarket": {
+    "KRW-BTC": false,
+    "KRW-ETH": true
   },
   "ratiosByMarket": {
     "KRW-BTC": {

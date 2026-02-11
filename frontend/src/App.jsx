@@ -788,6 +788,7 @@ function App() {
                   <span>마켓</span>
                   <span>최대 매수 KRW</span>
                   <span>프로필</span>
+                  <span>자동매매</span>
                   <span>관리</span>
                 </div>
                 {marketRows.map((row) => {
@@ -828,6 +829,16 @@ function App() {
                               </option>
                             ))}
                           </select>
+                        </label>
+                        <label className="market-toggle-field">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(row.tradePaused)}
+                            onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'tradePaused', event.target.checked)}
+                          />
+                          <span className={row.tradePaused ? 'is-paused' : ''}>
+                            {row.tradePaused ? '일시정지' : '매매중'}
+                          </span>
                         </label>
                         <button
                           className="market-remove-button"
@@ -1635,6 +1646,7 @@ const addMarketRow = (
     market,
     maxOrderKrw: DEFAULT_MARKET_MAX_ORDER_KRW,
     profile: DEFAULT_MARKET_PROFILE,
+    tradePaused: false,
     ...createEmptyRatioFields(),
   }])
   setNewMarketInput('')
@@ -1820,6 +1832,7 @@ const buildMarketOverrideRows = (payload) => {
   const configuredMarkets = Array.isArray(payload?.markets) ? payload.markets : []
   const maxOrderKrwByMarket = payload?.maxOrderKrwByMarket ?? {}
   const profileByMarket = payload?.profileByMarket ?? {}
+  const tradePausedByMarket = payload?.tradePausedByMarket ?? {}
   const ratiosByMarket = payload?.ratiosByMarket ?? {}
 
   const orderedMarkets = []
@@ -1848,6 +1861,14 @@ const buildMarketOverrideRows = (payload) => {
     seen.add(normalized)
     orderedMarkets.push(normalized)
   })
+  Object.keys(tradePausedByMarket).forEach((market) => {
+    const normalized = normalizeMarket(market)
+    if (!normalized || seen.has(normalized)) {
+      return
+    }
+    seen.add(normalized)
+    orderedMarkets.push(normalized)
+  })
   Object.keys(ratiosByMarket).forEach((market) => {
     const normalized = normalizeMarket(market)
     if (!normalized || seen.has(normalized)) {
@@ -1861,6 +1882,7 @@ const buildMarketOverrideRows = (payload) => {
     market,
     maxOrderKrw: toInputValue(maxOrderKrwByMarket?.[market] ?? DEFAULT_MARKET_MAX_ORDER_KRW),
     profile: normalizeProfileValue(profileByMarket?.[market]) || DEFAULT_MARKET_PROFILE,
+    tradePaused: Boolean(tradePausedByMarket?.[market]),
     takeProfitPct: toInputValue(ratiosByMarket?.[market]?.takeProfitPct),
     stopLossPct: toInputValue(ratiosByMarket?.[market]?.stopLossPct),
     trailingStopPct: toInputValue(ratiosByMarket?.[market]?.trailingStopPct),
@@ -1875,6 +1897,7 @@ const buildMarketOverridePayload = (rows) => {
   const payload = {
     maxOrderKrwByMarket: {},
     profileByMarket: {},
+    tradePausedByMarket: {},
     ratiosByMarket: {},
   }
   if (!Array.isArray(rows)) {
@@ -1898,6 +1921,8 @@ const buildMarketOverridePayload = (rows) => {
     if (profile !== '') {
       payload.profileByMarket[market] = profile
     }
+
+    payload.tradePausedByMarket[market] = Boolean(row?.tradePaused)
 
     const ratioPayload = {}
     RATIO_FIELDS.forEach((field) => {
@@ -1956,6 +1981,7 @@ const buildMarketOverrideSignature = (rows) => {
         market,
         maxOrderKrw: normalizeCapForSignature(row?.maxOrderKrw),
         profile: normalizeProfileValue(row?.profile),
+        tradePaused: Boolean(row?.tradePaused),
         takeProfitPct: normalizeCapForSignature(row?.takeProfitPct),
         stopLossPct: normalizeCapForSignature(row?.stopLossPct),
         trailingStopPct: normalizeCapForSignature(row?.trailingStopPct),

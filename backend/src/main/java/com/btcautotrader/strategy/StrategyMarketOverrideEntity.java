@@ -22,6 +22,9 @@ public class StrategyMarketOverrideEntity {
     @Column(name = "profile", length = 20)
     private String profile;
 
+    @Column(name = "trade_paused")
+    private Boolean tradePaused;
+
     @Column(name = "take_profit_pct")
     private Double takeProfitPct;
 
@@ -53,6 +56,7 @@ public class StrategyMarketOverrideEntity {
             String market,
             Double maxOrderKrw,
             String profile,
+            Boolean tradePaused,
             Double takeProfitPct,
             Double stopLossPct,
             Double trailingStopPct,
@@ -64,6 +68,7 @@ public class StrategyMarketOverrideEntity {
         this.market = market;
         this.maxOrderKrw = maxOrderKrw;
         this.profile = profile;
+        this.tradePaused = tradePaused;
         this.takeProfitPct = takeProfitPct;
         this.stopLossPct = stopLossPct;
         this.trailingStopPct = trailingStopPct;
@@ -101,6 +106,14 @@ public class StrategyMarketOverrideEntity {
 
     public void setProfile(String profile) {
         this.profile = profile;
+    }
+
+    public Boolean getTradePaused() {
+        return tradePaused;
+    }
+
+    public void setTradePaused(Boolean tradePaused) {
+        this.tradePaused = tradePaused;
     }
 
     public Double getTakeProfitPct() {

@@ -199,6 +199,7 @@ public class StrategyService {
                 configuredMarkets(),
                 overrides.maxOrderKrwByMarket(),
                 overrides.profileByMarket(),
+                overrides.tradePausedByMarket(),
                 overrides.ratiosByMarket()
         );
     }
@@ -228,6 +229,17 @@ public class StrategyService {
                 entity.setProfile(profile.name());
             }
         }
+        if (request != null && request.tradePausedByMarket() != null) {
+            for (Map.Entry<String, Boolean> entry : request.tradePausedByMarket().entrySet()) {
+                String market = normalizeMarket(entry.getKey());
+                Boolean paused = entry.getValue();
+                if (market == null || paused == null) {
+                    continue;
+                }
+                StrategyMarketOverrideEntity entity = getOrCreateOverride(byMarket, market);
+                entity.setTradePaused(paused);
+            }
+        }
         if (request != null && request.ratiosByMarket() != null) {
             for (Map.Entry<String, StrategyMarketRatios> entry : request.ratiosByMarket().entrySet()) {
                 String market = normalizeMarket(entry.getKey());
@@ -250,6 +262,7 @@ public class StrategyService {
     private static StrategyMarketOverrides toMarketOverrides(List<StrategyMarketOverrideEntity> entities) {
         Map<String, Double> maxOrderKrwByMarket = new HashMap<>();
         Map<String, String> profileByMarket = new HashMap<>();
+        Map<String, Boolean> tradePausedByMarket = new HashMap<>();
         Map<String, StrategyMarketRatios> ratiosByMarket = new HashMap<>();
         for (StrategyMarketOverrideEntity entity : entities) {
             if (entity == null) {
@@ -267,6 +280,10 @@ public class StrategyService {
             if (profile != null && !profile.isBlank()) {
                 profileByMarket.put(market, StrategyProfile.from(profile).name());
             }
+            Boolean tradePaused = entity.getTradePaused();
+            if (tradePaused != null) {
+                tradePausedByMarket.put(market, tradePaused);
+            }
             StrategyMarketRatios ratios = toRatios(entity);
             if (ratios != null) {
                 ratiosByMarket.put(market, ratios);
@@ -275,6 +292,7 @@ public class StrategyService {
         return new StrategyMarketOverrides(
                 Map.copyOf(maxOrderKrwByMarket),
                 Map.copyOf(profileByMarket),
+                Map.copyOf(tradePausedByMarket),
                 Map.copyOf(ratiosByMarket)
         );
     }
@@ -310,7 +328,7 @@ public class StrategyService {
     ) {
         return byMarket.computeIfAbsent(
                 market,
-                key -> new StrategyMarketOverrideEntity(key, null, null, null, null, null, null, null, null, null)
+                key -> new StrategyMarketOverrideEntity(key, null, null, null, null, null, null, null, null, null, null)
         );
     }
 

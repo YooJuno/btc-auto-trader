@@ -360,6 +360,7 @@ public class AutoTradeService {
                     propertyMarketProfileOverrides,
                     runtimeOverrides
             );
+            Map<String, Boolean> tradePausedByMarket = mergeMarketTradePausedOverrides(runtimeOverrides);
             List<String> markets = strategyService.configuredMarkets();
             if (markets.isEmpty()) {
                 return new AutoTradeResult(now.toString(), List.of());
@@ -402,6 +403,7 @@ public class AutoTradeService {
                 SignalTuning tuning = resolveSignalTuning(profile);
                 BigDecimal marketMaxOrderKrw = resolveMarketMaxOrderKrw(market, marketConfig, marketMaxOrderKrwByMarket);
                 BigDecimal momentumScorePct = selection.momentumScorePctByMarket().get(market);
+                boolean tradePaused = Boolean.TRUE.equals(tradePausedByMarket.get(market));
 
                 if (isBackoffActive(market, now)) {
                     AutoTradeAction action = new AutoTradeAction(market, "SKIP", "backoff", null, null, null, null, null);
@@ -426,6 +428,32 @@ public class AutoTradeService {
                         String marketKey = normalizeMarketKey(market);
                         if (marketKey != null) {
                             trailingHighByMarket.remove(marketKey);
+                        }
+                        if (tradePaused) {
+                            AutoTradeAction action = new AutoTradeAction(
+                                    market,
+                                    "SKIP",
+                                    "market_paused",
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null
+                            );
+                            actions.add(action);
+                            recordDecision(
+                                    market,
+                                    action,
+                                    marketConfig,
+                                    profile,
+                                    null,
+                                    tuning,
+                                    regime,
+                                    momentumScorePct,
+                                    marketMaxOrderKrw
+                            );
+                            resetFailure(market);
+                            continue;
                         }
                         if (regime != null && !regime.allowEntries()) {
                             AutoTradeAction action = new AutoTradeAction(
@@ -461,7 +489,9 @@ public class AutoTradeService {
                         AutoTradeAction sellAction = handleSell(market, position, marketConfig, indicators, tuning);
                         AutoTradeAction actionToRecord = sellAction;
 
-                        if (canScaleInAfterSellAction(sellAction) && remainingCash.compareTo(BigDecimal.ZERO) > 0) {
+                        if (!tradePaused
+                                && canScaleInAfterSellAction(sellAction)
+                                && remainingCash.compareTo(BigDecimal.ZERO) > 0) {
                             AutoTradeAction buyAction = handleBuy(
                                     market,
                                     remainingCash,
@@ -1251,6 +1281,21 @@ public class AutoTradeService {
                     continue;
                 }
                 merged.put(market.toUpperCase(), profile);
+            }
+        }
+        return merged;
+    }
+
+    private static Map<String, Boolean> mergeMarketTradePausedOverrides(StrategyMarketOverrides runtimeOverrides) {
+        Map<String, Boolean> merged = new HashMap<>();
+        if (runtimeOverrides != null && runtimeOverrides.tradePausedByMarket() != null) {
+            for (Map.Entry<String, Boolean> entry : runtimeOverrides.tradePausedByMarket().entrySet()) {
+                String market = entry.getKey();
+                Boolean paused = entry.getValue();
+                if (market == null || paused == null) {
+                    continue;
+                }
+                merged.put(market.toUpperCase(), paused);
             }
         }
         return merged;

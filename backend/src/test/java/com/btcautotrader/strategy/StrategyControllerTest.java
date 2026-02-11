@@ -37,6 +37,7 @@ class StrategyControllerTest {
                         List.of("KRW-BTC", "KRW-ETH"),
                         Map.of(),
                         Map.of(),
+                        Map.of(),
                         Map.of(
                                 "KRW-ETH",
                                 new StrategyMarketRatios(4.5, 2.1, 2.0, 40.0, 100.0, 0.0, 0.0)
@@ -76,6 +77,7 @@ class StrategyControllerTest {
         assertThat(saved.ratiosByMarket()).containsKey("KRW-ETH");
         assertThat(saved.ratiosByMarket().get("KRW-ETH").takeProfitPct()).isEqualTo(4.5);
         assertThat(saved.ratiosByMarket().get("KRW-ETH").stopLossPct()).isEqualTo(2.1);
+        assertThat(saved.tradePausedByMarket()).isEmpty();
     }
 
     @Test
@@ -110,6 +112,7 @@ class StrategyControllerTest {
                         List.of("KRW-BTC"),
                         Map.of("KRW-BTC", 10000.0),
                         Map.of("KRW-BTC", "AGGRESSIVE"),
+                        Map.of(),
                         Map.of()
                 )
         );
