@@ -1,0 +1,69 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+:root {
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  --mono: 'DM Mono', ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco,
+    Consolas, 'Liberation Mono', 'Courier New', monospace;
+  line-height: 1.5;
+  font-weight: 400;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+
+  --bg: #070b12;
+  --surface: rgba(14, 22, 35, 0.84);
+  --surface-soft: rgba(17, 29, 45, 0.76);
+  --surface-strong: rgba(9, 17, 28, 0.92);
+  --border: rgba(129, 172, 209, 0.24);
+  --border-strong: rgba(157, 197, 228, 0.34);
+  --text: #dbe9f8;
+  --text-strong: #f4faff;
+  --muted: #8ca1b8;
+  --accent: #1fc9a9;
+  --accent-2: #f07b4f;
+  --positive: #45d89a;
+  --negative: #ff7d73;
+  --shadow-soft: 0 18px 42px rgba(2, 8, 18, 0.58);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 82% -8%, rgba(31, 201, 169, 0.24), transparent 40%),
+    radial-gradient(circle at 14% 2%, rgba(240, 123, 79, 0.22), transparent 32%),
+    radial-gradient(circle at 48% 112%, rgba(76, 102, 226, 0.24), transparent 44%),
+    linear-gradient(152deg, #050910 0%, #0a1320 44%, #090f1a 100%);
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: linear-gradient(
+      rgba(132, 172, 210, 0.08) 1px,
+      transparent 1px
+    ),
+    linear-gradient(90deg, rgba(132, 172, 210, 0.08) 1px, transparent 1px);
+  background-size: 30px 30px;
+  opacity: 0.14;
+  pointer-events: none;
+  z-index: -1;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+#root {
+  min-height: 100vh;
+}
