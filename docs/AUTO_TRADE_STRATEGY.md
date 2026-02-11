@@ -24,6 +24,7 @@ For stability, consider 5m or 15m as your production default.
 - **Overextension filter:** skip entries if price is too far above `MA_LONG`.
 - **Trend strength filter:** require ADX above a minimum threshold.
 - **Volume quality filter:** require current quote-volume ratio above baseline.
+- **Bollinger filter:** avoid entries when band is too tight or price is too overextended.
 - **Confirmation signals (need 2 of 3 by default):**
   - RSI: `RSI >= RSI_BUY` and not overbought.
   - MACD: MACD histogram > 0.
@@ -93,6 +94,7 @@ Use multiple layers to avoid oversized risk:
 - **Order chance pre-check:** Upbit `orders/chance`로 최소 주문 금액 사전 확인
 - **Fee/slippage buffer:** 매수 자금 산정 시 보수적 버퍼 반영
 - **State restore:** 재시작 시 최근 SELL 로그로 쿨다운/가드 상태 복원
+- **Bollinger filter:** 밴드폭이 좁거나 상단 과열(%B)인 경우 진입 회피
 - **Decision logging:** each tick stores reason/indicator snapshot for audit
 
 Upbit KRW minimum order amount and tick size rules:  
@@ -137,6 +139,10 @@ signal.adx-period=14
 signal.min-adx=18
 signal.volume-lookback=20
 signal.min-volume-ratio=0.8
+signal.bollinger.window=20
+signal.bollinger.stddev=2.0
+signal.bollinger.min-bandwidth-pct=0.6
+signal.bollinger.max-percent-b=1.05
 signal.breakout-lookback=20
 signal.breakout-pct=0.3
 signal.max-extension-pct=1.2
@@ -183,11 +189,6 @@ Risk parameters `takeProfitPct` / `stopLossPct` / `trailingStopPct`
 Per-market cap/profile overrides are managed via:
 - `GET /api/strategy/market-overrides`
 - `PUT /api/strategy/market-overrides`
-
-If you want to **enforce a specific profile** regardless of API updates, set:
-```
-strategy.force-profile=CONSERVATIVE
-```
 
 ## 7) Next Implementation Steps (If You Approve)
 1. Add optional limit-entry with timeout + fallback to market.

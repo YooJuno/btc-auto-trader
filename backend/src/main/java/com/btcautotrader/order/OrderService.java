@@ -17,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -78,8 +79,9 @@ public class OrderService {
             }
             entity.setExternalId(response.uuid());
             entity.setState(response.state());
-            entity.setStatus(OrderStatus.SUBMITTED);
+            entity.setStatus(resolveStatus(response, OrderStatus.SUBMITTED));
             entity.setCreatedAt(parseOffsetDateTime(response.createdAt()));
+            applyExecutionSnapshot(entity, response);
             entity.setRawResponse(safeSerialize(response));
             orderRepository.save(entity);
             return toResponse(entity);
@@ -89,8 +91,9 @@ public class OrderService {
                 if (reconciled != null) {
                     entity.setExternalId(reconciled.uuid());
                     entity.setState(reconciled.state());
-                    entity.setStatus(OrderStatus.SUBMITTED);
+                    entity.setStatus(resolveStatus(reconciled, OrderStatus.SUBMITTED));
                     entity.setCreatedAt(parseOffsetDateTime(reconciled.createdAt()));
+                    applyExecutionSnapshot(entity, reconciled);
                     entity.setRawResponse(safeSerialize(reconciled));
                     orderRepository.save(entity);
                     return toResponse(entity);
@@ -242,16 +245,20 @@ public class OrderService {
     }
 
     private OrderHistoryItem toHistoryItem(OrderEntity entity) {
+        UpbitOrderResponse snapshot = parseRawResponse(entity.getRawResponse());
+        BigDecimal resolvedVolume = resolveExecutedVolume(entity.getVolume(), snapshot);
+        String requestStatus = resolveDisplayRequestStatus(entity.getStatus(), snapshot);
+
         return new OrderHistoryItem(
                 entity.getId(),
                 entity.getMarket(),
                 entity.getSide(),
                 entity.getType(),
                 entity.getOrdType(),
-                entity.getStatus() == null ? null : entity.getStatus().name(),
+                requestStatus,
                 entity.getState(),
                 entity.getPrice(),
-                entity.getVolume(),
+                resolvedVolume,
                 entity.getFunds(),
                 entity.getRequestedAt() == null ? null : entity.getRequestedAt().toString(),
                 entity.getCreatedAt() == null ? null : entity.getCreatedAt().toString(),
@@ -259,6 +266,92 @@ public class OrderService {
                 entity.getClientOrderId(),
                 entity.getErrorMessage()
         );
+    }
+
+    private static void applyExecutionSnapshot(OrderEntity entity, UpbitOrderResponse response) {
+        if (entity == null || response == null) {
+            return;
+        }
+        BigDecimal executed = parseDecimal(response.executedVolume());
+        if (executed != null && executed.compareTo(BigDecimal.ZERO) > 0) {
+            entity.setVolume(executed);
+            return;
+        }
+        if (entity.getVolume() == null) {
+            BigDecimal volume = parseDecimal(response.volume());
+            if (volume != null) {
+                entity.setVolume(volume);
+            }
+        }
+    }
+
+    private static OrderStatus resolveStatus(UpbitOrderResponse response, OrderStatus fallback) {
+        if (response == null) {
+            return fallback == null ? OrderStatus.SUBMITTED : fallback;
+        }
+        String state = response.state();
+        if (state == null) {
+            return fallback == null ? OrderStatus.SUBMITTED : fallback;
+        }
+        String normalized = state.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "done" -> OrderStatus.FILLED;
+            case "cancel" -> hasExecution(response) ? OrderStatus.FILLED : OrderStatus.CANCELED;
+            case "wait" -> OrderStatus.SUBMITTED;
+            default -> fallback == null ? OrderStatus.SUBMITTED : fallback;
+        };
+    }
+
+    private static String resolveDisplayRequestStatus(OrderStatus status, UpbitOrderResponse snapshot) {
+        if (status == OrderStatus.CANCELED && hasExecution(snapshot)) {
+            return OrderStatus.FILLED.name();
+        }
+        return status == null ? null : status.name();
+    }
+
+    private static BigDecimal resolveExecutedVolume(BigDecimal storedVolume, UpbitOrderResponse snapshot) {
+        if (storedVolume != null) {
+            return storedVolume;
+        }
+        BigDecimal executed = parseDecimal(snapshot == null ? null : snapshot.executedVolume());
+        if (executed != null && executed.compareTo(BigDecimal.ZERO) > 0) {
+            return executed;
+        }
+        return parseDecimal(snapshot == null ? null : snapshot.volume());
+    }
+
+    private UpbitOrderResponse parseRawResponse(String rawResponse) {
+        if (rawResponse == null || rawResponse.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(rawResponse, UpbitOrderResponse.class);
+        } catch (JsonProcessingException ex) {
+            return null;
+        }
+    }
+
+    private static boolean hasExecution(UpbitOrderResponse response) {
+        if (response == null) {
+            return false;
+        }
+        BigDecimal executed = parseDecimal(response.executedVolume());
+        if (executed != null && executed.compareTo(BigDecimal.ZERO) > 0) {
+            return true;
+        }
+        Integer trades = response.tradesCount();
+        return trades != null && trades > 0;
+    }
+
+    private static BigDecimal parseDecimal(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(value.trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private static String normalizeClientOrderId(String value) {

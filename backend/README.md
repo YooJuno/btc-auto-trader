@@ -24,13 +24,15 @@
 3. `clientOrderId`(없으면 자동 생성)를 Upbit `identifier`로 전달
 4. DB에 `REQUESTED` 상태로 먼저 저장
 5. Upbit 주문 호출
-6. 응답 성공 시 `SUBMITTED`, 실패 시 `FAILED` 또는 `PENDING`으로 저장
-7. 응답에는 Upbit 주문 ID, 내부 상태(`requestStatus`), 에러 메시지 포함
+6. 응답 성공 시 Upbit 상태/체결 정보를 반영해 `SUBMITTED` 또는 `FILLED`로 저장
+7. `state=cancel`이어도 체결 수량(`executed_volume`)이 있으면 내부 상태를 `FILLED`로 보정
+8. 응답에는 Upbit 주문 ID, 내부 상태(`requestStatus`), 에러 메시지 포함
 
 ## 주문 복구(리컨실)
-- 스케줄러가 `REQUESTED/PENDING` 주문을 주기적으로 조회
-- `identifier` 기준으로 Upbit 주문 상태 조회 후 `SUBMITTED`로 업데이트
-- 오래된 `REQUESTED/PENDING`은 타임아웃 처리(`FAILED`)
+- 스케줄러가 `REQUESTED/PENDING/SUBMITTED` 주문을 주기적으로 조회
+- `identifier` 기준으로 Upbit 주문 상태를 재조회해 `FILLED/CANCELED/SUBMITTED`로 갱신
+- `state=cancel` + 체결 있음(`executed_volume > 0`)은 `FILLED`로 보정
+- 오래된 미확정 주문은 타임아웃 처리
 
 설정:
 - `orders.reconcile.enabled`
@@ -101,13 +103,13 @@
 - `profileByMarket`
 
 프로필 강제:
-- `strategy.force-profile=CONSERVATIVE`
+- 제거됨. 현재는 전략 API 및 마켓별 override 값이 그대로 적용됩니다.
 
 ## 데이터베이스
 ### 주문 테이블
 `orders` 테이블이 주문 상태를 기록합니다.
 - `client_order_id`: Upbit `identifier`
-- `status`: `REQUESTED`, `PENDING`, `SUBMITTED`, `FAILED`
+- `status`: `REQUESTED`, `PENDING`, `SUBMITTED`, `FILLED`, `CANCELED`, `FAILED`
 - `state`: Upbit 상태값
 - `raw_request`, `raw_response`, `error_message` 포함
 

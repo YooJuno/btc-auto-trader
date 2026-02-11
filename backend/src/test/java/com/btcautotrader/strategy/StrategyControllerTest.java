@@ -16,6 +16,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -100,5 +101,22 @@ class StrategyControllerTest {
                 .andExpect(jsonPath("$.fields['ratiosByMarket.KRW-ETH']").value("market is not configured"));
 
         verify(strategyService, never()).replaceMarketOverrides(any());
+    }
+
+    @Test
+    void getMarketOverrides_aliasPathReturnsSamePayload() throws Exception {
+        when(strategyService.getMarketOverrides()).thenReturn(
+                new StrategyMarketOverridesResponse(
+                        List.of("KRW-BTC"),
+                        Map.of("KRW-BTC", 10000.0),
+                        Map.of("KRW-BTC", "AGGRESSIVE"),
+                        Map.of()
+                )
+        );
+
+        mockMvc.perform(get("/api/strategy/overrides"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.markets[0]").value("KRW-BTC"))
+                .andExpect(jsonPath("$.profileByMarket['KRW-BTC']").value("AGGRESSIVE"));
     }
 }
