@@ -190,10 +190,5 @@ Per-market cap/profile overrides are managed via:
 - `GET /api/strategy/market-overrides`
 - `PUT /api/strategy/market-overrides`
 
-If you want to **enforce a specific profile** regardless of API updates, set:
-```
-strategy.force-profile=CONSERVATIVE
-```
-
 ## 7) Next Implementation Steps (If You Approve)
 1. Add optional limit-entry with timeout + fallback to market.

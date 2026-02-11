@@ -39,6 +39,11 @@ public class StrategyController {
         return ResponseEntity.ok(strategyService.getMarketOverrides());
     }
 
+    @GetMapping("/overrides")
+    public ResponseEntity<StrategyMarketOverridesResponse> getMarketOverridesAlias() {
+        return getMarketOverrides();
+    }
+
     @GetMapping("/presets")
     public ResponseEntity<List<StrategyPresetItem>> getPresets() {
         return ResponseEntity.ok(strategyService.getPresets());
@@ -169,6 +174,13 @@ public class StrategyController {
                 ratiosByMarket
         );
         return ResponseEntity.ok(strategyService.replaceMarketOverrides(normalized));
+    }
+
+    @PutMapping("/overrides")
+    public ResponseEntity<?> replaceMarketOverridesAlias(
+            @RequestBody(required = false) StrategyMarketOverridesRequest request
+    ) {
+        return replaceMarketOverrides(request);
     }
 
     private static Map<String, Double> normalizeMaxOrderKrwMap(

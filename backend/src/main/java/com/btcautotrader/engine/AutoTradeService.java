@@ -25,6 +25,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -256,10 +257,11 @@ public class AutoTradeService {
         this.regimeMaxVolatilityPct = regimeMaxVolatilityPct;
         this.relativeMomentumEnabled = relativeMomentumEnabled;
         this.relativeMomentumTimeframeUnit = Math.max(1, relativeMomentumTimeframeUnit);
-        this.relativeMomentumShortLookback = Math.max(1, Math.min(relativeMomentumShortLookback, 199));
+        int maxMomentumLookback = useClosedCandle ? 198 : 199;
+        this.relativeMomentumShortLookback = Math.max(1, Math.min(relativeMomentumShortLookback, maxMomentumLookback - 1));
         this.relativeMomentumLongLookback = Math.max(
                 this.relativeMomentumShortLookback + 1,
-                Math.min(relativeMomentumLongLookback, 199)
+                Math.min(relativeMomentumLongLookback, maxMomentumLookback)
         );
         this.relativeMomentumTopN = relativeMomentumTopN;
         this.relativeMomentumMinScorePct = relativeMomentumMinScorePct;
@@ -456,12 +458,28 @@ public class AutoTradeService {
                     indicators = fetchIndicators(market, tuning);
 
                     if (total.compareTo(BigDecimal.ZERO) > 0) {
-                        AutoTradeAction action = handleSell(market, position, marketConfig, indicators, tuning);
-                        if (action != null) {
-                            actions.add(action);
+                        AutoTradeAction sellAction = handleSell(market, position, marketConfig, indicators, tuning);
+                        AutoTradeAction actionToRecord = sellAction;
+
+                        if (canScaleInAfterSellAction(sellAction) && remainingCash.compareTo(BigDecimal.ZERO) > 0) {
+                            AutoTradeAction buyAction = handleBuy(
+                                    market,
+                                    remainingCash,
+                                    marketConfig,
+                                    indicators,
+                                    tuning,
+                                    marketMaxOrderKrw
+                            );
+                            if (buyAction != null && "BUY".equalsIgnoreCase(buyAction.action())) {
+                                actionToRecord = buyAction;
+                            }
+                        }
+
+                        if (actionToRecord != null) {
+                            actions.add(actionToRecord);
                             recordDecision(
                                     market,
-                                    action,
+                                    actionToRecord,
                                     marketConfig,
                                     profile,
                                     indicators,
@@ -470,6 +488,12 @@ public class AutoTradeService {
                                     momentumScorePct,
                                     marketMaxOrderKrw
                             );
+                            if ("BUY".equalsIgnoreCase(actionToRecord.action()) && actionToRecord.funds() != null) {
+                                remainingCash = remainingCash.subtract(actionToRecord.funds());
+                                if (remainingCash.compareTo(BigDecimal.ZERO) < 0) {
+                                    remainingCash = BigDecimal.ZERO;
+                                }
+                            }
                         }
                         resetFailure(market);
                         continue;
@@ -1287,10 +1311,35 @@ public class AutoTradeService {
     ) {
         BigDecimal defaultMaxOrderKrw = BigDecimal.valueOf(Math.max(config.maxOrderKrw(), 0.0));
         BigDecimal override = marketMaxOrderKrwByMarket.get(market);
-        if (override == null) {
+        if (override == null || override.compareTo(BigDecimal.ZERO) <= 0) {
             return defaultMaxOrderKrw;
         }
-        return min(defaultMaxOrderKrw, override);
+        return override;
+    }
+
+    private static boolean canScaleInAfterSellAction(AutoTradeAction sellAction) {
+        if (sellAction == null) {
+            return true;
+        }
+        if (!"SKIP".equalsIgnoreCase(sellAction.action())) {
+            return false;
+        }
+        String reason = sellAction.reason();
+        if (reason == null || reason.isBlank()) {
+            return true;
+        }
+        String normalized = reason.toLowerCase(Locale.ROOT);
+        if ("pending".equals(normalized) || "cooldown".equals(normalized)) {
+            return false;
+        }
+        if (normalized.startsWith("stop_loss")
+                || normalized.startsWith("trailing_stop")
+                || normalized.startsWith("momentum_reversal")
+                || normalized.startsWith("trend_break")
+                || normalized.startsWith("take_profit")) {
+            return false;
+        }
+        return true;
     }
 
     private MarketSelection selectMarketsForTick(List<String> markets, Map<String, AccountSnapshot> accounts) {
@@ -1408,6 +1457,10 @@ public class AutoTradeService {
         int shortLookback = relativeMomentumShortLookback;
         int longLookback = relativeMomentumLongLookback;
         int count = Math.max(shortLookback, longLookback) + 1;
+        if (useClosedCandle) {
+            // One extra candle is required because the latest still-forming candle is dropped.
+            count += 1;
+        }
 
         Map<String, BigDecimal> scores = new HashMap<>();
         OffsetDateTime now = OffsetDateTime.now();

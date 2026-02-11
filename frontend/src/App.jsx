@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
-const PROFILE_VALUES = ['AGGRESSIVE', 'BALANCED', 'CONSERVATIVE']
+const PROFILE_VALUES = ['BALANCED', 'AGGRESSIVE', 'CONSERVATIVE']
+const DEFAULT_MARKET_MAX_ORDER_KRW = '30000'
+const DEFAULT_MARKET_PROFILE = 'BALANCED'
 const MARKET_CODE_PATTERN = /^[A-Z]{2,10}-[A-Z0-9]{2,15}$/
 const RATIO_FIELDS = [
   'takeProfitPct',
@@ -46,7 +48,20 @@ function App() {
   const [marketConfigNotice, setMarketConfigNotice] = useState(null)
   const [marketRowsBaseline, setMarketRowsBaseline] = useState('')
   const [newMarketInput, setNewMarketInput] = useState('')
+  const [marketCatalog, setMarketCatalog] = useState([])
+  const [marketSuggestOpen, setMarketSuggestOpen] = useState(false)
+  const [marketSuggestIndex, setMarketSuggestIndex] = useState(0)
   const [expandedMarket, setExpandedMarket] = useState(null)
+  const [manualTradeOpen, setManualTradeOpen] = useState(false)
+  const [manualTradeMarket, setManualTradeMarket] = useState('')
+  const [manualTradeSide, setManualTradeSide] = useState('SELL')
+  const [manualTradeType, setManualTradeType] = useState('MARKET')
+  const [manualTradePrice, setManualTradePrice] = useState('')
+  const [manualTradeVolume, setManualTradeVolume] = useState('')
+  const [manualTradeFunds, setManualTradeFunds] = useState('')
+  const [manualTradeBusy, setManualTradeBusy] = useState(false)
+  const [manualTradeError, setManualTradeError] = useState(null)
+  const [manualTradeNotice, setManualTradeNotice] = useState(null)
 
   const [orderHistory, setOrderHistory] = useState([])
   const [decisionHistory, setDecisionHistory] = useState([])
@@ -197,6 +212,19 @@ function App() {
     }
   }, [])
 
+  const fetchMarketCatalog = useCallback(async () => {
+    try {
+      const response = await fetch('/api/market/list?quote=KRW')
+      if (!response.ok) {
+        throw new Error(`마켓 목록 조회 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      setMarketCatalog(normalizeMarketCatalog(data?.markets))
+    } catch {
+      setMarketCatalog([])
+    }
+  }, [])
+
   const fetchPerformance = useCallback(async (mode = performanceMode, inputs = performanceInputs) => {
     setPerformanceLoading(true)
     setPerformanceError(null)
@@ -223,6 +251,7 @@ function App() {
     fetchStrategy()
     fetchRatioPresets()
     fetchMarketOverrides()
+    fetchMarketCatalog()
     fetchOrderHistory()
     fetchDecisionHistory()
     fetchPerformance()
@@ -239,7 +268,7 @@ function App() {
       clearInterval(engineTimer)
       clearInterval(feedTimer)
     }
-  }, [fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchOrderHistory, fetchDecisionHistory, fetchPerformance])
+  }, [fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchMarketCatalog, fetchOrderHistory, fetchDecisionHistory, fetchPerformance])
 
   const positions = useMemo(() => {
     if (!summary?.positions) {
@@ -258,10 +287,13 @@ function App() {
   const connectionLabel = serverConnected === null ? '확인중' : serverConnected ? '연결됨' : '끊김'
   const engineLabel = engineStatus ? 'ON' : 'OFF'
   const engineClass = engineStatus ? 'ok' : 'error'
-  const profileLabel = strategy?.profile ?? '—'
   const marketRowsDirty = useMemo(
     () => buildMarketOverrideSignature(marketRows) !== marketRowsBaseline,
     [marketRows, marketRowsBaseline]
+  )
+  const marketSuggestions = useMemo(
+    () => buildMarketSuggestions(newMarketInput, marketCatalog, marketRows),
+    [newMarketInput, marketCatalog, marketRows]
   )
   const decisionByOrderId = useMemo(() => {
     const map = new Map()
@@ -292,6 +324,11 @@ function App() {
     [orderHistory, decisionByOrderId]
   )
   const performanceTotal = performance?.total
+  const manualTradePosition = useMemo(
+    () => positions.find((item) => item.market === manualTradeMarket) ?? null,
+    [manualTradeMarket, positions]
+  )
+  const cashKrw = cash?.total ?? cash?.balance ?? 0
 
   const handleMarketReload = useCallback(() => {
     if (marketRowsDirty && !window.confirm('저장하지 않은 변경사항이 있습니다. 서버 설정으로 덮어쓸까요?')) {
@@ -315,10 +352,27 @@ function App() {
       setMarketConfigError,
       setMarketConfigNotice
     )
+    setMarketSuggestOpen(false)
+    setMarketSuggestIndex(0)
     if (canExpand) {
       setExpandedMarket(normalized)
     }
   }, [marketRows, newMarketInput])
+
+  const handleSelectMarketSuggestion = useCallback((market) => {
+    setNewMarketInput(market)
+    addMarketRow(
+      market,
+      marketRows,
+      setNewMarketInput,
+      setMarketRows,
+      setMarketConfigError,
+      setMarketConfigNotice
+    )
+    setMarketSuggestOpen(false)
+    setMarketSuggestIndex(0)
+    setExpandedMarket(market)
+  }, [marketRows])
 
   useEffect(() => {
     if (!expandedMarket) {
@@ -335,6 +389,80 @@ function App() {
       setMarketConfigNotice(null)
     }
   }, [marketRowsDirty, marketConfigNotice])
+
+  const openManualTrade = useCallback((market, side = 'SELL') => {
+    const normalizedMarket = normalizeMarket(market)
+    if (!normalizedMarket) {
+      return
+    }
+    setManualTradeMarket(normalizedMarket)
+    setManualTradeSide(side)
+    setManualTradeType('MARKET')
+    setManualTradePrice('')
+    setManualTradeVolume('')
+    setManualTradeFunds('')
+    setManualTradeError(null)
+    setManualTradeNotice(null)
+    setManualTradeOpen(true)
+  }, [])
+
+  const closeManualTrade = useCallback(() => {
+    if (manualTradeBusy) {
+      return
+    }
+    setManualTradeOpen(false)
+    setManualTradeError(null)
+  }, [manualTradeBusy])
+
+  const handleManualTradeSubmit = useCallback(async () => {
+    const payload = buildManualOrderPayload({
+      market: manualTradeMarket,
+      side: manualTradeSide,
+      type: manualTradeType,
+      price: manualTradePrice,
+      volume: manualTradeVolume,
+      funds: manualTradeFunds,
+    })
+
+    setManualTradeBusy(true)
+    setManualTradeError(null)
+    setManualTradeNotice(null)
+    try {
+      const response = await fetch('/api/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null)
+        const message = buildApiErrorMessage(errorPayload, `주문 실패 ${response.status}`)
+        throw new Error(message)
+      }
+      const data = await response.json().catch(() => null)
+      setManualTradeNotice(`주문 요청 완료 (${data?.requestStatus ?? 'SUBMITTED'})`)
+      setManualTradeOpen(false)
+      setManualTradePrice('')
+      setManualTradeVolume('')
+      setManualTradeFunds('')
+      fetchOrderHistory()
+      fetchDecisionHistory()
+      fetchSummary(true)
+    } catch (err) {
+      setManualTradeError(err?.message ?? '주문 실패')
+    } finally {
+      setManualTradeBusy(false)
+    }
+  }, [
+    fetchDecisionHistory,
+    fetchOrderHistory,
+    fetchSummary,
+    manualTradeFunds,
+    manualTradeMarket,
+    manualTradePrice,
+    manualTradeSide,
+    manualTradeType,
+    manualTradeVolume,
+  ])
 
   return (
     <div className="app">
@@ -421,6 +549,7 @@ function App() {
                 <p className="sub">현재가 기준 평가와 수익률을 표시합니다.</p>
               </div>
             </div>
+            {manualTradeNotice && <p className="status-success">{manualTradeNotice}</p>}
             {loading ? (
               <div className="empty-state">데이터를 불러오는 중입니다…</div>
             ) : positions.length === 0 ? (
@@ -437,6 +566,7 @@ function App() {
                       <th>평가금액</th>
                       <th>수익</th>
                       <th>수익률</th>
+                      <th>매매</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -454,6 +584,15 @@ function App() {
                         <td className="mono">{formatKRW(position.valuation)}</td>
                         <td className={`mono ${pnlClass(position.pnl)}`}>{formatKRW(position.pnl)}</td>
                         <td className={`mono ${pnlClass(position.pnl)}`}>{formatPercent(position.pnlRate)}</td>
+                        <td>
+                          <button
+                            className="table-action-button"
+                            type="button"
+                            onClick={() => openManualTrade(position.market, 'SELL')}
+                          >
+                            매매
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -526,8 +665,7 @@ function App() {
                           <td>{order.market}</td>
                           <td className={order.side === 'BUY' ? 'positive' : 'negative'}>{order.side}</td>
                           <td>
-                            <span className="mono">{order.requestStatus ?? '-'}</span>
-                            <span className="sub compact">{order.state ?? '-'}</span>
+                            <span className="mono">{formatOrderStatus(order.requestStatus, order.state)}</span>
                           </td>
                           <td className="mono">{formatCoin(order.volume)}</td>
                           <td className="mono">{formatKRW(order.funds)}</td>
@@ -565,18 +703,73 @@ function App() {
             {marketConfigError && <p className="status-error">{marketConfigError}</p>}
             {marketConfigNotice && <p className="status-success">{marketConfigNotice}</p>}
             <div className="market-add-row">
-              <input
-                type="text"
-                value={newMarketInput}
-                placeholder="예: KRW-ETH"
-                onChange={(event) => setNewMarketInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault()
-                    handleAddMarket()
-                  }
-                }}
-              />
+              <div className="market-add-input-wrap">
+                <input
+                  type="text"
+                  value={newMarketInput}
+                  placeholder="코인명/심볼/마켓코드 검색 (예: 이더리움, ETH, KRW-ETH)"
+                  onFocus={() => {
+                    if (marketSuggestions.length > 0) {
+                      setMarketSuggestOpen(true)
+                    }
+                  }}
+                  onBlur={() => {
+                    window.setTimeout(() => setMarketSuggestOpen(false), 120)
+                  }}
+                  onChange={(event) => {
+                    setNewMarketInput(event.target.value)
+                    setMarketSuggestOpen(true)
+                    setMarketSuggestIndex(0)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowDown' && marketSuggestions.length > 0) {
+                      event.preventDefault()
+                      setMarketSuggestOpen(true)
+                      setMarketSuggestIndex((prev) => (prev + 1) % marketSuggestions.length)
+                      return
+                    }
+                    if (event.key === 'ArrowUp' && marketSuggestions.length > 0) {
+                      event.preventDefault()
+                      setMarketSuggestOpen(true)
+                      setMarketSuggestIndex((prev) => (prev - 1 + marketSuggestions.length) % marketSuggestions.length)
+                      return
+                    }
+                    if (event.key === 'Escape') {
+                      setMarketSuggestOpen(false)
+                      return
+                    }
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      if (marketSuggestOpen && marketSuggestions.length > 0) {
+                        const selected = marketSuggestions[Math.max(0, Math.min(marketSuggestIndex, marketSuggestions.length - 1))]
+                        if (selected?.market) {
+                          handleSelectMarketSuggestion(selected.market)
+                          return
+                        }
+                      }
+                      handleAddMarket()
+                    }
+                  }}
+                />
+                {marketSuggestOpen && marketSuggestions.length > 0 && (
+                  <div className="market-suggest-list">
+                    {marketSuggestions.map((item, index) => (
+                      <button
+                        key={item.market}
+                        className={`market-suggest-item ${index === marketSuggestIndex ? 'active' : ''}`}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                          handleSelectMarketSuggestion(item.market)
+                        }}
+                      >
+                        <strong>{item.market}</strong>
+                        <span>{item.koreanName || item.englishName || item.ticker}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
                 className="ghost-button"
                 onClick={() => handleAddMarket()}
@@ -599,7 +792,7 @@ function App() {
                 </div>
                 {marketRows.map((row) => {
                   const expanded = expandedMarket === row.market
-                  const effectiveProfileLabel = row.profile && row.profile !== '' ? row.profile : profileLabel
+                  const effectiveProfileLabel = normalizeProfileValue(row.profile) || DEFAULT_MARKET_PROFILE
                   return (
                     <div className={`market-override-row ${expanded ? 'expanded' : ''}`} key={row.market}>
                       <div className="market-override-main">
@@ -619,20 +812,21 @@ function App() {
                             type="number"
                             step="1000"
                             min="0"
-                            placeholder="기본값"
+                            placeholder={DEFAULT_MARKET_MAX_ORDER_KRW}
                             value={row.maxOrderKrw}
                             onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'maxOrderKrw', event.target.value)}
                           />
                         </label>
                         <label className="market-inline-field">
                           <select
-                            value={row.profile}
+                            value={normalizeProfileValue(row.profile) || DEFAULT_MARKET_PROFILE}
                             onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'profile', event.target.value)}
                           >
-                            <option value="">기본값</option>
-                            <option value="AGGRESSIVE">AGGRESSIVE</option>
-                            <option value="BALANCED">BALANCED</option>
-                            <option value="CONSERVATIVE">CONSERVATIVE</option>
+                            {PROFILE_VALUES.map((profile) => (
+                              <option key={profile} value={profile}>
+                                {profile}
+                              </option>
+                            ))}
                           </select>
                         </label>
                         <button
@@ -992,6 +1186,114 @@ function App() {
 
         </aside>
       </section>
+
+      {manualTradeOpen && (
+        <div className="modal-backdrop" onClick={closeManualTrade}>
+          <div className="trade-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="card-head">
+              <div>
+                <h2>수동 매매</h2>
+                <p className="sub">시장가/지정가 주문을 직접 넣습니다.</p>
+              </div>
+              <button className="ghost-button" type="button" onClick={closeManualTrade} disabled={manualTradeBusy}>
+                닫기
+              </button>
+            </div>
+
+            <div className="trade-meta-row">
+              <span>마켓 {manualTradeMarket}</span>
+              <span>보유 {formatCoin(manualTradePosition?.quantity)}</span>
+              <span>현금 {formatKRW(cashKrw)} KRW</span>
+            </div>
+
+            <div className="form-grid trade-form-grid">
+              <label className="form-field">
+                <span>구분</span>
+                <select value={manualTradeSide} onChange={(event) => setManualTradeSide(event.target.value)}>
+                  <option value="BUY">매수</option>
+                  <option value="SELL">매도</option>
+                </select>
+              </label>
+              <label className="form-field">
+                <span>주문방식</span>
+                <select value={manualTradeType} onChange={(event) => setManualTradeType(event.target.value)}>
+                  <option value="MARKET">시장가</option>
+                  <option value="LIMIT">지정가</option>
+                </select>
+              </label>
+              {manualTradeType === 'LIMIT' && (
+                <>
+                  <label className="form-field">
+                    <span>지정가 (KRW)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={manualTradePrice}
+                      onChange={(event) => setManualTradePrice(event.target.value)}
+                      placeholder="예: 101500000"
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>수량</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.00000001"
+                      value={manualTradeVolume}
+                      onChange={(event) => setManualTradeVolume(event.target.value)}
+                      placeholder="예: 0.001"
+                    />
+                  </label>
+                </>
+              )}
+              {manualTradeType === 'MARKET' && manualTradeSide === 'BUY' && (
+                <label className="form-field">
+                  <span>매수 금액 (KRW)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={manualTradeFunds}
+                    onChange={(event) => setManualTradeFunds(event.target.value)}
+                    placeholder="예: 30000"
+                  />
+                </label>
+              )}
+              {manualTradeType === 'MARKET' && manualTradeSide === 'SELL' && (
+                <label className="form-field">
+                  <span>매도 수량</span>
+                  <div className="trade-volume-row">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.00000001"
+                      value={manualTradeVolume}
+                      onChange={(event) => setManualTradeVolume(event.target.value)}
+                      placeholder="예: 0.001"
+                    />
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => setManualTradeVolume(toInputValue(manualTradePosition?.quantity))}
+                    >
+                      전량
+                    </button>
+                  </div>
+                </label>
+              )}
+            </div>
+
+            {manualTradeError && <p className="status-error">{manualTradeError}</p>}
+
+            <div className="button-row">
+              <button className="primary-button" type="button" onClick={handleManualTradeSubmit} disabled={manualTradeBusy}>
+                {manualTradeBusy ? '주문 중...' : '주문 실행'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1329,7 +1631,12 @@ const addMarketRow = (
     return
   }
 
-  setMarketRows((prev) => [...prev, { market, maxOrderKrw: '', profile: '', ...createEmptyRatioFields() }])
+  setMarketRows((prev) => [...prev, {
+    market,
+    maxOrderKrw: DEFAULT_MARKET_MAX_ORDER_KRW,
+    profile: DEFAULT_MARKET_PROFILE,
+    ...createEmptyRatioFields(),
+  }])
   setNewMarketInput('')
   setMarketConfigError(null)
   setMarketConfigNotice(null)
@@ -1361,6 +1668,52 @@ const removeMarketRow = (
   setMarketConfigError(null)
 }
 
+const parseRequiredPositiveNumber = (rawValue, label) => {
+  const raw = `${rawValue ?? ''}`.trim()
+  if (raw === '') {
+    throw new Error(`${label} 값을 입력해주세요.`)
+  }
+  const numeric = Number(raw)
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    throw new Error(`${label} 값은 0보다 커야 합니다.`)
+  }
+  return numeric
+}
+
+const buildManualOrderPayload = ({ market, side, type, price, volume, funds }) => {
+  const normalizedMarket = normalizeMarket(market)
+  if (!normalizedMarket) {
+    throw new Error('마켓 정보가 없습니다.')
+  }
+  const normalizedSide = String(side ?? '').trim().toUpperCase()
+  if (normalizedSide !== 'BUY' && normalizedSide !== 'SELL') {
+    throw new Error('매수/매도 구분을 확인해주세요.')
+  }
+  const normalizedType = String(type ?? '').trim().toUpperCase()
+  if (normalizedType !== 'MARKET' && normalizedType !== 'LIMIT') {
+    throw new Error('주문 방식을 확인해주세요.')
+  }
+
+  const payload = {
+    market: normalizedMarket,
+    side: normalizedSide,
+    type: normalizedType,
+  }
+
+  if (normalizedType === 'MARKET' && normalizedSide === 'BUY') {
+    payload.funds = parseRequiredPositiveNumber(funds, '매수 금액')
+    return payload
+  }
+  if (normalizedType === 'MARKET' && normalizedSide === 'SELL') {
+    payload.volume = parseRequiredPositiveNumber(volume, '매도 수량')
+    return payload
+  }
+
+  payload.price = parseRequiredPositiveNumber(price, '지정가')
+  payload.volume = parseRequiredPositiveNumber(volume, '수량')
+  return payload
+}
+
 const normalizeRatioPresets = (payload) => {
   if (!Array.isArray(payload)) {
     return []
@@ -1385,6 +1738,82 @@ const normalizeRatioPresets = (payload) => {
       }
     })
     .filter(Boolean)
+}
+
+const normalizeMarketCatalog = (payload) => {
+  if (!Array.isArray(payload)) {
+    return []
+  }
+  return payload
+    .map((item) => {
+      const market = normalizeMarket(item?.market)
+      if (!market || !isValidMarketCode(market)) {
+        return null
+      }
+      const ticker = market.includes('-') ? market.split('-')[1] : market
+      const koreanName = typeof item?.koreanName === 'string' ? item.koreanName.trim() : ''
+      const englishName = typeof item?.englishName === 'string' ? item.englishName.trim() : ''
+      return {
+        market,
+        ticker,
+        koreanName,
+        englishName,
+      }
+    })
+    .filter(Boolean)
+}
+
+const buildMarketSuggestions = (input, catalog, rows, limit = 8) => {
+  const keyword = `${input ?? ''}`.trim()
+  if (keyword === '' || !Array.isArray(catalog) || catalog.length === 0) {
+    return []
+  }
+
+  const lowerKeyword = keyword.toLowerCase()
+  const existing = new Set(
+    Array.isArray(rows)
+      ? rows.map((row) => normalizeMarket(row?.market)).filter(Boolean)
+      : []
+  )
+
+  const scored = []
+  catalog.forEach((item) => {
+    if (!item?.market || existing.has(item.market)) {
+      return
+    }
+    const marketLower = item.market.toLowerCase()
+    const tickerLower = `${item.ticker ?? ''}`.toLowerCase()
+    const englishLower = `${item.englishName ?? ''}`.toLowerCase()
+    const koreanRaw = `${item.koreanName ?? ''}`
+
+    let score = null
+    if (marketLower === lowerKeyword || tickerLower === lowerKeyword) {
+      score = 0
+    } else if (marketLower.startsWith(lowerKeyword) || tickerLower.startsWith(lowerKeyword)) {
+      score = 1
+    } else if (marketLower.includes(lowerKeyword) || tickerLower.includes(lowerKeyword)) {
+      score = 2
+    } else if (englishLower.includes(lowerKeyword)) {
+      score = 3
+    } else if (koreanRaw.includes(keyword)) {
+      score = 4
+    }
+
+    if (score === null) {
+      return
+    }
+
+    scored.push({ ...item, score })
+  })
+
+  return scored
+    .sort((a, b) => {
+      if (a.score !== b.score) {
+        return a.score - b.score
+      }
+      return a.market.localeCompare(b.market)
+    })
+    .slice(0, Math.max(1, limit))
 }
 
 const buildMarketOverrideRows = (payload) => {
@@ -1430,8 +1859,8 @@ const buildMarketOverrideRows = (payload) => {
 
   return orderedMarkets.map((market) => ({
     market,
-    maxOrderKrw: toInputValue(maxOrderKrwByMarket?.[market]),
-    profile: normalizeProfileValue(profileByMarket?.[market]),
+    maxOrderKrw: toInputValue(maxOrderKrwByMarket?.[market] ?? DEFAULT_MARKET_MAX_ORDER_KRW),
+    profile: normalizeProfileValue(profileByMarket?.[market]) || DEFAULT_MARKET_PROFILE,
     takeProfitPct: toInputValue(ratiosByMarket?.[market]?.takeProfitPct),
     stopLossPct: toInputValue(ratiosByMarket?.[market]?.stopLossPct),
     trailingStopPct: toInputValue(ratiosByMarket?.[market]?.trailingStopPct),
@@ -1569,6 +1998,47 @@ const buildApiErrorMessage = (payload, fallback) => {
     return base
   }
   return `${base} (${details})`
+}
+
+const formatOrderStatus = (requestStatus, state) => {
+  const primary = normalizeOrderStatusToken(requestStatus)
+  const secondary = normalizeOrderStatusToken(state)
+  if (!primary && !secondary) {
+    return '-'
+  }
+  if (!secondary) {
+    return primary
+  }
+  if (!primary) {
+    return secondary
+  }
+  if (primary === secondary) {
+    return primary
+  }
+  if (primary === 'FILLED' && secondary === 'CANCEL') {
+    return primary
+  }
+  return `${primary} (${secondary})`
+}
+
+const normalizeOrderStatusToken = (value) => {
+  if (value === null || value === undefined) {
+    return ''
+  }
+  const token = String(value).trim().toUpperCase()
+  if (!token) {
+    return ''
+  }
+  if (token === 'WAIT') {
+    return 'SUBMITTED'
+  }
+  if (token === 'DONE') {
+    return 'FILLED'
+  }
+  if (token === 'CANCEL') {
+    return 'CANCELED'
+  }
+  return token
 }
 
 const buildDefaultPerformanceInputs = () => {

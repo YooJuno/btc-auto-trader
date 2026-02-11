@@ -8,8 +8,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class OrderReconcileService {
@@ -61,8 +63,9 @@ public class OrderReconcileService {
 
                 order.setExternalId(response.uuid());
                 order.setState(response.state());
-                order.setStatus(resolveStatus(response.state(), order.getStatus()));
+                order.setStatus(resolveStatus(response, order.getStatus()));
                 order.setCreatedAt(parseOffsetDateTime(response.createdAt()));
+                applyExecutionSnapshot(order, response);
                 order.setRawResponse(safeSerialize(response));
                 orderRepository.save(order);
             } catch (RuntimeException ex) {
@@ -91,8 +94,9 @@ public class OrderReconcileService {
                 if (response != null) {
                     order.setExternalId(response.uuid());
                     order.setState(response.state());
-                    order.setStatus(resolveStatus(response.state(), order.getStatus()));
+                    order.setStatus(resolveStatus(response, order.getStatus()));
                     order.setCreatedAt(parseOffsetDateTime(response.createdAt()));
+                    applyExecutionSnapshot(order, response);
                     order.setRawResponse(safeSerialize(response));
                     orderRepository.save(order);
                     continue;
@@ -134,15 +138,56 @@ public class OrderReconcileService {
         return value.substring(0, max);
     }
 
-    private static OrderStatus resolveStatus(String state, OrderStatus fallback) {
-        if (state == null) {
+    private static OrderStatus resolveStatus(UpbitOrderResponse response, OrderStatus fallback) {
+        if (response == null || response.state() == null) {
             return fallback == null ? OrderStatus.SUBMITTED : fallback;
         }
-        return switch (state.toLowerCase()) {
+        String normalized = response.state().trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
             case "done" -> OrderStatus.FILLED;
-            case "cancel" -> OrderStatus.CANCELED;
+            case "cancel" -> hasExecution(response) ? OrderStatus.FILLED : OrderStatus.CANCELED;
             case "wait" -> OrderStatus.SUBMITTED;
             default -> fallback == null ? OrderStatus.SUBMITTED : fallback;
         };
+    }
+
+    private static void applyExecutionSnapshot(OrderEntity order, UpbitOrderResponse response) {
+        if (order == null || response == null) {
+            return;
+        }
+        BigDecimal executed = parseDecimal(response.executedVolume());
+        if (executed != null && executed.compareTo(BigDecimal.ZERO) > 0) {
+            order.setVolume(executed);
+            return;
+        }
+        if (order.getVolume() == null) {
+            BigDecimal volume = parseDecimal(response.volume());
+            if (volume != null) {
+                order.setVolume(volume);
+            }
+        }
+    }
+
+    private static boolean hasExecution(UpbitOrderResponse response) {
+        if (response == null) {
+            return false;
+        }
+        BigDecimal executed = parseDecimal(response.executedVolume());
+        if (executed != null && executed.compareTo(BigDecimal.ZERO) > 0) {
+            return true;
+        }
+        Integer trades = response.tradesCount();
+        return trades != null && trades > 0;
+    }
+
+    private static BigDecimal parseDecimal(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(value.trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 }

@@ -16,7 +16,7 @@ import java.util.Set;
 public class StrategyService {
     private static final long CONFIG_ID = 1L;
     private static final StrategyConfig DEFAULT_CONFIG =
-            new StrategyConfig(true, 10000.0, 4.5, 2.2, 2.3, 40.0, StrategyProfile.CONSERVATIVE.name(),
+            new StrategyConfig(true, 30000.0, 4.5, 2.2, 2.3, 40.0, StrategyProfile.BALANCED.name(),
                     100.0, 0.0, 0.0);
     private static final List<StrategyPresetItem> DEFAULT_PRESETS = List.of(
             new StrategyPresetItem(
@@ -47,7 +47,6 @@ public class StrategyService {
     private final StrategyMarketRepository marketRepository;
     private final StrategyMarketOverrideRepository marketOverrideRepository;
     private final StrategyPresetRepository presetRepository;
-    private final String forcedProfile;
     private final String marketsConfig;
 
     public StrategyService(
@@ -55,15 +54,13 @@ public class StrategyService {
             StrategyMarketRepository marketRepository,
             StrategyMarketOverrideRepository marketOverrideRepository,
             StrategyPresetRepository presetRepository,
-            @Value("${trading.markets:KRW-BTC}") String marketsConfig,
-            @Value("${strategy.force-profile:}") String forcedProfile
+            @Value("${trading.markets:KRW-BTC}") String marketsConfig
     ) {
         this.repository = repository;
         this.marketRepository = marketRepository;
         this.marketOverrideRepository = marketOverrideRepository;
         this.presetRepository = presetRepository;
         this.marketsConfig = marketsConfig;
-        this.forcedProfile = forcedProfile == null ? "" : forcedProfile.trim();
     }
 
     @Transactional
@@ -92,13 +89,6 @@ public class StrategyService {
             entity.setTrendExitPct(DEFAULT_CONFIG.trendExitPct());
             entity.setMomentumExitPct(DEFAULT_CONFIG.momentumExitPct());
             dirty = true;
-        }
-        if (!forcedProfile.isBlank()) {
-            StrategyProfile profile = StrategyProfile.from(forcedProfile);
-            if (!profile.name().equalsIgnoreCase(entity.getProfile())) {
-                entity.setProfile(profile.name());
-                dirty = true;
-            }
         }
         if (dirty) {
             entity = repository.save(entity);
@@ -173,7 +163,8 @@ public class StrategyService {
         List<String> normalized = normalizeMarkets(markets);
         List<String> existing = loadPersistedMarkets();
         if (!existing.equals(normalized)) {
-            marketRepository.deleteAllInBatch();
+            // Avoid stale entity state conflicts when replacing the same ids in one transaction.
+            marketRepository.deleteAll();
             if (!normalized.isEmpty()) {
                 List<StrategyMarketEntity> entities = normalized.stream()
                         .map(StrategyMarketEntity::new)

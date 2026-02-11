@@ -44,6 +44,35 @@ curl "http://localhost:8080/api/market/price?market=KRW-BTC"
 }
 ```
 
+### GET /api/market/list
+거래 가능 마켓 목록 조회(기본 `KRW` 마켓 필터).
+
+**쿼리 파라미터**
+- `quote`: 기본 `KRW` (예: `KRW`, `BTC`, `USDT`)
+
+**호출**
+```bash
+curl "http://localhost:8080/api/market/list?quote=KRW"
+```
+
+**응답**
+```jsonc
+{
+  "queriedAt": "2026-02-11T04:30:00Z",
+  "quote": "KRW",
+  "count": 237,
+  "markets": [
+    {
+      "market": "KRW-BTC",
+      "ticker": "BTC",
+      "koreanName": "비트코인",
+      "englishName": "Bitcoin",
+      "marketWarning": "NONE"
+    }
+  ]
+}
+```
+
 ---
 
 ## 주문 (Upbit 실제 주문)
@@ -94,6 +123,9 @@ curl -X POST "http://localhost:8080/api/order" \
 }
 ```
 
+참고:
+- Upbit `state=cancel`이어도 일부 체결(`executed_volume > 0`)이 있는 경우 내부 `requestStatus`는 `FILLED`로 보정될 수 있습니다.
+
 **상태 코드**
 - `200 OK`: 정상 처리
 - `202 Accepted`: `requestStatus=PENDING`
@@ -115,10 +147,10 @@ curl -X POST "http://localhost:8080/api/order" \
     "side": "BUY",
     "type": "MARKET",
     "ordType": "price",         // Upbit ord_type
-    "requestStatus": "SUBMITTED",
+    "requestStatus": "FILLED",
     "state": "wait",
     "price": null,
-    "volume": null,
+    "volume": 0.00123456,
     "funds": 10000,
     "requestedAt": "2026-02-10T01:45:12.345Z",
     "createdAt": "2026-02-10T01:45:12.678Z",
@@ -128,6 +160,11 @@ curl -X POST "http://localhost:8080/api/order" \
   }
 ]
 ```
+
+필드 해석:
+- `requestStatus`: 내부 상태(`REQUESTED | PENDING | SUBMITTED | FILLED | CANCELED | FAILED`)
+- `state`: Upbit 원본 상태(`wait | done | cancel` 등)
+- `volume`: 시장가 매수의 경우에도 체결 후에는 `executed_volume` 기준 수량이 채워질 수 있음
 
 ---
 
@@ -330,12 +367,12 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
 ```jsonc
 {
   "enabled": true,
-  "maxOrderKrw": 10000,
+  "maxOrderKrw": 30000,
   "takeProfitPct": 3.0,
   "stopLossPct": 1.5,
   "trailingStopPct": 1.0,
   "partialTakeProfitPct": 40.0,
-  "profile": "CONSERVATIVE",
+  "profile": "BALANCED",
   "stopExitPct": 100.0,
   "trendExitPct": 0.0,
   "momentumExitPct": 0.0
@@ -411,7 +448,7 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
     "KRW-BTC": 12000
   },
   "profileByMarket": {
-    "KRW-BTC": "CONSERVATIVE"
+    "KRW-BTC": "BALANCED"
   },
   "ratiosByMarket": {
     "KRW-BTC": {
