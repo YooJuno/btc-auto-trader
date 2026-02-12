@@ -18,6 +18,9 @@ dist/
 frontend/dist/
 frontend/.vite/
 frontend/.cache/
+apps/frontend/dist/
+apps/frontend/.vite/
+apps/frontend/.cache/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -46,6 +49,10 @@ backend/build/
 backend/target/
 backend/.gradle/
 backend/out/
+apps/backend/build/
+apps/backend/target/
+apps/backend/.gradle/
+apps/backend/out/
 *.class
 hs_err_pid*
 
