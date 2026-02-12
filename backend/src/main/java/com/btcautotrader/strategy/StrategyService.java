@@ -22,7 +22,7 @@ public class StrategyService {
             new StrategyPresetItem(
                     "AGGRESSIVE",
                     "공격형",
-                    7.0,
+                    2.0,
                     2.8,
                     3.5,
                     25.0,
@@ -33,7 +33,7 @@ public class StrategyService {
             new StrategyPresetItem(
                     "CONSERVATIVE",
                     "안정형",
-                    4.5,
+                    1.0,
                     2.2,
                     2.3,
                     40.0,
