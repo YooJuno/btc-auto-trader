@@ -1,7 +1,7 @@
 # !/bin/bash
 
 # build front-end
-cd /home/juno/Workspace/btc-auto-trader/frontend
+cd /home/juno/Workspace/btc-auto-trader/apps/frontend
 npm install
 npm run build
 

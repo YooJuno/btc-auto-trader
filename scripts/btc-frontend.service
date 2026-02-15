@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=juno
-WorkingDirectory=/home/juno/Workspace/btc-auto-trader/frontend
+WorkingDirectory=/home/juno/Workspace/btc-auto-trader/apps/frontend
 ExecStart=/usr/bin/env npm run preview -- --host 0.0.0.0 --port 5173
 Restart=always
 RestartSec=3
