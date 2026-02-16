@@ -5,7 +5,8 @@
 - 응답은 JSON 형식이며, 시간은 ISO-8601 문자열입니다.
 - 오류 응답은 보통 아래 형태입니다.
 - `api.auth.enabled=true`인 경우 `X-API-KEY` 헤더(또는 `api.auth.header` 지정값)가 필요합니다.
-- `/api/me` 및 `/api/me/settings`는 OAuth 로그인 세션이 필요합니다.
+- `/api/me`, `/api/me/settings`, `/api/order/**`, `/api/strategy/**`, `/api/portfolio/**`, `/api/engine/**`는 OAuth 로그인 세션이 필요합니다.
+- `/api/order/**`, `/api/strategy/**`, `/api/portfolio/**`, `/api/engine/**`는 로그인 사용자의 tenant DB 기준으로 처리됩니다.
 
 ```jsonc
 {
