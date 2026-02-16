@@ -8,4 +8,6 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     Optional<UserEntity> findByProviderAndProviderUserId(String provider, String providerUserId);
 
     Optional<UserEntity> findFirstByEmailIgnoreCase(String email);
+
+    Optional<UserEntity> findFirstByTenantDatabase(String tenantDatabase);
 }

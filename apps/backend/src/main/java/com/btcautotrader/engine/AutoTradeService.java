@@ -4,6 +4,7 @@ import com.btcautotrader.order.OrderRepository;
 import com.btcautotrader.order.OrderRequest;
 import com.btcautotrader.order.OrderResponse;
 import com.btcautotrader.order.OrderService;
+import com.btcautotrader.auth.TradingAccessService;
 import com.btcautotrader.strategy.StrategyConfig;
 import com.btcautotrader.strategy.StrategyMarketOverrides;
 import com.btcautotrader.strategy.StrategyMarketRatios;
@@ -47,6 +48,7 @@ public class AutoTradeService {
     private final StrategyService strategyService;
     private final EngineService engineService;
     private final TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
+    private final TradingAccessService tradingAccessService;
     private final OrderRepository orderRepository;
     private final TradeDecisionRepository tradeDecisionRepository;
     private final TradeDecisionService tradeDecisionService;
@@ -134,6 +136,7 @@ public class AutoTradeService {
             StrategyService strategyService,
             EngineService engineService,
             TenantDatabaseProvisioningService tenantDatabaseProvisioningService,
+            TradingAccessService tradingAccessService,
             OrderRepository orderRepository,
             TradeDecisionRepository tradeDecisionRepository,
             TradeDecisionService tradeDecisionService,
@@ -205,6 +208,7 @@ public class AutoTradeService {
         this.strategyService = strategyService;
         this.engineService = engineService;
         this.tenantDatabaseProvisioningService = tenantDatabaseProvisioningService;
+        this.tradingAccessService = tradingAccessService;
         this.orderRepository = orderRepository;
         this.tradeDecisionRepository = tradeDecisionRepository;
         this.tradeDecisionService = tradeDecisionService;
@@ -353,7 +357,7 @@ public class AutoTradeService {
         for (String tenantDatabase : tenants) {
             try {
                 TenantContext.runWithTenantDatabase(tenantDatabase, () -> {
-                    if (engineService.isRunning()) {
+                    if (engineService.isRunning() && tradingAccessService.canRunAutomatedTradingForCurrentTenant()) {
                         runOnce();
                     }
                 });

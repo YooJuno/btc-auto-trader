@@ -3,6 +3,8 @@ package com.btcautotrader.upbit;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
+
 @Component
 public class UpbitCredentials {
     private final String accessKey;
@@ -34,10 +36,6 @@ public class UpbitCredentials {
                 dotenvWorkspaceRoot.get("UPBIT_SECRET_KEY"),
                 System.getenv("UPBIT_SECRET_KEY")
         );
-
-        if (isBlank(this.accessKey) || isBlank(this.secretKey)) {
-            throw new IllegalStateException("UPBIT_ACCESS_KEY/UPBIT_SECRET_KEY not found in .env, ../.env, ../../.env, or environment variables.");
-        }
     }
 
     public String getAccessKey() {
@@ -46,6 +44,17 @@ public class UpbitCredentials {
 
     public String getSecretKey() {
         return secretKey;
+    }
+
+    public boolean isConfigured() {
+        return !isBlank(accessKey) && !isBlank(secretKey);
+    }
+
+    public Optional<UpbitAuthCredentials> toAuthCredentials() {
+        if (!isConfigured()) {
+            return Optional.empty();
+        }
+        return Optional.of(new UpbitAuthCredentials(accessKey.trim(), secretKey.trim()));
     }
 
     private static String firstNonBlank(String... values) {

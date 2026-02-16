@@ -1,5 +1,8 @@
 package com.btcautotrader.auth;
 
+import com.btcautotrader.upbit.UpbitApiException;
+import com.btcautotrader.upbit.UpbitAuthCredentials;
+import com.btcautotrader.upbit.UpbitService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -9,6 +12,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -28,15 +32,21 @@ public class AuthController {
     private final ObjectProvider<ClientRegistrationRepository> clientRegistrationRepositoryProvider;
     private final CurrentUserService currentUserService;
     private final UserSettingsService userSettingsService;
+    private final UserExchangeCredentialService userExchangeCredentialService;
+    private final UpbitService upbitService;
 
     public AuthController(
             ObjectProvider<ClientRegistrationRepository> clientRegistrationRepositoryProvider,
             CurrentUserService currentUserService,
-            UserSettingsService userSettingsService
+            UserSettingsService userSettingsService,
+            UserExchangeCredentialService userExchangeCredentialService,
+            UpbitService upbitService
     ) {
         this.clientRegistrationRepositoryProvider = clientRegistrationRepositoryProvider;
         this.currentUserService = currentUserService;
         this.userSettingsService = userSettingsService;
+        this.userExchangeCredentialService = userExchangeCredentialService;
+        this.upbitService = upbitService;
     }
 
     @GetMapping("/auth/providers")
@@ -110,6 +120,68 @@ public class AuthController {
             Map<String, Object> error = new HashMap<>();
             error.put("error", ex.getMessage());
             return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    @GetMapping("/me/exchange-credentials")
+    public ResponseEntity<UserExchangeCredentialStatusResponse> getExchangeCredentialStatus(Authentication authentication) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        return ResponseEntity.ok(userExchangeCredentialService.getStatus(user));
+    }
+
+    @PutMapping("/me/exchange-credentials")
+    public ResponseEntity<?> saveExchangeCredentials(
+            Authentication authentication,
+            @RequestBody(required = false) UserExchangeCredentialRequest request
+    ) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        try {
+            UserExchangeCredentialStatusResponse response = userExchangeCredentialService.save(user, request);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException ex) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    @DeleteMapping("/me/exchange-credentials")
+    public ResponseEntity<Map<String, Object>> deleteExchangeCredentials(Authentication authentication) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        userExchangeCredentialService.delete(user);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("ok", true);
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/me/exchange-credentials/verify")
+    public ResponseEntity<?> verifyExchangeCredentials(Authentication authentication) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        UserExchangeCredentialStatusResponse status = userExchangeCredentialService.getStatus(user);
+        UpbitAuthCredentials credentials = userExchangeCredentialService.resolveCredentialsForUser(user).orElse(null);
+        if (credentials == null) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "거래소 API 키가 등록되어 있지 않습니다.");
+            return ResponseEntity.badRequest().body(error);
+        }
+
+        try {
+            int accountCount = upbitService.verifyCredentials(credentials);
+            return ResponseEntity.ok(new UserExchangeCredentialVerifyResponse(
+                    true,
+                    accountCount,
+                    status.usingDefaultCredentials(),
+                    java.time.OffsetDateTime.now()
+            ));
+        } catch (UpbitApiException ex) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "거래소 API 키 검증 실패");
+            error.put("status", ex.getStatusCode());
+            if (ex.getResponseBody() != null && !ex.getResponseBody().isBlank()) {
+                error.put("details", ex.getResponseBody());
+            }
+            return ResponseEntity.status(ex.getStatusCode()).body(error);
         }
     }
 }

@@ -1,11 +1,13 @@
 package com.btcautotrader.engine;
 
+import com.btcautotrader.auth.TradingAccessService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.Authentication;
 
 import java.time.OffsetDateTime;
 import java.util.HashMap;
@@ -18,19 +20,23 @@ public class EngineController {
     private final EngineService engineService;
     private final AutoTradeService autoTradeService;
     private final TradeDecisionService tradeDecisionService;
+    private final TradingAccessService tradingAccessService;
 
     public EngineController(
             EngineService engineService,
             AutoTradeService autoTradeService,
-            TradeDecisionService tradeDecisionService
+            TradeDecisionService tradeDecisionService,
+            TradingAccessService tradingAccessService
     ) {
         this.engineService = engineService;
         this.autoTradeService = autoTradeService;
         this.tradeDecisionService = tradeDecisionService;
+        this.tradingAccessService = tradingAccessService;
     }
 
     @PostMapping("/start")
-    public ResponseEntity<Map<String, Object>> start() {
+    public ResponseEntity<Map<String, Object>> start(Authentication authentication) {
+        tradingAccessService.requireEngineExecutionAllowed(authentication);
         boolean running = engineService.start();
         return ResponseEntity.ok(statusResponse(running));
     }
@@ -56,8 +62,10 @@ public class EngineController {
 
     @PostMapping("/tick")
     public ResponseEntity<AutoTradeResult> tick(
+            Authentication authentication,
             @RequestParam(name = "force", defaultValue = "false") boolean force
     ) {
+        tradingAccessService.requireEngineExecutionAllowed(authentication);
         if (!force && !engineService.isRunning()) {
             AutoTradeAction action = new AutoTradeAction(
                     "SYSTEM",

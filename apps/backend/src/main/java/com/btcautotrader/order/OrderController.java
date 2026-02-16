@@ -1,7 +1,10 @@
 package com.btcautotrader.order;
 
+import com.btcautotrader.auth.TradingAccessService;
 import com.btcautotrader.upbit.UpbitApiException;
+import com.btcautotrader.upbit.UpbitCredentialMissingException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,9 +21,11 @@ import java.util.Map;
 @RequestMapping("/api/order")
 public class OrderController {
     private final OrderService orderService;
+    private final TradingAccessService tradingAccessService;
 
-    public OrderController(OrderService orderService) {
+    public OrderController(OrderService orderService, TradingAccessService tradingAccessService) {
         this.orderService = orderService;
+        this.tradingAccessService = tradingAccessService;
     }
 
     @GetMapping("/history")
@@ -31,7 +36,12 @@ public class OrderController {
     }
 
     @PostMapping
-    public ResponseEntity<?> createOrder(@RequestBody(required = false) OrderRequest request) {
+    public ResponseEntity<?> createOrder(
+            Authentication authentication,
+            @RequestBody(required = false) OrderRequest request
+    ) {
+        tradingAccessService.requireOrderSubmissionAllowed(authentication);
+
         if (request == null) {
             return ResponseEntity.badRequest().body(error("request body is required"));
         }
@@ -120,6 +130,8 @@ public class OrderController {
                 payload.put("details", ex.getResponseBody());
             }
             return ResponseEntity.status(ex.getStatusCode()).body(payload);
+        } catch (UpbitCredentialMissingException ex) {
+            return ResponseEntity.status(403).body(error(ex.getMessage()));
         }
     }
 

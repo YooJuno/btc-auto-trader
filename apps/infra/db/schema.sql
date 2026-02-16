@@ -173,6 +173,14 @@ CREATE TABLE app_users (
 CREATE INDEX idx_app_users_email
   ON app_users(email);
 
+-- 사용자별 거래소 API 키(암호화 저장)
+CREATE TABLE user_exchange_credentials (
+  user_id              BIGINT PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+  access_key_encrypted TEXT NOT NULL,
+  secret_key_encrypted TEXT NOT NULL,
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- 사용자별 인터페이스 설정
 CREATE TABLE user_settings (
   user_id           BIGINT PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
