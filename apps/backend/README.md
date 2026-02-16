@@ -132,6 +132,8 @@
   - `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_<PROVIDER>_SCOPE=openid,profile,email`
   - `APP_AUTH_SUCCESS_REDIRECT_URL`
   - `APP_AUTH_FAILURE_REDIRECT_URL`
+  - `APP_AUTH_DYNAMIC_REDIRECT_ENABLED` (기본 `true`, 로그인 콜백 요청 호스트 기준 리다이렉트)
+  - `APP_AUTH_FRONTEND_PORT` (기본 `5173`, 동적 리다이렉트 시 프론트 포트)
   - `APP_OWNER_EMAIL` (기존 메인 DB 소유자 이메일, 기본 `juno980220@gmail.com`)
   - `APP_TRADING_OWNER_ONLY_MODE` (기본 `true`, owner 계정만 주문/엔진 실행 허용)
   - `APP_EXCHANGE_KEY_ENCRYPTION_KEY` (사용자별 거래소 키 암호화 키)

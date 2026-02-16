@@ -1,7 +1,6 @@
 package com.btcautotrader.security;
 
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -21,7 +20,7 @@ public class SecurityConfig {
             HttpSecurity http,
             ObjectProvider<ClientRegistrationRepository> clientRegistrationRepositoryProvider,
             OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler,
-            @Value("${app.auth.failure-redirect-url:http://localhost:5173/?loginError=true}") String failureRedirectUrl
+            OAuth2LoginFailureHandler oAuth2LoginFailureHandler
     ) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -42,7 +41,7 @@ public class SecurityConfig {
         if (clientRegistrationRepositoryProvider.getIfAvailable() != null) {
             http.oauth2Login(oauth2 -> oauth2
                     .successHandler(oAuth2LoginSuccessHandler)
-                    .failureHandler((request, response, exception) -> response.sendRedirect(failureRedirectUrl))
+                    .failureHandler(oAuth2LoginFailureHandler)
             );
         }
 

@@ -8,6 +8,7 @@
 - `/api/me`, `/api/me/settings`, `/api/order/**`, `/api/strategy/**`, `/api/portfolio/**`, `/api/engine/**`는 OAuth 로그인 세션이 필요합니다.
 - `/api/order/**`, `/api/strategy/**`, `/api/portfolio/**`, `/api/engine/**`는 로그인 사용자의 tenant DB 기준으로 처리됩니다.
 - `APP_TRADING_OWNER_ONLY_MODE=true`면 `/api/order`와 `/api/engine/start|tick`은 owner 계정만 허용됩니다.
+- `APP_AUTH_DYNAMIC_REDIRECT_ENABLED=true`면 OAuth 로그인 성공/실패 리다이렉트 호스트는 현재 요청 호스트 기준으로 동적으로 계산됩니다.
 
 ```jsonc
 {

@@ -14,13 +14,16 @@ import java.io.IOException;
 @Component
 public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
     private final CurrentUserService currentUserService;
+    private final AuthRedirectUrlResolver authRedirectUrlResolver;
     private final String successRedirectUrl;
 
     public OAuth2LoginSuccessHandler(
             CurrentUserService currentUserService,
+            AuthRedirectUrlResolver authRedirectUrlResolver,
             @Value("${app.auth.success-redirect-url:http://localhost:5173/}") String successRedirectUrl
     ) {
         this.currentUserService = currentUserService;
+        this.authRedirectUrlResolver = authRedirectUrlResolver;
         this.successRedirectUrl = successRedirectUrl;
     }
 
@@ -31,13 +34,6 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
             Authentication authentication
     ) throws IOException, ServletException {
         currentUserService.upsertFromAuthentication(authentication);
-        response.sendRedirect(resolveTargetUrl());
-    }
-
-    private String resolveTargetUrl() {
-        if (successRedirectUrl == null || successRedirectUrl.isBlank()) {
-            return "/";
-        }
-        return successRedirectUrl;
+        response.sendRedirect(authRedirectUrlResolver.resolve(request, successRedirectUrl));
     }
 }

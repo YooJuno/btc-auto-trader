@@ -40,6 +40,8 @@ SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_SCOPE=openid,profile,email
 # Frontend redirect after login
 APP_AUTH_SUCCESS_REDIRECT_URL=http://localhost:5173/
 APP_AUTH_FAILURE_REDIRECT_URL=http://localhost:5173/?loginError=true
+APP_AUTH_DYNAMIC_REDIRECT_ENABLED=true
+APP_AUTH_FRONTEND_PORT=5173
 
 # Tenant owner account
 APP_OWNER_EMAIL=juno980220@gmail.com
