@@ -5,6 +5,7 @@
 - 응답은 JSON 형식이며, 시간은 ISO-8601 문자열입니다.
 - 오류 응답은 보통 아래 형태입니다.
 - `api.auth.enabled=true`인 경우 `X-API-KEY` 헤더(또는 `api.auth.header` 지정값)가 필요합니다.
+- `/api/me` 및 `/api/me/settings`는 OAuth 로그인 세션이 필요합니다.
 
 ```jsonc
 {
@@ -14,6 +15,72 @@
   }
 }
 ```
+
+---
+
+## 인증 / 내 설정
+
+### GET /api/auth/providers
+설정된 OAuth 로그인 공급자 목록.
+
+**응답**
+```jsonc
+[
+  {
+    "id": "google",
+    "name": "Google",
+    "authorizationUrl": "/oauth2/authorization/google"
+  }
+]
+```
+
+### GET /api/me
+현재 로그인 사용자 정보.
+
+**응답**
+```jsonc
+{
+  "id": 1,
+  "provider": "google",
+  "providerUserId": "1234567890",
+  "email": "user@example.com",
+  "displayName": "Juno",
+  "createdAt": "2026-02-16T10:10:10.000Z",
+  "lastLoginAt": "2026-02-16T11:30:00.000Z"
+}
+```
+
+### GET /api/me/settings
+현재 로그인 사용자 설정 조회.
+
+**응답**
+```jsonc
+{
+  "markets": ["KRW-BTC", "KRW-ETH"],
+  "riskProfile": "BALANCED",
+  "uiPrefs": {
+    "leftPanelCollapsed": false
+  },
+  "updatedAt": "2026-02-16T11:31:00.000Z"
+}
+```
+
+### PUT /api/me/settings
+현재 로그인 사용자 설정 저장.
+
+**요청**
+```jsonc
+{
+  "markets": ["KRW-BTC", "KRW-XRP"],
+  "riskProfile": "AGGRESSIVE",
+  "uiPrefs": {
+    "leftPanelCollapsed": true
+  }
+}
+```
+
+### POST /api/auth/logout
+현재 로그인 세션 로그아웃.
 
 ---
 

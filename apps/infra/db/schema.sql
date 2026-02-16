@@ -156,3 +156,27 @@ CREATE TABLE engine_state (
   running     BOOLEAN NOT NULL,
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- OAuth 사용자 계정
+CREATE TABLE app_users (
+  id                BIGSERIAL PRIMARY KEY,
+  provider          VARCHAR(40) NOT NULL,
+  provider_user_id  VARCHAR(120) NOT NULL,
+  email             VARCHAR(160),
+  display_name      VARCHAR(160),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT uk_app_users_provider_subject UNIQUE (provider, provider_user_id)
+);
+
+CREATE INDEX idx_app_users_email
+  ON app_users(email);
+
+-- 사용자별 인터페이스 설정
+CREATE TABLE user_settings (
+  user_id           BIGINT PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+  preferred_markets TEXT NOT NULL DEFAULT '[]',
+  risk_profile      VARCHAR(20) NOT NULL DEFAULT 'BALANCED',
+  ui_prefs          TEXT NOT NULL DEFAULT '{}',
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);

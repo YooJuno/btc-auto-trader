@@ -66,14 +66,146 @@ function App() {
   const [orderHistory, setOrderHistory] = useState([])
   const [decisionHistory, setDecisionHistory] = useState([])
   const [feedError, setFeedError] = useState(null)
-  const [alerts, setAlerts] = useState([])
+  const [_alerts, setAlerts] = useState([])
   const [performance, setPerformance] = useState(null)
   const [performanceMode, setPerformanceMode] = useState('range')
   const [performanceInputs, setPerformanceInputs] = useState(buildDefaultPerformanceInputs)
   const [performanceLoading, setPerformanceLoading] = useState(false)
   const [performanceError, setPerformanceError] = useState(null)
+  const [authChecking, setAuthChecking] = useState(true)
+  const [authUser, setAuthUser] = useState(null)
+  const [authProviders, setAuthProviders] = useState([])
+  const [authError, setAuthError] = useState(null)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [userSettings, setUserSettings] = useState(null)
+  const [userSettingsError, setUserSettingsError] = useState(null)
+  const [userSettingsNotice, setUserSettingsNotice] = useState(null)
+  const [userRiskProfile, setUserRiskProfile] = useState(DEFAULT_MARKET_PROFILE)
+  const [userMarketsInput, setUserMarketsInput] = useState('')
+  const [userUiPrefs, setUserUiPrefs] = useState({})
   const lastOrderIdRef = useRef(null)
   const lastDecisionIdRef = useRef(null)
+
+  const fetchAuthProviders = useCallback(async () => {
+    try {
+      const response = await fetch('/api/auth/providers')
+      if (!response.ok) {
+        throw new Error(`로그인 공급자 조회 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      setAuthProviders(Array.isArray(data) ? data : [])
+    } catch {
+      setAuthProviders([])
+    }
+  }, [])
+
+  const checkAuthSession = useCallback(async () => {
+    setAuthChecking(true)
+    try {
+      const response = await fetch('/api/me')
+      if (response.status === 401) {
+        setAuthUser(null)
+        return
+      }
+      if (!response.ok) {
+        throw new Error(`로그인 상태 확인 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      setAuthUser(data)
+    } catch (err) {
+      setAuthUser(null)
+      setAuthError(err?.message ?? '로그인 상태 확인 실패')
+    } finally {
+      setAuthChecking(false)
+    }
+  }, [])
+
+  const fetchMySettings = useCallback(async () => {
+    if (!authUser) {
+      return
+    }
+    setSettingsLoading(true)
+    setUserSettingsError(null)
+    setUserSettingsNotice(null)
+    try {
+      const response = await fetch('/api/me/settings')
+      if (!response.ok) {
+        throw new Error(`내 설정 조회 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      const markets = Array.isArray(data?.markets) ? data.markets.map(normalizeMarket).filter(Boolean) : []
+
+      setUserSettings(data)
+      setUserRiskProfile(normalizeProfileValue(data?.riskProfile) || DEFAULT_MARKET_PROFILE)
+      setUserMarketsInput(markets.join(', '))
+      setUserUiPrefs(isPlainObject(data?.uiPrefs) ? data.uiPrefs : {})
+    } catch (err) {
+      setUserSettingsError(err?.message ?? '내 설정 조회 실패')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }, [authUser])
+
+  const handleProviderLogin = useCallback((authorizationUrl) => {
+    if (!authorizationUrl) {
+      return
+    }
+    window.location.assign(authorizationUrl)
+  }, [])
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // no-op
+    }
+
+    setAuthUser(null)
+    setAuthError(null)
+    setUserSettings(null)
+    setUserSettingsError(null)
+    setUserSettingsNotice(null)
+    setUserRiskProfile(DEFAULT_MARKET_PROFILE)
+    setUserMarketsInput('')
+    setUserUiPrefs({})
+    fetchAuthProviders()
+    checkAuthSession()
+  }, [checkAuthSession, fetchAuthProviders])
+
+  const handleSaveMySettings = useCallback(async () => {
+    setSettingsSaving(true)
+    setUserSettingsError(null)
+    setUserSettingsNotice(null)
+    try {
+      const payload = {
+        markets: parseUserMarketsInput(userMarketsInput),
+        riskProfile: normalizeProfileValue(userRiskProfile) || DEFAULT_MARKET_PROFILE,
+        uiPrefs: isPlainObject(userUiPrefs) ? userUiPrefs : {},
+      }
+      const response = await fetch('/api/me/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null)
+        const message = buildApiErrorMessage(errorPayload, `내 설정 저장 오류 ${response.status}`)
+        throw new Error(message)
+      }
+      const data = await response.json()
+      const markets = Array.isArray(data?.markets) ? data.markets.map(normalizeMarket).filter(Boolean) : []
+      setUserSettings(data)
+      setUserRiskProfile(normalizeProfileValue(data?.riskProfile) || DEFAULT_MARKET_PROFILE)
+      setUserMarketsInput(markets.join(', '))
+      setUserUiPrefs(isPlainObject(data?.uiPrefs) ? data.uiPrefs : {})
+      setUserSettingsNotice('내 인터페이스 설정을 저장했습니다.')
+    } catch (err) {
+      setUserSettingsError(err?.message ?? '내 설정 저장 실패')
+    } finally {
+      setSettingsSaving(false)
+    }
+  }, [userMarketsInput, userRiskProfile, userUiPrefs])
 
   const fetchSummary = useCallback(async (isRefresh = false) => {
     if (!isRefresh) {
@@ -87,7 +219,7 @@ function App() {
       const data = await response.json()
       setSummary(data)
       setServerConnected(true)
-    } catch (err) {
+    } catch {
       setServerConnected(false)
     } finally {
       if (!isRefresh) {
@@ -246,6 +378,28 @@ function App() {
   }, [performanceInputs, performanceMode])
 
   useEffect(() => {
+    const query = new URLSearchParams(window.location.search)
+    if (query.get('loginError') === 'true') {
+      setAuthError('OAuth 로그인에 실패했습니다. 다시 시도해주세요.')
+    } else {
+      setAuthError(null)
+    }
+    fetchAuthProviders()
+    checkAuthSession()
+  }, [checkAuthSession, fetchAuthProviders])
+
+  useEffect(() => {
+    if (!authUser) {
+      setUserSettings(null)
+      return
+    }
+    fetchMySettings()
+  }, [authUser, fetchMySettings])
+
+  useEffect(() => {
+    if (!authUser) {
+      return undefined
+    }
     fetchSummary(false)
     fetchEngineStatus()
     fetchStrategy()
@@ -268,7 +422,7 @@ function App() {
       clearInterval(engineTimer)
       clearInterval(feedTimer)
     }
-  }, [fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchMarketCatalog, fetchOrderHistory, fetchDecisionHistory, fetchPerformance])
+  }, [authUser, fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchMarketCatalog, fetchOrderHistory, fetchDecisionHistory, fetchPerformance])
 
   const positions = useMemo(() => {
     if (!summary?.positions) {
@@ -464,6 +618,47 @@ function App() {
     manualTradeVolume,
   ])
 
+  if (authChecking) {
+    return (
+      <div className="auth-gate">
+        <div className="auth-gate__card">
+          <p className="eyebrow">BTC AUTO TRADER</p>
+          <h2>로그인 상태 확인 중</h2>
+          <p className="sub">세션을 확인하고 있습니다.</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!authUser) {
+    return (
+      <div className="auth-gate">
+        <div className="auth-gate__card">
+          <p className="eyebrow">BTC AUTO TRADER</p>
+          <h2>로그인이 필요합니다</h2>
+          <p className="sub">OAuth 로그인 후 사용자별 인터페이스 설정을 불러옵니다.</p>
+          {authError && <p className="status-error">{authError}</p>}
+          {authProviders.length === 0 ? (
+            <p className="status-error">사용 가능한 OAuth 공급자가 없습니다. 백엔드 OAuth 설정을 확인해주세요.</p>
+          ) : (
+            <div className="button-row auth-provider-row">
+              {authProviders.map((provider) => (
+                <button
+                  key={provider.id}
+                  className="primary-button"
+                  type="button"
+                  onClick={() => handleProviderLogin(provider.authorizationUrl)}
+                >
+                  {provider.name} 로그인
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <header className="app__header">
@@ -500,9 +695,20 @@ function App() {
             <span>업데이트</span>
             <strong className="mono">{updatedAt}</strong>
           </div>
+          <div className="status-row">
+            <span>사용자</span>
+            <strong className="mono">
+              {authUser.email || authUser.displayName || `${authUser.provider}:${authUser.providerUserId}`}
+            </strong>
+          </div>
           <div className="status-connection-row">
             <span>서버 연결</span>
             <span className={`connection-badge ${connectionClass}`}>{connectionLabel}</span>
+          </div>
+          <div className="status-actions">
+            <button className="ghost-button" type="button" onClick={handleLogout}>
+              로그아웃
+            </button>
           </div>
         </div>
       </header>
@@ -687,6 +893,66 @@ function App() {
         </div>
 
         <aside className="workspace-side">
+          <article className="control-card card--elevated auth-settings-card">
+            <div className="card-head">
+              <div>
+                <h2>내 인터페이스 설정</h2>
+                <p className="sub">로그인 사용자별 기본 리스크 프로필과 관심 마켓 목록을 저장합니다.</p>
+              </div>
+              <span className="pill">USER</span>
+            </div>
+            {userSettingsError && <p className="status-error">{userSettingsError}</p>}
+            {userSettingsNotice && <p className="status-success">{userSettingsNotice}</p>}
+            <div className="form-grid auth-settings-grid">
+              <label className="form-field">
+                <span>리스크 프로필</span>
+                <select
+                  value={userRiskProfile}
+                  onChange={(event) => setUserRiskProfile(event.target.value)}
+                  disabled={settingsLoading || settingsSaving}
+                >
+                  {PROFILE_VALUES.map((profile) => (
+                    <option key={profile} value={profile}>
+                      {profile}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-field">
+                <span>관심 마켓</span>
+                <input
+                  type="text"
+                  value={userMarketsInput}
+                  onChange={(event) => setUserMarketsInput(event.target.value)}
+                  placeholder="예: KRW-BTC, KRW-ETH"
+                  disabled={settingsLoading || settingsSaving}
+                />
+              </label>
+            </div>
+            <p className="sub compact">마켓 코드는 쉼표로 구분해 입력하세요. 형식 예: KRW-BTC</p>
+            <div className="button-row">
+              <button
+                className="primary-button"
+                type="button"
+                onClick={handleSaveMySettings}
+                disabled={settingsLoading || settingsSaving}
+              >
+                {settingsSaving ? '저장 중...' : '내 설정 저장'}
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={fetchMySettings}
+                disabled={settingsLoading || settingsSaving}
+              >
+                {settingsLoading ? '불러오는 중...' : '다시 불러오기'}
+              </button>
+            </div>
+            {userSettings?.updatedAt && (
+              <p className="sub compact">마지막 저장 {formatDateTime(userSettings.updatedAt)}</p>
+            )}
+          </article>
+
           <article className="control-card card--elevated market-card">
             <div className="card-head">
               <div>
@@ -1967,6 +2233,30 @@ const buildMarketListPayload = (rows) => {
   return { markets }
 }
 
+const parseUserMarketsInput = (value) => {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return []
+  }
+
+  const parsed = []
+  const seen = new Set()
+  value.split(',').forEach((token) => {
+    const market = normalizeMarket(token)
+    if (!market) {
+      return
+    }
+    if (!isValidMarketCode(market)) {
+      throw new Error(`${token.trim()} 마켓 코드 형식이 올바르지 않습니다. 예: KRW-BTC`)
+    }
+    if (seen.has(market)) {
+      return
+    }
+    seen.add(market)
+    parsed.push(market)
+  })
+  return parsed
+}
+
 const buildMarketOverrideSignature = (rows) => {
   if (!Array.isArray(rows)) {
     return ''
@@ -2148,6 +2438,13 @@ const normalizeDateInput = (value) => {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
 }
 
+const isPlainObject = (value) => {
+  if (value === null || typeof value !== 'object') {
+    return false
+  }
+  return !Array.isArray(value)
+}
+
 const normalizeProfileValue = (value) => {
   if (value === null || value === undefined) {
     return ''
@@ -2234,7 +2531,7 @@ const formatDateTime = (value) => {
   return date.toLocaleString('ko-KR', { hour12: false })
 }
 
-const formatTime = (value) => {
+const _formatTime = (value) => {
   if (!value) {
     return '-'
   }

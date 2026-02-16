@@ -7,6 +7,29 @@
   gap: 16px;
 }
 
+.auth-gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-gate__card {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: linear-gradient(165deg, var(--surface), var(--surface-soft));
+  box-shadow: var(--shadow-soft);
+}
+
+.auth-provider-row .primary-button {
+  min-width: 160px;
+}
+
 .app > * {
   opacity: 0;
   animation: rise-in 0.45s ease forwards;
@@ -231,6 +254,12 @@ h3 {
   font-size: 0.69rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.status-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 
 .connection-badge {
@@ -585,6 +614,10 @@ h3 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.auth-settings-grid {
+  grid-template-columns: 1fr;
 }
 
 .form-field {
