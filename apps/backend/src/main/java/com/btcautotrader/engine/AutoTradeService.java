@@ -9,8 +9,9 @@ import com.btcautotrader.strategy.StrategyMarketOverrides;
 import com.btcautotrader.strategy.StrategyMarketRatios;
 import com.btcautotrader.strategy.StrategyProfile;
 import com.btcautotrader.strategy.StrategyService;
+import com.btcautotrader.tenant.TenantContext;
+import com.btcautotrader.tenant.TenantDatabaseProvisioningService;
 import com.btcautotrader.upbit.UpbitService;
-import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -27,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -37,11 +39,14 @@ public class AutoTradeService {
     private static final BigDecimal RELATIVE_MOMENTUM_LONG_WEIGHT = new BigDecimal("0.6");
     private static final BigDecimal RELATIVE_MOMENTUM_SHORT_WEIGHT = new BigDecimal("0.4");
     private static final String SYSTEM_KEY = "SYSTEM";
+    private static final String DEFAULT_TENANT_KEY = "__system__";
+    private static final String TENANT_KEY_SEPARATOR = "::";
 
     private final UpbitService upbitService;
     private final OrderService orderService;
     private final StrategyService strategyService;
     private final EngineService engineService;
+    private final TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
     private final OrderRepository orderRepository;
     private final TradeDecisionRepository tradeDecisionRepository;
     private final TradeDecisionService tradeDecisionService;
@@ -110,8 +115,9 @@ public class AutoTradeService {
     private final long orderChanceCacheMinutes;
     private final int stateRestoreLimit;
 
-    private final AtomicBoolean running = new AtomicBoolean(false);
-    private final AtomicInteger marketCursor = new AtomicInteger(0);
+    private final Map<String, AtomicBoolean> runningByTenant = new ConcurrentHashMap<>();
+    private final Map<String, AtomicInteger> marketCursorByTenant = new ConcurrentHashMap<>();
+    private final Set<String> restoredStateTenants = ConcurrentHashMap.newKeySet();
     private final Map<String, BackoffState> backoffStates = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> lastPartialTakeProfitAt = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> lastStopLossAt = new ConcurrentHashMap<>();
@@ -127,6 +133,7 @@ public class AutoTradeService {
             OrderService orderService,
             StrategyService strategyService,
             EngineService engineService,
+            TenantDatabaseProvisioningService tenantDatabaseProvisioningService,
             OrderRepository orderRepository,
             TradeDecisionRepository tradeDecisionRepository,
             TradeDecisionService tradeDecisionService,
@@ -197,6 +204,7 @@ public class AutoTradeService {
         this.orderService = orderService;
         this.strategyService = strategyService;
         this.engineService = engineService;
+        this.tenantDatabaseProvisioningService = tenantDatabaseProvisioningService;
         this.orderRepository = orderRepository;
         this.tradeDecisionRepository = tradeDecisionRepository;
         this.tradeDecisionService = tradeDecisionService;
@@ -270,8 +278,21 @@ public class AutoTradeService {
         this.stateRestoreLimit = Math.max(0, stateRestoreLimit);
     }
 
-    @PostConstruct
-    void restoreExitState() {
+    private void restoreExitStateIfNeeded() {
+        String tenantKey = currentTenantKey();
+        if (!restoredStateTenants.add(tenantKey)) {
+            return;
+        }
+        try {
+            restoreExitStateForCurrentTenant();
+        } catch (RuntimeException ex) {
+            // Retry on next tick if hydration fails due to transient DB errors.
+            restoredStateTenants.remove(tenantKey);
+            throw ex;
+        }
+    }
+
+    private void restoreExitStateForCurrentTenant() {
         if (tradeDecisionRepository == null || stateRestoreLimit <= 0) {
             return;
         }
@@ -294,7 +315,7 @@ public class AutoTradeService {
             if (decision == null || decision.getExecutedAt() == null) {
                 continue;
             }
-            String market = normalizeMarketKey(decision.getMarket());
+            String market = tenantScopedMarketKey(decision.getMarket());
             if (market == null) {
                 continue;
             }
@@ -328,18 +349,28 @@ public class AutoTradeService {
 
     @Scheduled(fixedDelayString = "${engine.tick-ms:5000}")
     public void scheduledTick() {
-        if (!engineService.isRunning()) {
-            return;
+        List<String> tenants = tenantDatabaseProvisioningService.listKnownTenantDatabases();
+        for (String tenantDatabase : tenants) {
+            try {
+                TenantContext.runWithTenantDatabase(tenantDatabase, () -> {
+                    if (engineService.isRunning()) {
+                        runOnce();
+                    }
+                });
+            } catch (RuntimeException ignored) {
+                // Keep ticking other tenants even when one tenant fails.
+            }
         }
-        runOnce();
     }
 
     public AutoTradeResult runOnce() {
+        AtomicBoolean running = runningFlag();
         if (!running.compareAndSet(false, true)) {
             return new AutoTradeResult(OffsetDateTime.now().toString(), List.of());
         }
 
         try {
+            restoreExitStateIfNeeded();
             OffsetDateTime now = OffsetDateTime.now();
             if (isBackoffActive(SYSTEM_KEY, now)) {
                 AutoTradeAction action = new AutoTradeAction(SYSTEM_KEY, "SKIP", "backoff", null, null, null, null, null);
@@ -424,8 +455,11 @@ public class AutoTradeService {
                     BigDecimal total = position.total();
 
                     if (total.compareTo(BigDecimal.ZERO) <= 0) {
-                        lastPartialTakeProfitAt.remove(market);
-                        String marketKey = normalizeMarketKey(market);
+                        String tenantMarketKey = tenantScopedMarketKey(market);
+                        if (tenantMarketKey != null) {
+                            lastPartialTakeProfitAt.remove(tenantMarketKey);
+                        }
+                        String marketKey = tenantMarketKey;
                         if (marketKey != null) {
                             trailingHighByMarket.remove(marketKey);
                         }
@@ -684,7 +718,7 @@ public class AutoTradeService {
             BigDecimal currentPrice,
             BigDecimal windowHigh
     ) {
-        String marketKey = normalizeMarketKey(market);
+        String marketKey = tenantScopedMarketKey(market);
         if (marketKey == null) {
             return null;
         }
@@ -1082,12 +1116,13 @@ public class AutoTradeService {
     }
 
     private OrderChanceSnapshot fetchOrderChanceSnapshot(String market) {
-        String normalized = normalizeMarketKey(market);
-        if (normalized == null) {
+        String normalizedMarket = normalizeMarketKey(market);
+        String cacheKey = tenantScopedMarketKey(market);
+        if (normalizedMarket == null || cacheKey == null) {
             return null;
         }
         OffsetDateTime now = OffsetDateTime.now();
-        OrderChanceSnapshot cached = orderChanceCache.get(normalized);
+        OrderChanceSnapshot cached = orderChanceCache.get(cacheKey);
         if (cached != null && orderChanceCacheMinutes > 0 && cached.fetchedAt() != null) {
             OffsetDateTime threshold = now.minusMinutes(orderChanceCacheMinutes);
             if (cached.fetchedAt().isAfter(threshold)) {
@@ -1096,10 +1131,10 @@ public class AutoTradeService {
         }
 
         try {
-            Map<String, Object> response = upbitService.fetchOrderChance(normalized);
+            Map<String, Object> response = upbitService.fetchOrderChance(normalizedMarket);
             OrderChanceSnapshot snapshot = parseOrderChanceSnapshot(response);
             if (snapshot != null) {
-                orderChanceCache.put(normalized, snapshot);
+                orderChanceCache.put(cacheKey, snapshot);
                 return snapshot;
             }
         } catch (RuntimeException ignored) {
@@ -1175,6 +1210,37 @@ public class AutoTradeService {
             return null;
         }
         return market.trim().toUpperCase();
+    }
+
+    private AtomicBoolean runningFlag() {
+        return runningByTenant.computeIfAbsent(currentTenantKey(), key -> new AtomicBoolean(false));
+    }
+
+    private AtomicInteger marketCursor() {
+        return marketCursorByTenant.computeIfAbsent(currentTenantKey(), key -> new AtomicInteger(0));
+    }
+
+    private String currentTenantKey() {
+        String tenantDatabase = TenantContext.getTenantDatabase();
+        if (tenantDatabase == null || tenantDatabase.isBlank()) {
+            return DEFAULT_TENANT_KEY;
+        }
+        return tenantDatabase.trim();
+    }
+
+    private String tenantScopedKey(String key) {
+        if (key == null || key.isBlank()) {
+            return currentTenantKey();
+        }
+        return currentTenantKey() + TENANT_KEY_SEPARATOR + key;
+    }
+
+    private String tenantScopedMarketKey(String market) {
+        String normalized = normalizeMarketKey(market);
+        if (normalized == null) {
+            return null;
+        }
+        return tenantScopedKey(normalized);
     }
 
     private static Map<String, BigDecimal> parseMarketMaxOrderKrwOverrides(String config) {
@@ -1510,8 +1576,9 @@ public class AutoTradeService {
         Map<String, BigDecimal> scores = new HashMap<>();
         OffsetDateTime now = OffsetDateTime.now();
         for (String market : markets) {
-            String key = normalizeMarketKey(market);
-            if (key == null) {
+            String normalizedMarket = normalizeMarketKey(market);
+            String key = tenantScopedMarketKey(market);
+            if (normalizedMarket == null || key == null) {
                 continue;
             }
             MomentumSnapshot cached = relativeMomentumCache.get(key);
@@ -1526,7 +1593,7 @@ public class AutoTradeService {
             }
             try {
                 List<Map<String, Object>> candles = upbitService.fetchMinuteCandles(
-                        key,
+                        normalizedMarket,
                         relativeMomentumTimeframeUnit,
                         count
                 );
@@ -1690,7 +1757,7 @@ public class AutoTradeService {
         if (markets == null || markets.size() <= 1) {
             return markets == null ? List.of() : new ArrayList<>(markets);
         }
-        int start = Math.floorMod(marketCursor.getAndIncrement(), markets.size());
+        int start = Math.floorMod(marketCursor().getAndIncrement(), markets.size());
         List<String> ordered = new ArrayList<>(markets.size());
         for (int i = 0; i < markets.size(); i++) {
             ordered.add(markets.get((start + i) % markets.size()));
@@ -2298,7 +2365,10 @@ public class AutoTradeService {
         OrderRequest request = new OrderRequest(market, "SELL", "MARKET", null, volume, null, null);
         OrderResponse response = orderService.create(request);
         if (isAcceptedOrder(response)) {
-            lastPartialTakeProfitAt.put(market, now);
+            String key = tenantScopedMarketKey(market);
+            if (key != null) {
+                lastPartialTakeProfitAt.put(key, now);
+            }
         }
         recordSellEvent(market, "take_profit_partial", response);
         return new AutoTradeAction(
@@ -2317,7 +2387,8 @@ public class AutoTradeService {
         if (stopLossCooldownMinutes <= 0) {
             return false;
         }
-        OffsetDateTime last = lastStopLossAt.get(market);
+        String key = tenantScopedMarketKey(market);
+        OffsetDateTime last = key == null ? null : lastStopLossAt.get(key);
         if (last == null) {
             return false;
         }
@@ -2328,7 +2399,8 @@ public class AutoTradeService {
         if (reentryCooldownMinutes <= 0) {
             return false;
         }
-        OffsetDateTime last = lastExitAt.get(market);
+        String key = tenantScopedMarketKey(market);
+        OffsetDateTime last = key == null ? null : lastExitAt.get(key);
         if (last == null) {
             return false;
         }
@@ -2339,13 +2411,14 @@ public class AutoTradeService {
         if (stopLossGuardLockMinutes <= 0) {
             return false;
         }
-        OffsetDateTime until = stopLossGuardUntilByMarket.get(market);
+        String key = tenantScopedMarketKey(market);
+        OffsetDateTime until = key == null ? null : stopLossGuardUntilByMarket.get(key);
         if (until == null) {
             return false;
         }
         OffsetDateTime now = OffsetDateTime.now();
         if (now.isAfter(until)) {
-            stopLossGuardUntilByMarket.remove(market);
+            stopLossGuardUntilByMarket.remove(key);
             return false;
         }
         return true;
@@ -2355,18 +2428,25 @@ public class AutoTradeService {
         if (!isAcceptedOrder(response)) {
             return;
         }
+        String key = tenantScopedMarketKey(market);
+        if (key == null) {
+            return;
+        }
         OffsetDateTime now = OffsetDateTime.now();
-        lastExitAt.put(market, now);
+        lastExitAt.put(key, now);
         if (isStopLikeReason(reason)) {
-            lastStopLossAt.put(market, now);
+            lastStopLossAt.put(key, now);
             if (stopLossGuardTriggerCount > 0 && stopLossGuardLookbackMinutes > 0 && stopLossGuardLockMinutes > 0) {
-                registerStopLossEvent(market, now);
+                registerStopLossEvent(key, now);
             }
         }
     }
 
-    private void registerStopLossEvent(String market, OffsetDateTime occurredAt) {
-        Deque<OffsetDateTime> events = stopLossEventsByMarket.computeIfAbsent(market, key -> new ArrayDeque<>());
+    private void registerStopLossEvent(String marketKey, OffsetDateTime occurredAt) {
+        if (marketKey == null) {
+            return;
+        }
+        Deque<OffsetDateTime> events = stopLossEventsByMarket.computeIfAbsent(marketKey, key -> new ArrayDeque<>());
         synchronized (events) {
             OffsetDateTime threshold = occurredAt.minusMinutes(stopLossGuardLookbackMinutes);
             while (!events.isEmpty() && events.peekFirst().isBefore(threshold)) {
@@ -2374,7 +2454,7 @@ public class AutoTradeService {
             }
             events.addLast(occurredAt);
             if (events.size() >= stopLossGuardTriggerCount) {
-                stopLossGuardUntilByMarket.put(market, occurredAt.plusMinutes(stopLossGuardLockMinutes));
+                stopLossGuardUntilByMarket.put(marketKey, occurredAt.plusMinutes(stopLossGuardLockMinutes));
             }
         }
     }
@@ -2421,7 +2501,8 @@ public class AutoTradeService {
             entity.setOrderId(action.orderId());
             entity.setRequestStatus(action.requestStatus());
 
-            BigDecimal entryTrailingHigh = trailingHighByMarket.get(market);
+            String trailingKey = tenantScopedMarketKey(market);
+            BigDecimal entryTrailingHigh = trailingKey == null ? null : trailingHighByMarket.get(trailingKey);
             if (indicators != null) {
                 entity.setMaShort(indicators.maShort());
                 entity.setMaLong(indicators.maLong());
@@ -2518,7 +2599,7 @@ public class AutoTradeService {
             if (momentumScorePct != null) {
                 details.put("relativeMomentumScorePct", momentumScorePct);
             }
-            String marketKey = normalizeMarketKey(market);
+            String marketKey = tenantScopedMarketKey(market);
             OrderChanceSnapshot orderChance = marketKey == null ? null : orderChanceCache.get(marketKey);
             if (orderChance != null) {
                 details.put("orderChanceBidMinTotal", orderChance.bidMinTotal());
@@ -2541,7 +2622,8 @@ public class AutoTradeService {
         if (partialTakeProfitCooldownMinutes <= 0) {
             return true;
         }
-        OffsetDateTime last = lastPartialTakeProfitAt.get(market);
+        String key = tenantScopedMarketKey(market);
+        OffsetDateTime last = key == null ? null : lastPartialTakeProfitAt.get(key);
         if (last == null) {
             return true;
         }
@@ -2628,30 +2710,32 @@ public class AutoTradeService {
     }
 
     private boolean isBackoffActive(String key, OffsetDateTime now) {
-        BackoffState state = backoffStates.get(key);
+        String scopedKey = tenantScopedKey(key);
+        BackoffState state = backoffStates.get(scopedKey);
         if (state == null) {
             return false;
         }
         OffsetDateTime until = state.until();
         if (until == null || now.isAfter(until)) {
-            backoffStates.remove(key);
+            backoffStates.remove(scopedKey);
             return false;
         }
         return true;
     }
 
     private void recordFailure(String key, OffsetDateTime now) {
-        BackoffState previous = backoffStates.get(key);
+        String scopedKey = tenantScopedKey(key);
+        BackoffState previous = backoffStates.get(scopedKey);
         int failures = previous == null ? 1 : previous.consecutiveFailures() + 1;
         long delay = failureBackoffBaseSeconds;
         for (int i = 1; i < failures; i++) {
             delay = Math.min(failureBackoffMaxSeconds, delay * 2);
         }
-        backoffStates.put(key, new BackoffState(failures, now.plusSeconds(delay)));
+        backoffStates.put(scopedKey, new BackoffState(failures, now.plusSeconds(delay)));
     }
 
     private void resetFailure(String key) {
-        backoffStates.remove(key);
+        backoffStates.remove(tenantScopedKey(key));
     }
 
     private record AccountSnapshot(BigDecimal balance, BigDecimal locked, BigDecimal avgBuyPrice) {

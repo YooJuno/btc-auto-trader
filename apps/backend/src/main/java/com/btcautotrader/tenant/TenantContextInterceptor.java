@@ -16,11 +16,10 @@ public class TenantContextInterceptor implements HandlerInterceptor {
     private static final List<String> TENANT_PREFIXES = List.of(
             "/api/order",
             "/api/strategy",
-            "/api/portfolio"
+            "/api/portfolio",
+            "/api/engine"
     );
-    private static final List<String> TENANT_EXACT_PATHS = List.of(
-            "/api/engine/decisions"
-    );
+    private static final List<String> TENANT_EXACT_PATHS = List.of();
 
     private final CurrentUserService currentUserService;
     private final TenantDatabaseProvisioningService tenantDatabaseProvisioningService;

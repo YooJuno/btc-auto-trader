@@ -17,7 +17,10 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 @Service
 public class TenantDatabaseProvisioningService {
@@ -70,6 +73,23 @@ public class TenantDatabaseProvisioningService {
             return;
         }
         userRepository.findFirstByEmailIgnoreCase(ownerEmail).ifPresent(this::ensureTenant);
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> listKnownTenantDatabases() {
+        Set<String> databases = new LinkedHashSet<>();
+        databases.add(tenantDataSourceProvider.getSystemDatabaseName());
+
+        List<String> assigned = TenantContext.callWithTenantDatabase(null, () -> userRepository.findAll()
+                .stream()
+                .map(UserEntity::getTenantDatabase)
+                .map(TenantDatabaseProvisioningService::trimToNull)
+                .filter(name -> name != null)
+                .toList());
+        if (assigned != null && !assigned.isEmpty()) {
+            databases.addAll(assigned);
+        }
+        return List.copyOf(databases);
     }
 
     private boolean isOwner(UserEntity user) {
