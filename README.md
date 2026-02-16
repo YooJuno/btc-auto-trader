@@ -56,3 +56,9 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
 - `APP_OWNER_EMAIL` 계정은 기존 메인 DB를 사용하고, 신규 로그인 계정은 `btc_user_<user_id>` 형태의 전용 DB를 자동 생성합니다.
 - `/api/engine/*`, `/api/order/*`, `/api/strategy/*`, `/api/portfolio/*`는 로그인 사용자 tenant DB 기준으로 동작합니다.
 - 거래소 API 키는 사용자별로 암호화 저장되며(`user_exchange_credentials`), `/api/me/exchange-credentials`에서 관리합니다.
+
+### Tenant 분리 확인 체크리스트
+1. 계정 A/B 각각 로그인 후 `/api/me`의 `tenantDatabase`가 다른지 확인
+2. A에서 `/api/strategy/markets` 변경 후 B에서 조회했을 때 값이 분리되는지 확인
+3. A에서 주문 생성 후 B의 `/api/order/history`에 보이지 않는지 확인
+4. A/B 각각 `/api/engine/start` 후 `/api/engine/status`가 계정별로 독립 동작하는지 확인
