@@ -45,6 +45,7 @@
   "providerUserId": "1234567890",
   "email": "user@example.com",
   "displayName": "Juno",
+  "tenantDatabase": "btc-auto-trader",
   "createdAt": "2026-02-16T10:10:10.000Z",
   "lastLoginAt": "2026-02-16T11:30:00.000Z"
 }

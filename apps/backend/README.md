@@ -131,3 +131,5 @@
   - `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_<PROVIDER>_SCOPE=openid,profile,email`
   - `APP_AUTH_SUCCESS_REDIRECT_URL`
   - `APP_AUTH_FAILURE_REDIRECT_URL`
+  - `APP_OWNER_EMAIL` (기존 메인 DB 소유자 이메일, 기본 `juno980220@gmail.com`)
+- `APP_OWNER_EMAIL` 계정은 기본 DB를 사용하고, 신규 로그인 계정은 `btc_user_<user_id>` 데이터베이스를 자동 생성해 분리 저장합니다.

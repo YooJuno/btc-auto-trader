@@ -40,7 +40,9 @@ SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_SCOPE=openid,profile,email
 # Frontend redirect after login
 APP_AUTH_SUCCESS_REDIRECT_URL=http://localhost:5173/
 APP_AUTH_FAILURE_REDIRECT_URL=http://localhost:5173/?loginError=true
+APP_OWNER_EMAIL=juno980220@gmail.com
 ```
 
 ### Local dev note
 - Vite dev server는 `/api`, `/oauth2`, `/login` 경로를 백엔드(`:8080`)로 프록시합니다.
+- `APP_OWNER_EMAIL` 계정은 기존 메인 DB를 사용하고, 신규 로그인 계정은 `btc_user_<user_id>` 형태의 전용 DB를 자동 생성합니다.
