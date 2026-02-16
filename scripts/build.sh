@@ -13,6 +13,3 @@ sudo cp /home/juno/Workspace/btc-auto-trader/scripts/btc-backend.service /etc/sy
 sudo cp /home/juno/Workspace/btc-auto-trader/scripts/btc-frontend.service /etc/systemd/system/btc-frontend.service
 
 sudo systemctl daemon-reload
-
-sudo systemctl enable --now btc-backend
-sudo systemctl enable --now btc-frontend
