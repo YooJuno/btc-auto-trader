@@ -55,6 +55,7 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
 
 ### Local dev note
 - Vite dev server는 `/api`, `/oauth2`, `/login` 경로를 백엔드(`:8080`)로 프록시합니다.
+- OAuth 정상 동작을 위해 Vite 프록시는 `changeOrigin=false`로 원본 Host를 유지해야 합니다.
 - `APP_OWNER_EMAIL` 계정은 기존 메인 DB를 사용하고, 신규 로그인 계정은 `btc_user_<user_id>` 형태의 전용 DB를 자동 생성합니다.
 - `/api/engine/*`, `/api/order/*`, `/api/strategy/*`, `/api/portfolio/*`는 로그인 사용자 tenant DB 기준으로 동작합니다.
 - 거래소 API 키는 사용자별로 암호화 저장되며(`user_exchange_credentials`), `/api/me/exchange-credentials`에서 관리합니다.

@@ -8,15 +8,15 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
-        changeOrigin: true,
+        changeOrigin: false,
       },
       '/oauth2': {
         target: 'http://localhost:8080',
-        changeOrigin: true,
+        changeOrigin: false,
       },
       '/login': {
         target: 'http://localhost:8080',
-        changeOrigin: true,
+        changeOrigin: false,
       },
     },
   },
