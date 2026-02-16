@@ -7,6 +7,7 @@
 - `api.auth.enabled=true`인 경우 `X-API-KEY` 헤더(또는 `api.auth.header` 지정값)가 필요합니다.
 - `/api/me`, `/api/me/settings`, `/api/order/**`, `/api/strategy/**`, `/api/portfolio/**`, `/api/engine/**`는 OAuth 로그인 세션이 필요합니다.
 - `/api/order/**`, `/api/strategy/**`, `/api/portfolio/**`, `/api/engine/**`는 로그인 사용자의 tenant DB 기준으로 처리됩니다.
+- `APP_TRADING_OWNER_ONLY_MODE=true`면 `/api/order`와 `/api/engine/start|tick`은 owner 계정만 허용됩니다.
 
 ```jsonc
 {
@@ -83,6 +84,45 @@
 
 ### POST /api/auth/logout
 현재 로그인 세션 로그아웃.
+
+### GET /api/me/exchange-credentials
+현재 로그인 사용자의 거래소 API 키 상태 조회.
+
+**응답**
+```jsonc
+{
+  "configured": true,
+  "usingDefaultCredentials": false,
+  "updatedAt": "2026-02-16T12:10:00.000Z"
+}
+```
+
+### PUT /api/me/exchange-credentials
+현재 로그인 사용자 거래소 API 키 저장(암호화).
+
+**요청**
+```jsonc
+{
+  "accessKey": "upbit-access-key",
+  "secretKey": "upbit-secret-key"
+}
+```
+
+### POST /api/me/exchange-credentials/verify
+저장된(또는 owner fallback) 거래소 API 키 검증.
+
+**응답**
+```jsonc
+{
+  "ok": true,
+  "accountCount": 2,
+  "usingDefaultCredentials": false,
+  "checkedAt": "2026-02-16T12:20:00.000Z"
+}
+```
+
+### DELETE /api/me/exchange-credentials
+현재 로그인 사용자 거래소 API 키 삭제.
 
 ---
 

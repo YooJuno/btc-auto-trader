@@ -124,7 +124,8 @@
 스키마: `infra/db/schema.sql`
 
 ## 실행/운영 메모
-- Upbit API Key는 `.env` 또는 환경 변수에서 로드
+- 기본 Upbit API Key(`UPBIT_ACCESS_KEY`, `UPBIT_SECRET_KEY`)는 owner 계정 fallback 용도입니다.
+- 일반 로그인 사용자는 `/api/me/exchange-credentials`로 API Key를 저장하며, DB에는 암호화되어 저장됩니다.
 - OAuth2 로그인 사용 시 아래 설정 필요
   - `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_<PROVIDER>_CLIENT_ID`
   - `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_<PROVIDER>_CLIENT_SECRET`
@@ -132,5 +133,7 @@
   - `APP_AUTH_SUCCESS_REDIRECT_URL`
   - `APP_AUTH_FAILURE_REDIRECT_URL`
   - `APP_OWNER_EMAIL` (기존 메인 DB 소유자 이메일, 기본 `juno980220@gmail.com`)
+  - `APP_TRADING_OWNER_ONLY_MODE` (기본 `true`, owner 계정만 주문/엔진 실행 허용)
+  - `APP_EXCHANGE_KEY_ENCRYPTION_KEY` (사용자별 거래소 키 암호화 키)
 - `APP_OWNER_EMAIL` 계정은 기본 DB를 사용하고, 신규 로그인 계정은 `btc_user_<user_id>` 데이터베이스를 자동 생성해 분리 저장합니다.
 - 엔진 제어/틱(`/api/engine/*`)과 주문/전략/포트폴리오 API는 tenant DB로 라우팅되어 사용자별로 분리됩니다.
