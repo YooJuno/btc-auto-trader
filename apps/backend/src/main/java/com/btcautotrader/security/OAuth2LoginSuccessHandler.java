@@ -20,7 +20,7 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
     public OAuth2LoginSuccessHandler(
             CurrentUserService currentUserService,
             AuthRedirectUrlResolver authRedirectUrlResolver,
-            @Value("${app.auth.success-redirect-url:http://localhost:5173/}") String successRedirectUrl
+            @Value("${app.auth.success-redirect-url:/}") String successRedirectUrl
     ) {
         this.currentUserService = currentUserService;
         this.authRedirectUrlResolver = authRedirectUrlResolver;

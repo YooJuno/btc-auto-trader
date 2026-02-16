@@ -17,7 +17,7 @@ public class OAuth2LoginFailureHandler implements AuthenticationFailureHandler {
 
     public OAuth2LoginFailureHandler(
             AuthRedirectUrlResolver authRedirectUrlResolver,
-            @Value("${app.auth.failure-redirect-url:http://localhost:5173/?loginError=true}") String failureRedirectUrl
+            @Value("${app.auth.failure-redirect-url:/?loginError=true}") String failureRedirectUrl
     ) {
         this.authRedirectUrlResolver = authRedirectUrlResolver;
         this.failureRedirectUrl = failureRedirectUrl;
