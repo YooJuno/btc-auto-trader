@@ -39,6 +39,9 @@ public class UserEntity {
     @Column(name = "display_name", length = 160)
     private String displayName;
 
+    @Column(name = "tenant_db", length = 63)
+    private String tenantDatabase;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -90,6 +93,14 @@ public class UserEntity {
 
     public void setDisplayName(String displayName) {
         this.displayName = displayName;
+    }
+
+    public String getTenantDatabase() {
+        return tenantDatabase;
+    }
+
+    public void setTenantDatabase(String tenantDatabase) {
+        this.tenantDatabase = tenantDatabase;
     }
 
     public OffsetDateTime getCreatedAt() {

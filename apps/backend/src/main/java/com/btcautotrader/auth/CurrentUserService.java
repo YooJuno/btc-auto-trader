@@ -1,5 +1,6 @@
 package com.btcautotrader.auth;
 
+import com.btcautotrader.tenant.TenantDatabaseProvisioningService;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
@@ -19,9 +20,14 @@ public class CurrentUserService {
     private static final List<String> NAME_KEYS = List.of("name", "nickname", "login", "preferred_username");
 
     private final UserRepository userRepository;
+    private final TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
 
-    public CurrentUserService(UserRepository userRepository) {
+    public CurrentUserService(
+            UserRepository userRepository,
+            TenantDatabaseProvisioningService tenantDatabaseProvisioningService
+    ) {
         this.userRepository = userRepository;
+        this.tenantDatabaseProvisioningService = tenantDatabaseProvisioningService;
     }
 
     @Transactional
@@ -39,14 +45,15 @@ public class CurrentUserService {
         entity.setEmail(identity.email());
         entity.setDisplayName(identity.displayName());
         entity.setLastLoginAt(OffsetDateTime.now());
-        return userRepository.save(entity);
+        UserEntity saved = userRepository.save(entity);
+        return tenantDatabaseProvisioningService.ensureTenant(saved);
     }
 
     @Transactional
     public UserEntity requireUser(Authentication authentication) {
         Identity identity = resolveIdentity(authentication);
 
-        return userRepository.findByProviderAndProviderUserId(identity.provider(), identity.providerUserId())
+        UserEntity resolved = userRepository.findByProviderAndProviderUserId(identity.provider(), identity.providerUserId())
                 .orElseGet(() -> {
                     UserEntity created = new UserEntity();
                     created.setProvider(identity.provider());
@@ -56,6 +63,7 @@ public class CurrentUserService {
                     created.setLastLoginAt(OffsetDateTime.now());
                     return userRepository.save(created);
                 });
+        return tenantDatabaseProvisioningService.ensureTenant(resolved);
     }
 
     @Transactional(readOnly = true)

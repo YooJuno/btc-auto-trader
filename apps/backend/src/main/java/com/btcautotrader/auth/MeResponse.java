@@ -8,6 +8,7 @@ public record MeResponse(
         String providerUserId,
         String email,
         String displayName,
+        String tenantDatabase,
         OffsetDateTime createdAt,
         OffsetDateTime lastLoginAt
 ) {
@@ -18,6 +19,7 @@ public record MeResponse(
                 user.getProviderUserId(),
                 user.getEmail(),
                 user.getDisplayName(),
+                user.getTenantDatabase(),
                 user.getCreatedAt(),
                 user.getLastLoginAt()
         );
