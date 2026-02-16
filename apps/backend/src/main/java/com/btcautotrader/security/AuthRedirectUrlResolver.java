@@ -31,7 +31,11 @@ public class AuthRedirectUrlResolver {
             return fallback(configuredUrl);
         }
 
-        int port = frontendPort > 0 ? frontendPort : origin.port();
+        int port = origin.port();
+        if (port <= 0 && frontendPort > 0) {
+            // Fallback only when request origin has no usable port information.
+            port = frontendPort;
+        }
         StringBuilder redirect = new StringBuilder();
         redirect.append(origin.scheme()).append("://").append(formatHost(origin.host()));
         if (shouldIncludePort(origin.scheme(), port)) {

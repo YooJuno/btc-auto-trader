@@ -36,6 +36,8 @@ Spring Boot 백엔드 + React 프론트 + PostgreSQL로 구성된 모노레포�
 SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_ID=your-google-client-id
 SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_SECRET=your-google-client-secret
 SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_SCOPE=openid,profile,email
+# Optional: force fixed callback URL (recommended for public HTTPS domain)
+SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECT_URI=https://your-domain/login/oauth2/code/google
 
 # Frontend redirect after login (path only 권장)
 APP_AUTH_SUCCESS_REDIRECT_URL=/
@@ -59,6 +61,14 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
 - `APP_OWNER_EMAIL` 계정은 기존 메인 DB를 사용하고, 신규 로그인 계정은 `btc_user_<user_id>` 형태의 전용 DB를 자동 생성합니다.
 - `/api/engine/*`, `/api/order/*`, `/api/strategy/*`, `/api/portfolio/*`는 로그인 사용자 tenant DB 기준으로 동작합니다.
 - 거래소 API 키는 사용자별로 암호화 저장되며(`user_exchange_credentials`), `/api/me/exchange-credentials`에서 관리합니다.
+
+### Google OAuth `invalid_request`(정책 위반) 대응
+- Google은 `localhost`가 아닌 공개 주소의 OAuth 콜백을 `http://`로 받으면 차단합니다.
+- 공개 접속은 반드시 `https://도메인`으로 운영하세요. (IP + HTTP는 차단될 수 있음)
+- Google Cloud Console > OAuth 클라이언트에 아래 URI를 정확히 등록해야 합니다.
+  - `https://your-domain/login/oauth2/code/google`
+- 서버 환경변수도 동일하게 맞추세요.
+  - `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECT_URI=https://your-domain/login/oauth2/code/google`
 
 ### Tenant 분리 확인 체크리스트
 1. 계정 A/B 각각 로그인 후 `/api/me`의 `tenantDatabase`가 다른지 확인
