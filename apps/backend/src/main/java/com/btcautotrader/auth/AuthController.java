@@ -40,12 +40,13 @@ public class AuthController {
     }
 
     @GetMapping("/auth/providers")
-    public ResponseEntity<List<AuthProviderResponse>> getAuthProviders() {
+    public ResponseEntity<List<AuthProviderResponse>> getAuthProviders(HttpServletRequest request) {
         ClientRegistrationRepository repository = clientRegistrationRepositoryProvider.getIfAvailable();
         if (!(repository instanceof Iterable<?> iterable)) {
             return ResponseEntity.ok(List.of());
         }
 
+        String authBaseUrl = resolveAuthBaseUrl(request);
         List<AuthProviderResponse> providers = new ArrayList<>();
         for (Object item : iterable) {
             if (!(item instanceof ClientRegistration registration)) {
@@ -55,12 +56,29 @@ public class AuthController {
             providers.add(new AuthProviderResponse(
                     id,
                     registration.getClientName(),
-                    "/oauth2/authorization/" + id
+                    authBaseUrl + "/oauth2/authorization/" + id
             ));
         }
 
         providers.sort(Comparator.comparing(AuthProviderResponse::name));
         return ResponseEntity.ok(providers);
+    }
+
+    private static String resolveAuthBaseUrl(HttpServletRequest request) {
+        if (request == null) {
+            return "";
+        }
+        String scheme = request.getScheme();
+        String host = request.getServerName();
+        int port = request.getServerPort();
+
+        if (host == null || host.isBlank()) {
+            return "";
+        }
+        if (("http".equalsIgnoreCase(scheme) && port == 80) || ("https".equalsIgnoreCase(scheme) && port == 443)) {
+            return scheme + "://" + host;
+        }
+        return scheme + "://" + host + ":" + port;
     }
 
     @PostMapping("/auth/logout")
