@@ -84,6 +84,14 @@ function App() {
   const [userRiskProfile, setUserRiskProfile] = useState(DEFAULT_MARKET_PROFILE)
   const [userMarketsInput, setUserMarketsInput] = useState('')
   const [userUiPrefs, setUserUiPrefs] = useState({})
+  const [exchangeCredentialStatus, setExchangeCredentialStatus] = useState(null)
+  const [exchangeCredentialLoading, setExchangeCredentialLoading] = useState(false)
+  const [exchangeCredentialSaving, setExchangeCredentialSaving] = useState(false)
+  const [exchangeCredentialVerifying, setExchangeCredentialVerifying] = useState(false)
+  const [exchangeCredentialError, setExchangeCredentialError] = useState(null)
+  const [exchangeCredentialNotice, setExchangeCredentialNotice] = useState(null)
+  const [exchangeAccessKeyInput, setExchangeAccessKeyInput] = useState('')
+  const [exchangeSecretKeyInput, setExchangeSecretKeyInput] = useState('')
   const lastOrderIdRef = useRef(null)
   const lastDecisionIdRef = useRef(null)
 
@@ -147,6 +155,27 @@ function App() {
     }
   }, [authUser])
 
+  const fetchExchangeCredentialStatus = useCallback(async () => {
+    if (!authUser) {
+      return
+    }
+    setExchangeCredentialLoading(true)
+    setExchangeCredentialError(null)
+    try {
+      const response = await fetch('/api/me/exchange-credentials')
+      if (!response.ok) {
+        throw new Error(`거래소 키 상태 조회 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      setExchangeCredentialStatus(data)
+    } catch (err) {
+      setExchangeCredentialStatus(null)
+      setExchangeCredentialError(err?.message ?? '거래소 키 상태 조회 실패')
+    } finally {
+      setExchangeCredentialLoading(false)
+    }
+  }, [authUser])
+
   const handleProviderLogin = useCallback((authorizationUrl) => {
     if (!authorizationUrl) {
       return
@@ -169,6 +198,11 @@ function App() {
     setUserRiskProfile(DEFAULT_MARKET_PROFILE)
     setUserMarketsInput('')
     setUserUiPrefs({})
+    setExchangeCredentialStatus(null)
+    setExchangeCredentialError(null)
+    setExchangeCredentialNotice(null)
+    setExchangeAccessKeyInput('')
+    setExchangeSecretKeyInput('')
     fetchAuthProviders()
     checkAuthSession()
   }, [checkAuthSession, fetchAuthProviders])
@@ -206,6 +240,88 @@ function App() {
       setSettingsSaving(false)
     }
   }, [userMarketsInput, userRiskProfile, userUiPrefs])
+
+  const handleSaveExchangeCredentials = useCallback(async () => {
+    if (!exchangeAccessKeyInput.trim() || !exchangeSecretKeyInput.trim()) {
+      setExchangeCredentialError('access key와 secret key를 모두 입력해주세요.')
+      return
+    }
+
+    setExchangeCredentialSaving(true)
+    setExchangeCredentialError(null)
+    setExchangeCredentialNotice(null)
+    try {
+      const response = await fetch('/api/me/exchange-credentials', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessKey: exchangeAccessKeyInput.trim(),
+          secretKey: exchangeSecretKeyInput.trim(),
+        }),
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        const message = buildApiErrorMessage(payload, `거래소 키 저장 실패 ${response.status}`)
+        throw new Error(message)
+      }
+      const data = await response.json()
+      setExchangeCredentialStatus(data)
+      setExchangeSecretKeyInput('')
+      setExchangeCredentialNotice('거래소 API 키를 저장했습니다.')
+    } catch (err) {
+      setExchangeCredentialError(err?.message ?? '거래소 키 저장 실패')
+    } finally {
+      setExchangeCredentialSaving(false)
+    }
+  }, [exchangeAccessKeyInput, exchangeSecretKeyInput])
+
+  const handleVerifyExchangeCredentials = useCallback(async () => {
+    setExchangeCredentialVerifying(true)
+    setExchangeCredentialError(null)
+    setExchangeCredentialNotice(null)
+    try {
+      const response = await fetch('/api/me/exchange-credentials/verify', { method: 'POST' })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        const message = buildApiErrorMessage(payload, `거래소 키 검증 실패 ${response.status}`)
+        throw new Error(message)
+      }
+      const data = await response.json()
+      const accountCount = Number.isFinite(data?.accountCount) ? data.accountCount : 0
+      setExchangeCredentialNotice(`거래소 키 검증 성공 (${accountCount}개 계좌 조회)`)
+      fetchExchangeCredentialStatus()
+    } catch (err) {
+      setExchangeCredentialError(err?.message ?? '거래소 키 검증 실패')
+    } finally {
+      setExchangeCredentialVerifying(false)
+    }
+  }, [fetchExchangeCredentialStatus])
+
+  const handleDeleteExchangeCredentials = useCallback(async () => {
+    if (!window.confirm('저장된 거래소 API 키를 삭제할까요?')) {
+      return
+    }
+    setExchangeCredentialSaving(true)
+    setExchangeCredentialError(null)
+    setExchangeCredentialNotice(null)
+    try {
+      const response = await fetch('/api/me/exchange-credentials', { method: 'DELETE' })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        const message = buildApiErrorMessage(payload, `거래소 키 삭제 실패 ${response.status}`)
+        throw new Error(message)
+      }
+      setExchangeCredentialStatus(null)
+      setExchangeAccessKeyInput('')
+      setExchangeSecretKeyInput('')
+      setExchangeCredentialNotice('저장된 거래소 API 키를 삭제했습니다.')
+      fetchExchangeCredentialStatus()
+    } catch (err) {
+      setExchangeCredentialError(err?.message ?? '거래소 키 삭제 실패')
+    } finally {
+      setExchangeCredentialSaving(false)
+    }
+  }, [fetchExchangeCredentialStatus])
 
   const fetchSummary = useCallback(async (isRefresh = false) => {
     if (!isRefresh) {
@@ -391,10 +507,12 @@ function App() {
   useEffect(() => {
     if (!authUser) {
       setUserSettings(null)
+      setExchangeCredentialStatus(null)
       return
     }
     fetchMySettings()
-  }, [authUser, fetchMySettings])
+    fetchExchangeCredentialStatus()
+  }, [authUser, fetchMySettings, fetchExchangeCredentialStatus])
 
   useEffect(() => {
     if (!authUser) {
@@ -950,6 +1068,75 @@ function App() {
             </div>
             {userSettings?.updatedAt && (
               <p className="sub compact">마지막 저장 {formatDateTime(userSettings.updatedAt)}</p>
+            )}
+          </article>
+
+          <article className="control-card card--elevated auth-settings-card">
+            <div className="card-head">
+              <div>
+                <h2>거래소 API 키</h2>
+                <p className="sub">사용자별 Upbit API 키를 저장/검증합니다.</p>
+              </div>
+              <span className="pill">
+                {exchangeCredentialStatus?.configured
+                  ? '등록됨'
+                  : exchangeCredentialStatus?.usingDefaultCredentials
+                    ? '기본키 사용'
+                    : '미등록'}
+              </span>
+            </div>
+            {exchangeCredentialError && <p className="status-error">{exchangeCredentialError}</p>}
+            {exchangeCredentialNotice && <p className="status-success">{exchangeCredentialNotice}</p>}
+            <div className="form-grid auth-settings-grid">
+              <label className="form-field">
+                <span>Access Key</span>
+                <input
+                  type="text"
+                  value={exchangeAccessKeyInput}
+                  onChange={(event) => setExchangeAccessKeyInput(event.target.value)}
+                  placeholder="Upbit Access Key"
+                  disabled={exchangeCredentialSaving || exchangeCredentialVerifying}
+                />
+              </label>
+              <label className="form-field">
+                <span>Secret Key</span>
+                <input
+                  type="password"
+                  value={exchangeSecretKeyInput}
+                  onChange={(event) => setExchangeSecretKeyInput(event.target.value)}
+                  placeholder="Upbit Secret Key"
+                  disabled={exchangeCredentialSaving || exchangeCredentialVerifying}
+                />
+              </label>
+            </div>
+            <div className="button-row">
+              <button
+                className="primary-button"
+                type="button"
+                onClick={handleSaveExchangeCredentials}
+                disabled={exchangeCredentialSaving || exchangeCredentialVerifying}
+              >
+                {exchangeCredentialSaving ? '저장 중...' : '키 저장'}
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={handleVerifyExchangeCredentials}
+                disabled={exchangeCredentialLoading || exchangeCredentialSaving || exchangeCredentialVerifying}
+              >
+                {exchangeCredentialVerifying ? '검증 중...' : '키 검증'}
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={handleDeleteExchangeCredentials}
+                disabled={exchangeCredentialSaving || exchangeCredentialVerifying || !exchangeCredentialStatus?.configured}
+              >
+                키 삭제
+              </button>
+            </div>
+            {exchangeCredentialStatus?.updatedAt && (
+              <p className="sub compact">마지막 저장 {formatDateTime(exchangeCredentialStatus.updatedAt)}</p>
             )}
           </article>
 
@@ -1702,7 +1889,9 @@ const handleEngineStart = async (setEngineStatus, setEngineError, setEngineBusy)
   try {
     const response = await fetch('/api/engine/start', { method: 'POST' })
     if (!response.ok) {
-      throw new Error(`엔진 시작 실패 ${response.status}`)
+      const payload = await response.json().catch(() => null)
+      const message = buildApiErrorMessage(payload, `엔진 시작 실패 ${response.status}`)
+      throw new Error(message)
     }
     const data = await response.json()
     setEngineStatus(Boolean(data?.running))
@@ -1719,7 +1908,9 @@ const handleEngineStop = async (setEngineStatus, setEngineError, setEngineBusy) 
   try {
     const response = await fetch('/api/engine/stop', { method: 'POST' })
     if (!response.ok) {
-      throw new Error(`엔진 중지 실패 ${response.status}`)
+      const payload = await response.json().catch(() => null)
+      const message = buildApiErrorMessage(payload, `엔진 중지 실패 ${response.status}`)
+      throw new Error(message)
     }
     const data = await response.json()
     setEngineStatus(Boolean(data?.running))
