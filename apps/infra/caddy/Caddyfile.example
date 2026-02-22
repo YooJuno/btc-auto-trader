@@ -1,0 +1,13 @@
+# Replace with your real domain and ports before applying.
+app.example.com {
+    encode zstd gzip
+
+    @backend path /api /api/* /oauth2 /oauth2/* /login /login/* /logout /logout/*
+    handle @backend {
+        reverse_proxy 127.0.0.1:8080
+    }
+
+    handle {
+        reverse_proxy 127.0.0.1:5173
+    }
+}

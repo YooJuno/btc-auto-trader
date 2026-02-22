@@ -43,7 +43,7 @@ SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECT_URI=https://your-doma
 APP_AUTH_SUCCESS_REDIRECT_URL=/
 APP_AUTH_FAILURE_REDIRECT_URL=/?loginError=true
 APP_AUTH_DYNAMIC_REDIRECT_ENABLED=true
-APP_AUTH_FRONTEND_PORT=5173
+APP_AUTH_FRONTEND_PORT=443 # 로컬 개발 시 5173, HTTPS 공개 운영 시 443
 
 # Tenant owner account
 APP_OWNER_EMAIL=juno980220@gmail.com
@@ -69,6 +69,13 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
   - `https://your-domain/login/oauth2/code/google`
 - 서버 환경변수도 동일하게 맞추세요.
   - `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECT_URI=https://your-domain/login/oauth2/code/google`
+
+### Cloudflare + Caddy 배포(권장)
+- 실행 문서: `apps/infra/caddy/README.md`
+- 핵심 요약:
+  - 외부 포트는 `443` 고정
+  - 내부 앱 포트는 그대로 유지 (`frontend:5173`, `backend:8080`)
+  - Caddy가 `/api`, `/oauth2`, `/login`, `/logout`은 백엔드로 프록시하고 나머지는 프론트로 전달
 
 ### Tenant 분리 확인 체크리스트
 1. 계정 A/B 각각 로그인 후 `/api/me`의 `tenantDatabase`가 다른지 확인
