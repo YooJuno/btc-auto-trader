@@ -1,9 +1,15 @@
-# !/bin/bash
+#!/bin/bash
+set -euo pipefail
 
-sudo cp /home/juno/Workspace/btc-auto-trader/etc/btc-backend.service /etc/systemd/system/btc-backend.service
-sudo cp /home/juno/Workspace/btc-auto-trader/etc/btc-frontend.service /etc/systemd/system/btc-frontend.service
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SYSTEMD_DIR="/etc/systemd/system"
+
+sudo cp "$ROOT_DIR/scripts/btc-backend.service" "$SYSTEMD_DIR/btc-backend.service"
+sudo cp "$ROOT_DIR/scripts/btc-frontend.service" "$SYSTEMD_DIR/btc-frontend.service"
 
 sudo systemctl daemon-reload
 
-sudo systemctl enable --now btc-frontend
-sudo systemctl enable --now btc-backend
+sudo systemctl enable --now btc-frontend.service
+sudo systemctl enable --now btc-backend.service
+
+# sudo systemctl status btc-frontend.service btc-backend.service

@@ -5,6 +5,10 @@
 - 응답은 JSON 형식이며, 시간은 ISO-8601 문자열입니다.
 - 오류 응답은 보통 아래 형태입니다.
 - `api.auth.enabled=true`인 경우 `X-API-KEY` 헤더(또는 `api.auth.header` 지정값)가 필요합니다.
+- `/api/me`, `/api/me/settings`, `/api/order/**`, `/api/strategy/**`, `/api/portfolio/**`, `/api/engine/**`는 OAuth 로그인 세션이 필요합니다.
+- `/api/order/**`, `/api/strategy/**`, `/api/portfolio/**`, `/api/engine/**`는 로그인 사용자의 tenant DB 기준으로 처리됩니다.
+- `APP_TRADING_OWNER_ONLY_MODE=true`면 `/api/order`와 `/api/engine/start|tick`은 owner 계정만 허용됩니다.
+- `APP_AUTH_DYNAMIC_REDIRECT_ENABLED=true`면 OAuth 로그인 성공/실패 리다이렉트 호스트는 현재 요청 호스트 기준으로 동적으로 계산됩니다.
 
 ```jsonc
 {
@@ -14,6 +18,112 @@
   }
 }
 ```
+
+---
+
+## 인증 / 내 설정
+
+### GET /api/auth/providers
+설정된 OAuth 로그인 공급자 목록.
+
+**응답**
+```jsonc
+[
+  {
+    "id": "google",
+    "name": "Google",
+    "authorizationUrl": "/oauth2/authorization/google"
+  }
+]
+```
+
+### GET /api/me
+현재 로그인 사용자 정보.
+
+**응답**
+```jsonc
+{
+  "id": 1,
+  "provider": "google",
+  "providerUserId": "1234567890",
+  "email": "user@example.com",
+  "displayName": "Juno",
+  "tenantDatabase": "btc-auto-trader",
+  "createdAt": "2026-02-16T10:10:10.000Z",
+  "lastLoginAt": "2026-02-16T11:30:00.000Z"
+}
+```
+
+### GET /api/me/settings
+현재 로그인 사용자 설정 조회.
+
+**응답**
+```jsonc
+{
+  "markets": ["KRW-BTC", "KRW-ETH"],
+  "riskProfile": "BALANCED",
+  "uiPrefs": {
+    "leftPanelCollapsed": false
+  },
+  "updatedAt": "2026-02-16T11:31:00.000Z"
+}
+```
+
+### PUT /api/me/settings
+현재 로그인 사용자 설정 저장.
+
+**요청**
+```jsonc
+{
+  "markets": ["KRW-BTC", "KRW-XRP"],
+  "riskProfile": "AGGRESSIVE",
+  "uiPrefs": {
+    "leftPanelCollapsed": true
+  }
+}
+```
+
+### POST /api/auth/logout
+현재 로그인 세션 로그아웃.
+
+### GET /api/me/exchange-credentials
+현재 로그인 사용자의 거래소 API 키 상태 조회.
+
+**응답**
+```jsonc
+{
+  "configured": true,
+  "usingDefaultCredentials": false,
+  "updatedAt": "2026-02-16T12:10:00.000Z"
+}
+```
+
+### PUT /api/me/exchange-credentials
+현재 로그인 사용자 거래소 API 키 저장(암호화).
+
+**요청**
+```jsonc
+{
+  "accessKey": "upbit-access-key",
+  "secretKey": "upbit-secret-key"
+}
+```
+
+### POST /api/me/exchange-credentials/verify
+저장된(또는 owner fallback) 거래소 API 키 검증.
+
+**응답**
+```jsonc
+{
+  "ok": true,
+  "accountCount": 2,
+  "usingDefaultCredentials": false,
+  "checkedAt": "2026-02-16T12:20:00.000Z"
+}
+```
+
+### DELETE /api/me/exchange-credentials
+현재 로그인 사용자 거래소 API 키 삭제.
 
 ---
 
@@ -441,6 +551,8 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
 ### PUT /api/strategy/market-overrides
 마켓별 override 전체 교체.
 
+`tradePausedByMarket` 값이 `true`이면 해당 마켓의 신규 매수는 중단되고, 보유 물량의 매도 로직은 계속 동작합니다.
+
 **요청**
 ```jsonc
 {
@@ -449,6 +561,10 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
   },
   "profileByMarket": {
     "KRW-BTC": "BALANCED"
+  },
+  "tradePausedByMarket": {
+    "KRW-BTC": false,
+    "KRW-ETH": true
   },
   "ratiosByMarket": {
     "KRW-BTC": {
@@ -473,6 +589,10 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
   },
   "profileByMarket": {
     "KRW-BTC": "CONSERVATIVE"
+  },
+  "tradePausedByMarket": {
+    "KRW-BTC": false,
+    "KRW-ETH": true
   },
   "ratiosByMarket": {
     "KRW-BTC": {
