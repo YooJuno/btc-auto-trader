@@ -53,6 +53,7 @@ apps/backend/build/
 apps/backend/target/
 apps/backend/.gradle/
 apps/backend/out/
+apps/backend/bin/
 *.class
 hs_err_pid*
 
