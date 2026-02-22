@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 const PROFILE_VALUES = ['BALANCED', 'AGGRESSIVE', 'CONSERVATIVE']
@@ -23,9 +23,6 @@ const RATIO_FIELD_LABELS = {
   trendExitPct: '추세 이탈 매도 %',
   momentumExitPct: '모멘텀 역전 매도 %',
 }
-const ALERT_SEED_LIMIT = 4
-const ALERT_MAX_SIZE = 12
-
 function App() {
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -66,7 +63,6 @@ function App() {
   const [orderHistory, setOrderHistory] = useState([])
   const [decisionHistory, setDecisionHistory] = useState([])
   const [feedError, setFeedError] = useState(null)
-  const [_alerts, setAlerts] = useState([])
   const [performance, setPerformance] = useState(null)
   const [performanceMode, setPerformanceMode] = useState('range')
   const [performanceInputs, setPerformanceInputs] = useState(buildDefaultPerformanceInputs)
@@ -92,8 +88,6 @@ function App() {
   const [exchangeCredentialNotice, setExchangeCredentialNotice] = useState(null)
   const [exchangeAccessKeyInput, setExchangeAccessKeyInput] = useState('')
   const [exchangeSecretKeyInput, setExchangeSecretKeyInput] = useState('')
-  const lastOrderIdRef = useRef(null)
-  const lastDecisionIdRef = useRef(null)
 
   const fetchAuthProviders = useCallback(async () => {
     try {
@@ -394,7 +388,6 @@ function App() {
       }
       const data = await response.json()
       setOrderHistory(Array.isArray(data) ? data : [])
-      appendOrderAlerts(data, lastOrderIdRef, setAlerts, { seedInitial: true })
       setFeedError(null)
     } catch (err) {
       setFeedError(err?.message ?? '주문 로그 조회 실패')
@@ -414,7 +407,6 @@ function App() {
         return action === 'BUY' || action === 'SELL'
       })
       setDecisionHistory(tradeOnlyItems)
-      appendDecisionAlerts(tradeOnlyItems, lastDecisionIdRef, setAlerts, { seedInitial: true })
       setFeedError(null)
     } catch (err) {
       setFeedError(err?.message ?? '의사결정 로그 조회 실패')
@@ -793,18 +785,24 @@ function App() {
           {engineError && <p className="status-error">{engineError}</p>}
           <div className="engine-inline-actions">
             <button
-              className="primary-button"
+              className={`engine-action-btn engine-action-btn--start ${engineStatus ? 'is-active' : ''}`}
               onClick={() => handleEngineStart(setEngineStatus, setEngineError, setEngineBusy)}
               disabled={engineBusy || engineStatus}
             >
-              엔진 시작
+              <span className="engine-action-btn__icon" aria-hidden="true">▶</span>
+              <span className="engine-action-btn__label">
+                {engineBusy && !engineStatus ? '시작 중...' : '엔진 시작'}
+              </span>
             </button>
             <button
-              className="danger-button"
+              className={`engine-action-btn engine-action-btn--stop ${engineStatus ? '' : 'is-active'}`}
               onClick={() => handleEngineStop(setEngineStatus, setEngineError, setEngineBusy)}
               disabled={engineBusy || !engineStatus}
             >
-              엔진 중지
+              <span className="engine-action-btn__icon" aria-hidden="true">■</span>
+              <span className="engine-action-btn__label">
+                {engineBusy && engineStatus ? '중지 중...' : '엔진 중지'}
+              </span>
             </button>
           </div>
         </div>
@@ -924,31 +922,6 @@ function App() {
               </div>
             )}
           </section>
-
-          {/* <article className="table-card card--elevated feed-card">
-            <div className="table-header">
-              <div>
-                <h2>실시간 알림</h2>
-                <p className="sub">최근 체결/의사결정 이벤트</p>
-              </div>
-            </div>
-            {feedError && <p className="status-error">{feedError}</p>}
-            {alerts.length === 0 ? (
-              <div className="empty-state">새 알림이 없습니다.</div>
-            ) : (
-              <ul className="alert-list">
-                {alerts.map((alert) => (
-                  <li key={alert.id} className={`alert-item ${alert.tone}`}>
-                    <div>
-                      <strong>{alert.message}</strong>
-                      <p className="sub compact">{alert.meta}</p>
-                    </div>
-                    <span className="mono small">{formatTime(alert.time)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </article> */}
 
           <article className="table-card card--elevated order-card">
             <div className="table-header">
@@ -1762,124 +1735,6 @@ function App() {
   )
 }
 
-const appendOrderAlerts = (orders, lastOrderIdRef, setAlerts, options = {}) => {
-  const seedInitial = Boolean(options?.seedInitial)
-  if (!Array.isArray(orders) || orders.length === 0) {
-    return
-  }
-
-  const newestId = toNumber(orders[0]?.id)
-  if (newestId === null) {
-    return
-  }
-
-  if (lastOrderIdRef.current === null) {
-    if (seedInitial) {
-      const seedOrders = orders
-        .filter((order) => order?.side === 'BUY' || order?.side === 'SELL')
-        .slice(0, ALERT_SEED_LIMIT)
-      seedOrders.forEach((order) => {
-        const tone = order.side === 'BUY' ? 'positive' : 'negative'
-        const message = `주문 ${order.side} ${order.market}`
-        const meta = `${order.requestStatus ?? '-'} / ${order.state ?? '-'} / ${formatDateTime(order.requestedAt)}`
-        pushAlert(setAlerts, message, meta, tone, order.requestedAt)
-      })
-    }
-    lastOrderIdRef.current = newestId
-    return
-  }
-
-  const baseline = lastOrderIdRef.current
-  const newOrders = orders
-    .filter((order) => {
-      const id = toNumber(order?.id)
-      return id !== null && id > baseline && (order?.side === 'BUY' || order?.side === 'SELL')
-    })
-    .sort((a, b) => a.id - b.id)
-
-  if (newOrders.length === 0) {
-    if (newestId > baseline) {
-      lastOrderIdRef.current = newestId
-    }
-    return
-  }
-
-  newOrders.forEach((order) => {
-    const tone = order.side === 'BUY' ? 'positive' : 'negative'
-    const message = `주문 ${order.side} ${order.market}`
-    const meta = `${order.requestStatus ?? '-'} / ${order.state ?? '-'} / ${formatDateTime(order.requestedAt)}`
-    pushAlert(setAlerts, message, meta, tone, order.requestedAt)
-  })
-  lastOrderIdRef.current = newestId
-}
-
-const appendDecisionAlerts = (decisions, lastDecisionIdRef, setAlerts, options = {}) => {
-  const seedInitial = Boolean(options?.seedInitial)
-  if (!Array.isArray(decisions) || decisions.length === 0) {
-    return
-  }
-
-  const newestId = toNumber(decisions[0]?.id)
-  if (newestId === null) {
-    return
-  }
-
-  if (lastDecisionIdRef.current === null) {
-    if (seedInitial) {
-      const seedDecisions = decisions
-        .filter((decision) => decision?.action === 'BUY' || decision?.action === 'SELL')
-        .slice(0, ALERT_SEED_LIMIT)
-      seedDecisions.forEach((decision) => {
-        const tone = decision.action === 'BUY' ? 'positive' : 'negative'
-        const message = `신호 ${decision.action} ${decision.market}`
-        const meta = `${decision.reason ?? '-'} / ${formatDateTime(decision.executedAt)}`
-        pushAlert(setAlerts, message, meta, tone, decision.executedAt)
-      })
-    }
-    lastDecisionIdRef.current = newestId
-    return
-  }
-
-  const baseline = lastDecisionIdRef.current
-  const newDecisions = decisions
-    .filter((decision) => {
-      const id = toNumber(decision?.id)
-      return id !== null && id > baseline && (decision?.action === 'BUY' || decision?.action === 'SELL')
-    })
-    .sort((a, b) => a.id - b.id)
-
-  if (newDecisions.length === 0) {
-    if (newestId > baseline) {
-      lastDecisionIdRef.current = newestId
-    }
-    return
-  }
-
-  newDecisions.forEach((decision) => {
-    const tone = decision.action === 'BUY' ? 'positive' : 'negative'
-    const message = `신호 ${decision.action} ${decision.market}`
-    const meta = `${decision.reason ?? '-'} / ${formatDateTime(decision.executedAt)}`
-    pushAlert(setAlerts, message, meta, tone, decision.executedAt)
-  })
-  lastDecisionIdRef.current = newestId
-}
-
-const pushAlert = (setAlerts, message, meta, tone, occurredAt = null) => {
-  setAlerts((prev) => {
-    if (prev.some((item) => item.message === message && item.meta === meta)) {
-      return prev
-    }
-    const next = [{
-      id: `${Date.now()}-${Math.random()}`,
-      message,
-      meta,
-      tone,
-      time: occurredAt ?? new Date().toISOString(),
-    }, ...prev]
-    return next.slice(0, ALERT_MAX_SIZE)
-  })
-}
-
 const handleEngineStart = async (setEngineStatus, setEngineError, setEngineBusy) => {
   if (!window.confirm('자동매매 엔진을 시작할까요? 실제 주문이 발생할 수 있습니다.')) {
     return
@@ -2678,11 +2533,6 @@ const toInputValue = (value) => {
   return String(value)
 }
 
-const toNumber = (value) => {
-  const numeric = Number(value)
-  return Number.isNaN(numeric) ? null : numeric
-}
-
 const formatKRW = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '-'
@@ -2720,17 +2570,6 @@ const formatDateTime = (value) => {
     return '-'
   }
   return date.toLocaleString('ko-KR', { hour12: false })
-}
-
-const _formatTime = (value) => {
-  if (!value) {
-    return '-'
-  }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return '-'
-  }
-  return date.toLocaleTimeString('ko-KR', { hour12: false })
 }
 
 const truncateText = (value, max) => {
