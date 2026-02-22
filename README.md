@@ -77,6 +77,13 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
   - 내부 앱 포트는 그대로 유지 (`frontend:5173`, `backend:8080`)
   - Caddy가 `/api`, `/oauth2`, `/login`, `/logout`은 백엔드로 프록시하고 나머지는 프론트로 전달
 
+### 백테스트 가이드
+- 실행/검증 문서: `docs/BACKTEST_GUIDE.md`
+- 기본 실행:
+  - `python3 scripts/backtest.py --days 30`
+- 파라미터 탐색 포함:
+  - `python3 scripts/backtest.py --days 30 --optimize --max-combos 120`
+
 ### Tenant 분리 확인 체크리스트
 1. 계정 A/B 각각 로그인 후 `/api/me`의 `tenantDatabase`가 다른지 확인
 2. A에서 `/api/strategy/markets` 변경 후 B에서 조회했을 때 값이 분리되는지 확인
