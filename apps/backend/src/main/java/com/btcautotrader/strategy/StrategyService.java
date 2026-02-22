@@ -16,30 +16,41 @@ import java.util.Set;
 public class StrategyService {
     private static final long CONFIG_ID = 1L;
     private static final StrategyConfig DEFAULT_CONFIG =
-            new StrategyConfig(true, 30000.0, 4.5, 2.2, 2.3, 40.0, StrategyProfile.BALANCED.name(),
-                    100.0, 0.0, 0.0);
+            new StrategyConfig(true, 30000.0, 2.4, 1.6, 1.2, 35.0, StrategyProfile.BALANCED.name(),
+                    100.0, 40.0, 25.0);
     private static final List<StrategyPresetItem> DEFAULT_PRESETS = List.of(
+            new StrategyPresetItem(
+                    "BALANCED",
+                    "밸런스",
+                    2.4,
+                    1.6,
+                    1.2,
+                    35.0,
+                    100.0,
+                    40.0,
+                    25.0
+            ),
             new StrategyPresetItem(
                     "AGGRESSIVE",
                     "공격형",
+                    3.4,
+                    2.4,
                     2.0,
-                    2.8,
-                    3.5,
-                    25.0,
+                    30.0,
                     100.0,
-                    15.0,
-                    10.0
+                    25.0,
+                    15.0
             ),
             new StrategyPresetItem(
                     "CONSERVATIVE",
                     "안정형",
-                    1.0,
-                    2.2,
-                    2.3,
-                    40.0,
+                    1.6,
+                    1.1,
+                    0.9,
+                    50.0,
                     100.0,
-                    0.0,
-                    0.0
+                    60.0,
+                    40.0
             )
     );
 
@@ -78,7 +89,7 @@ public class StrategyService {
             entity.setProfile(DEFAULT_CONFIG.profile());
             dirty = true;
         }
-        if (isLegacyConservativeDefaults(entity)) {
+        if (isLegacyConservativeDefaults(entity) || isLegacyBalancedDefaults(entity)) {
             entity.apply(DEFAULT_CONFIG);
             dirty = true;
         }
@@ -488,6 +499,20 @@ public class StrategyService {
                 && Double.compare(entity.getTrendExitPct(), 50.0) == 0
                 && Double.compare(entity.getMomentumExitPct(), 50.0) == 0
                 && StrategyProfile.CONSERVATIVE.name().equalsIgnoreCase(entity.getProfile());
+    }
+
+    private static boolean isLegacyBalancedDefaults(StrategyConfigEntity entity) {
+        if (entity == null) {
+            return false;
+        }
+        return Double.compare(entity.getTakeProfitPct(), 4.5) == 0
+                && Double.compare(entity.getStopLossPct(), 2.2) == 0
+                && Double.compare(entity.getTrailingStopPct(), 2.3) == 0
+                && Double.compare(entity.getPartialTakeProfitPct(), 40.0) == 0
+                && Double.compare(entity.getStopExitPct(), 100.0) == 0
+                && Double.compare(entity.getTrendExitPct(), 0.0) == 0
+                && Double.compare(entity.getMomentumExitPct(), 0.0) == 0
+                && StrategyProfile.BALANCED.name().equalsIgnoreCase(entity.getProfile());
     }
 
     private static String normalizePresetCode(String code) {
