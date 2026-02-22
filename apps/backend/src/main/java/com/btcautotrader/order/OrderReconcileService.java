@@ -1,5 +1,8 @@
 package com.btcautotrader.order;
 
+import com.btcautotrader.auth.TradingAccessService;
+import com.btcautotrader.tenant.TenantContext;
+import com.btcautotrader.tenant.TenantDatabaseProvisioningService;
 import com.btcautotrader.upbit.UpbitOrderResponse;
 import com.btcautotrader.upbit.UpbitService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -15,6 +18,8 @@ import java.util.Locale;
 
 @Service
 public class OrderReconcileService {
+    private final TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
+    private final TradingAccessService tradingAccessService;
     private final OrderRepository orderRepository;
     private final UpbitService upbitService;
     private final ObjectMapper objectMapper;
@@ -23,6 +28,8 @@ public class OrderReconcileService {
     private final long staleMinutes;
 
     public OrderReconcileService(
+            TenantDatabaseProvisioningService tenantDatabaseProvisioningService,
+            TradingAccessService tradingAccessService,
             OrderRepository orderRepository,
             UpbitService upbitService,
             ObjectMapper objectMapper,
@@ -30,6 +37,8 @@ public class OrderReconcileService {
             @Value("${orders.reconcile.lookback-minutes:60}") long lookbackMinutes,
             @Value("${orders.reconcile.stale-minutes:180}") long staleMinutes
     ) {
+        this.tenantDatabaseProvisioningService = tenantDatabaseProvisioningService;
+        this.tradingAccessService = tradingAccessService;
         this.orderRepository = orderRepository;
         this.upbitService = upbitService;
         this.objectMapper = objectMapper;
@@ -43,6 +52,20 @@ public class OrderReconcileService {
         if (!enabled) {
             return;
         }
+        for (String tenantDatabase : tenantDatabaseProvisioningService.listKnownTenantDatabases()) {
+            try {
+                TenantContext.runWithTenantDatabase(tenantDatabase, () -> {
+                    if (tradingAccessService.canRunAutomatedTradingForCurrentTenant()) {
+                        reconcilePendingForCurrentTenant();
+                    }
+                });
+            } catch (RuntimeException ignored) {
+                // Keep reconciling remaining tenants even if one tenant fails.
+            }
+        }
+    }
+
+    private void reconcilePendingForCurrentTenant() {
         OffsetDateTime after = OffsetDateTime.now().minusMinutes(lookbackMinutes);
         List<OrderEntity> pending = orderRepository.findByStatusInAndRequestedAtAfter(
                 List.of(OrderStatus.REQUESTED, OrderStatus.PENDING, OrderStatus.SUBMITTED),

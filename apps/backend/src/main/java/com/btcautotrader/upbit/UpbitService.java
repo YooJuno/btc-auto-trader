@@ -2,6 +2,7 @@ package com.btcautotrader.upbit;
 
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
+import com.btcautotrader.auth.UserExchangeCredentialService;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -36,25 +37,36 @@ public class UpbitService {
     private static final String UPBIT_ORDER_DETAIL_URL = "https://api.upbit.com/v1/order";
 
     private final RestTemplate restTemplate;
-    private final UpbitCredentials credentials;
+    private final UserExchangeCredentialService userExchangeCredentialService;
     private final UpbitRateLimiter rateLimiter;
 
     public UpbitService(
             RestTemplateBuilder restTemplateBuilder,
-            UpbitCredentials credentials,
+            UserExchangeCredentialService userExchangeCredentialService,
             UpbitRateLimiter rateLimiter
     ) {
         this.restTemplate = restTemplateBuilder
                 .setConnectTimeout(Duration.ofSeconds(5))
                 .setReadTimeout(Duration.ofSeconds(10))
                 .build();
-        this.credentials = credentials;
+        this.userExchangeCredentialService = userExchangeCredentialService;
         this.rateLimiter = rateLimiter;
     }
 
     public List<Map<String, Object>> fetchAccounts() {
+        return fetchAccounts(resolveCredentialsForCurrentTenant());
+    }
+
+    public List<Map<String, Object>> fetchAccounts(UpbitAuthCredentials credentials) {
+        if (credentials == null
+                || credentials.accessKey() == null
+                || credentials.accessKey().isBlank()
+                || credentials.secretKey() == null
+                || credentials.secretKey().isBlank()) {
+            throw new UpbitCredentialMissingException("거래소 API 키가 등록되어 있지 않습니다.");
+        }
         rateLimiter.acquire("accounts");
-        String jwtToken = createJwtToken(null);
+        String jwtToken = createJwtToken(null, credentials);
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + jwtToken);
 
@@ -68,6 +80,10 @@ public class UpbitService {
 
         List<Map<String, Object>> body = response.getBody();
         return body == null ? List.of() : body;
+    }
+
+    public int verifyCredentials(UpbitAuthCredentials credentials) {
+        return fetchAccounts(credentials).size();
     }
 
     public Map<String, Object> fetchTicker(String market) {
@@ -143,7 +159,7 @@ public class UpbitService {
 
     public UpbitOrderResponse createOrder(Map<String, String> body, String queryString) {
         rateLimiter.acquire("create-order");
-        String jwtToken = createJwtToken(queryString);
+        String jwtToken = createJwtToken(queryString, resolveCredentialsForCurrentTenant());
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + jwtToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -182,7 +198,7 @@ public class UpbitService {
         Map<String, String> params = new LinkedHashMap<>();
         params.put("market", market);
         String queryString = buildQueryString(params);
-        String jwtToken = createJwtToken(queryString);
+        String jwtToken = createJwtToken(queryString, resolveCredentialsForCurrentTenant());
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + jwtToken);
@@ -206,12 +222,12 @@ public class UpbitService {
         }
     }
 
-    private String createJwtToken(String queryString) {
+    private String createJwtToken(String queryString, UpbitAuthCredentials credentials) {
         String nonce = UUID.randomUUID().toString();
-        Algorithm algorithm = Algorithm.HMAC512(credentials.getSecretKey());
+        Algorithm algorithm = Algorithm.HMAC512(credentials.secretKey());
 
         com.auth0.jwt.JWTCreator.Builder builder = JWT.create()
-                .withClaim("access_key", credentials.getAccessKey())
+                .withClaim("access_key", credentials.accessKey())
                 .withClaim("nonce", nonce);
 
         if (queryString != null && !queryString.isBlank()) {
@@ -225,7 +241,7 @@ public class UpbitService {
     private UpbitOrderResponse fetchOrder(Map<String, String> params) {
         rateLimiter.acquire("order-detail");
         String queryString = buildQueryString(params);
-        String jwtToken = createJwtToken(queryString);
+        String jwtToken = createJwtToken(queryString, resolveCredentialsForCurrentTenant());
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + jwtToken);
@@ -277,5 +293,10 @@ public class UpbitService {
 
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private UpbitAuthCredentials resolveCredentialsForCurrentTenant() {
+        return userExchangeCredentialService.resolveCredentialsForCurrentTenant()
+                .orElseThrow(() -> new UpbitCredentialMissingException("거래소 API 키가 등록되어 있지 않습니다."));
     }
 }

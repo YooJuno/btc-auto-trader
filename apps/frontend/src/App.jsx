@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 const PROFILE_VALUES = ['BALANCED', 'AGGRESSIVE', 'CONSERVATIVE']
@@ -23,9 +23,6 @@ const RATIO_FIELD_LABELS = {
   trendExitPct: '추세 이탈 매도 %',
   momentumExitPct: '모멘텀 역전 매도 %',
 }
-const ALERT_SEED_LIMIT = 4
-const ALERT_MAX_SIZE = 12
-
 function App() {
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -66,14 +63,259 @@ function App() {
   const [orderHistory, setOrderHistory] = useState([])
   const [decisionHistory, setDecisionHistory] = useState([])
   const [feedError, setFeedError] = useState(null)
-  const [alerts, setAlerts] = useState([])
   const [performance, setPerformance] = useState(null)
   const [performanceMode, setPerformanceMode] = useState('range')
   const [performanceInputs, setPerformanceInputs] = useState(buildDefaultPerformanceInputs)
   const [performanceLoading, setPerformanceLoading] = useState(false)
   const [performanceError, setPerformanceError] = useState(null)
-  const lastOrderIdRef = useRef(null)
-  const lastDecisionIdRef = useRef(null)
+  const [authChecking, setAuthChecking] = useState(true)
+  const [authUser, setAuthUser] = useState(null)
+  const [authProviders, setAuthProviders] = useState([])
+  const [authError, setAuthError] = useState(null)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [userSettings, setUserSettings] = useState(null)
+  const [userSettingsError, setUserSettingsError] = useState(null)
+  const [userSettingsNotice, setUserSettingsNotice] = useState(null)
+  const [userRiskProfile, setUserRiskProfile] = useState(DEFAULT_MARKET_PROFILE)
+  const [userMarketsInput, setUserMarketsInput] = useState('')
+  const [userUiPrefs, setUserUiPrefs] = useState({})
+  const [exchangeCredentialStatus, setExchangeCredentialStatus] = useState(null)
+  const [exchangeCredentialLoading, setExchangeCredentialLoading] = useState(false)
+  const [exchangeCredentialSaving, setExchangeCredentialSaving] = useState(false)
+  const [exchangeCredentialVerifying, setExchangeCredentialVerifying] = useState(false)
+  const [exchangeCredentialError, setExchangeCredentialError] = useState(null)
+  const [exchangeCredentialNotice, setExchangeCredentialNotice] = useState(null)
+  const [exchangeAccessKeyInput, setExchangeAccessKeyInput] = useState('')
+  const [exchangeSecretKeyInput, setExchangeSecretKeyInput] = useState('')
+
+  const fetchAuthProviders = useCallback(async () => {
+    try {
+      const response = await fetch('/api/auth/providers')
+      if (!response.ok) {
+        throw new Error(`로그인 공급자 조회 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      setAuthProviders(Array.isArray(data) ? data : [])
+    } catch {
+      setAuthProviders([])
+    }
+  }, [])
+
+  const checkAuthSession = useCallback(async () => {
+    setAuthChecking(true)
+    try {
+      const response = await fetch('/api/me')
+      if (response.status === 401) {
+        setAuthUser(null)
+        return
+      }
+      if (!response.ok) {
+        throw new Error(`로그인 상태 확인 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      setAuthUser(data)
+    } catch (err) {
+      setAuthUser(null)
+      setAuthError(err?.message ?? '로그인 상태 확인 실패')
+    } finally {
+      setAuthChecking(false)
+    }
+  }, [])
+
+  const fetchMySettings = useCallback(async () => {
+    if (!authUser) {
+      return
+    }
+    setSettingsLoading(true)
+    setUserSettingsError(null)
+    setUserSettingsNotice(null)
+    try {
+      const response = await fetch('/api/me/settings')
+      if (!response.ok) {
+        throw new Error(`내 설정 조회 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      const markets = Array.isArray(data?.markets) ? data.markets.map(normalizeMarket).filter(Boolean) : []
+
+      setUserSettings(data)
+      setUserRiskProfile(normalizeProfileValue(data?.riskProfile) || DEFAULT_MARKET_PROFILE)
+      setUserMarketsInput(markets.join(', '))
+      setUserUiPrefs(isPlainObject(data?.uiPrefs) ? data.uiPrefs : {})
+    } catch (err) {
+      setUserSettingsError(err?.message ?? '내 설정 조회 실패')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }, [authUser])
+
+  const fetchExchangeCredentialStatus = useCallback(async () => {
+    if (!authUser) {
+      return
+    }
+    setExchangeCredentialLoading(true)
+    setExchangeCredentialError(null)
+    try {
+      const response = await fetch('/api/me/exchange-credentials')
+      if (!response.ok) {
+        throw new Error(`거래소 키 상태 조회 오류 ${response.status}`)
+      }
+      const data = await response.json()
+      setExchangeCredentialStatus(data)
+    } catch (err) {
+      setExchangeCredentialStatus(null)
+      setExchangeCredentialError(err?.message ?? '거래소 키 상태 조회 실패')
+    } finally {
+      setExchangeCredentialLoading(false)
+    }
+  }, [authUser])
+
+  const handleProviderLogin = useCallback((authorizationUrl) => {
+    if (!authorizationUrl) {
+      return
+    }
+    window.location.assign(authorizationUrl)
+  }, [])
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // no-op
+    }
+
+    setAuthUser(null)
+    setAuthError(null)
+    setUserSettings(null)
+    setUserSettingsError(null)
+    setUserSettingsNotice(null)
+    setUserRiskProfile(DEFAULT_MARKET_PROFILE)
+    setUserMarketsInput('')
+    setUserUiPrefs({})
+    setExchangeCredentialStatus(null)
+    setExchangeCredentialError(null)
+    setExchangeCredentialNotice(null)
+    setExchangeAccessKeyInput('')
+    setExchangeSecretKeyInput('')
+    fetchAuthProviders()
+    checkAuthSession()
+  }, [checkAuthSession, fetchAuthProviders])
+
+  const handleSaveMySettings = useCallback(async () => {
+    setSettingsSaving(true)
+    setUserSettingsError(null)
+    setUserSettingsNotice(null)
+    try {
+      const payload = {
+        markets: parseUserMarketsInput(userMarketsInput),
+        riskProfile: normalizeProfileValue(userRiskProfile) || DEFAULT_MARKET_PROFILE,
+        uiPrefs: isPlainObject(userUiPrefs) ? userUiPrefs : {},
+      }
+      const response = await fetch('/api/me/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null)
+        const message = buildApiErrorMessage(errorPayload, `내 설정 저장 오류 ${response.status}`)
+        throw new Error(message)
+      }
+      const data = await response.json()
+      const markets = Array.isArray(data?.markets) ? data.markets.map(normalizeMarket).filter(Boolean) : []
+      setUserSettings(data)
+      setUserRiskProfile(normalizeProfileValue(data?.riskProfile) || DEFAULT_MARKET_PROFILE)
+      setUserMarketsInput(markets.join(', '))
+      setUserUiPrefs(isPlainObject(data?.uiPrefs) ? data.uiPrefs : {})
+      setUserSettingsNotice('내 인터페이스 설정을 저장했습니다.')
+    } catch (err) {
+      setUserSettingsError(err?.message ?? '내 설정 저장 실패')
+    } finally {
+      setSettingsSaving(false)
+    }
+  }, [userMarketsInput, userRiskProfile, userUiPrefs])
+
+  const handleSaveExchangeCredentials = useCallback(async () => {
+    if (!exchangeAccessKeyInput.trim() || !exchangeSecretKeyInput.trim()) {
+      setExchangeCredentialError('access key와 secret key를 모두 입력해주세요.')
+      return
+    }
+
+    setExchangeCredentialSaving(true)
+    setExchangeCredentialError(null)
+    setExchangeCredentialNotice(null)
+    try {
+      const response = await fetch('/api/me/exchange-credentials', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessKey: exchangeAccessKeyInput.trim(),
+          secretKey: exchangeSecretKeyInput.trim(),
+        }),
+      })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        const message = buildApiErrorMessage(payload, `거래소 키 저장 실패 ${response.status}`)
+        throw new Error(message)
+      }
+      const data = await response.json()
+      setExchangeCredentialStatus(data)
+      setExchangeSecretKeyInput('')
+      setExchangeCredentialNotice('거래소 API 키를 저장했습니다.')
+    } catch (err) {
+      setExchangeCredentialError(err?.message ?? '거래소 키 저장 실패')
+    } finally {
+      setExchangeCredentialSaving(false)
+    }
+  }, [exchangeAccessKeyInput, exchangeSecretKeyInput])
+
+  const handleVerifyExchangeCredentials = useCallback(async () => {
+    setExchangeCredentialVerifying(true)
+    setExchangeCredentialError(null)
+    setExchangeCredentialNotice(null)
+    try {
+      const response = await fetch('/api/me/exchange-credentials/verify', { method: 'POST' })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        const message = buildApiErrorMessage(payload, `거래소 키 검증 실패 ${response.status}`)
+        throw new Error(message)
+      }
+      const data = await response.json()
+      const accountCount = Number.isFinite(data?.accountCount) ? data.accountCount : 0
+      setExchangeCredentialNotice(`거래소 키 검증 성공 (${accountCount}개 계좌 조회)`)
+      fetchExchangeCredentialStatus()
+    } catch (err) {
+      setExchangeCredentialError(err?.message ?? '거래소 키 검증 실패')
+    } finally {
+      setExchangeCredentialVerifying(false)
+    }
+  }, [fetchExchangeCredentialStatus])
+
+  const handleDeleteExchangeCredentials = useCallback(async () => {
+    if (!window.confirm('저장된 거래소 API 키를 삭제할까요?')) {
+      return
+    }
+    setExchangeCredentialSaving(true)
+    setExchangeCredentialError(null)
+    setExchangeCredentialNotice(null)
+    try {
+      const response = await fetch('/api/me/exchange-credentials', { method: 'DELETE' })
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null)
+        const message = buildApiErrorMessage(payload, `거래소 키 삭제 실패 ${response.status}`)
+        throw new Error(message)
+      }
+      setExchangeCredentialStatus(null)
+      setExchangeAccessKeyInput('')
+      setExchangeSecretKeyInput('')
+      setExchangeCredentialNotice('저장된 거래소 API 키를 삭제했습니다.')
+      fetchExchangeCredentialStatus()
+    } catch (err) {
+      setExchangeCredentialError(err?.message ?? '거래소 키 삭제 실패')
+    } finally {
+      setExchangeCredentialSaving(false)
+    }
+  }, [fetchExchangeCredentialStatus])
 
   const fetchSummary = useCallback(async (isRefresh = false) => {
     if (!isRefresh) {
@@ -87,7 +329,7 @@ function App() {
       const data = await response.json()
       setSummary(data)
       setServerConnected(true)
-    } catch (err) {
+    } catch {
       setServerConnected(false)
     } finally {
       if (!isRefresh) {
@@ -146,7 +388,6 @@ function App() {
       }
       const data = await response.json()
       setOrderHistory(Array.isArray(data) ? data : [])
-      appendOrderAlerts(data, lastOrderIdRef, setAlerts, { seedInitial: true })
       setFeedError(null)
     } catch (err) {
       setFeedError(err?.message ?? '주문 로그 조회 실패')
@@ -166,7 +407,6 @@ function App() {
         return action === 'BUY' || action === 'SELL'
       })
       setDecisionHistory(tradeOnlyItems)
-      appendDecisionAlerts(tradeOnlyItems, lastDecisionIdRef, setAlerts, { seedInitial: true })
       setFeedError(null)
     } catch (err) {
       setFeedError(err?.message ?? '의사결정 로그 조회 실패')
@@ -246,6 +486,30 @@ function App() {
   }, [performanceInputs, performanceMode])
 
   useEffect(() => {
+    const query = new URLSearchParams(window.location.search)
+    if (query.get('loginError') === 'true') {
+      setAuthError('OAuth 로그인에 실패했습니다. 다시 시도해주세요.')
+    } else {
+      setAuthError(null)
+    }
+    fetchAuthProviders()
+    checkAuthSession()
+  }, [checkAuthSession, fetchAuthProviders])
+
+  useEffect(() => {
+    if (!authUser) {
+      setUserSettings(null)
+      setExchangeCredentialStatus(null)
+      return
+    }
+    fetchMySettings()
+    fetchExchangeCredentialStatus()
+  }, [authUser, fetchMySettings, fetchExchangeCredentialStatus])
+
+  useEffect(() => {
+    if (!authUser) {
+      return undefined
+    }
     fetchSummary(false)
     fetchEngineStatus()
     fetchStrategy()
@@ -268,7 +532,7 @@ function App() {
       clearInterval(engineTimer)
       clearInterval(feedTimer)
     }
-  }, [fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchMarketCatalog, fetchOrderHistory, fetchDecisionHistory, fetchPerformance])
+  }, [authUser, fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchMarketCatalog, fetchOrderHistory, fetchDecisionHistory, fetchPerformance])
 
   const positions = useMemo(() => {
     if (!summary?.positions) {
@@ -464,6 +728,47 @@ function App() {
     manualTradeVolume,
   ])
 
+  if (authChecking) {
+    return (
+      <div className="auth-gate">
+        <div className="auth-gate__card">
+          <p className="eyebrow">BTC AUTO TRADER</p>
+          <h2>로그인 상태 확인 중</h2>
+          <p className="sub">세션을 확인하고 있습니다.</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!authUser) {
+    return (
+      <div className="auth-gate">
+        <div className="auth-gate__card">
+          <p className="eyebrow">BTC AUTO TRADER</p>
+          <h2>로그인이 필요합니다</h2>
+          <p className="sub">OAuth 로그인 후 사용자별 인터페이스 설정을 불러옵니다.</p>
+          {authError && <p className="status-error">{authError}</p>}
+          {authProviders.length === 0 ? (
+            <p className="status-error">사용 가능한 OAuth 공급자가 없습니다. 백엔드 OAuth 설정을 확인해주세요.</p>
+          ) : (
+            <div className="button-row auth-provider-row">
+              {authProviders.map((provider) => (
+                <button
+                  key={provider.id}
+                  className="primary-button"
+                  type="button"
+                  onClick={() => handleProviderLogin(provider.authorizationUrl)}
+                >
+                  {provider.name} 로그인
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <header className="app__header">
@@ -480,18 +785,24 @@ function App() {
           {engineError && <p className="status-error">{engineError}</p>}
           <div className="engine-inline-actions">
             <button
-              className="primary-button"
+              className={`engine-action-btn engine-action-btn--start ${engineStatus ? 'is-active' : ''}`}
               onClick={() => handleEngineStart(setEngineStatus, setEngineError, setEngineBusy)}
               disabled={engineBusy || engineStatus}
             >
-              엔진 시작
+              <span className="engine-action-btn__icon" aria-hidden="true">▶</span>
+              <span className="engine-action-btn__label">
+                {engineBusy && !engineStatus ? '시작 중...' : '엔진 시작'}
+              </span>
             </button>
             <button
-              className="danger-button"
+              className={`engine-action-btn engine-action-btn--stop ${engineStatus ? '' : 'is-active'}`}
               onClick={() => handleEngineStop(setEngineStatus, setEngineError, setEngineBusy)}
               disabled={engineBusy || !engineStatus}
             >
-              엔진 중지
+              <span className="engine-action-btn__icon" aria-hidden="true">■</span>
+              <span className="engine-action-btn__label">
+                {engineBusy && engineStatus ? '중지 중...' : '엔진 중지'}
+              </span>
             </button>
           </div>
         </div>
@@ -500,9 +811,20 @@ function App() {
             <span>업데이트</span>
             <strong className="mono">{updatedAt}</strong>
           </div>
+          <div className="status-row">
+            <span>사용자</span>
+            <strong className="mono">
+              {authUser.email || authUser.displayName || `${authUser.provider}:${authUser.providerUserId}`}
+            </strong>
+          </div>
           <div className="status-connection-row">
             <span>서버 연결</span>
             <span className={`connection-badge ${connectionClass}`}>{connectionLabel}</span>
+          </div>
+          <div className="status-actions">
+            <button className="ghost-button" type="button" onClick={handleLogout}>
+              로그아웃
+            </button>
           </div>
         </div>
       </header>
@@ -601,31 +923,6 @@ function App() {
             )}
           </section>
 
-          {/* <article className="table-card card--elevated feed-card">
-            <div className="table-header">
-              <div>
-                <h2>실시간 알림</h2>
-                <p className="sub">최근 체결/의사결정 이벤트</p>
-              </div>
-            </div>
-            {feedError && <p className="status-error">{feedError}</p>}
-            {alerts.length === 0 ? (
-              <div className="empty-state">새 알림이 없습니다.</div>
-            ) : (
-              <ul className="alert-list">
-                {alerts.map((alert) => (
-                  <li key={alert.id} className={`alert-item ${alert.tone}`}>
-                    <div>
-                      <strong>{alert.message}</strong>
-                      <p className="sub compact">{alert.meta}</p>
-                    </div>
-                    <span className="mono small">{formatTime(alert.time)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </article> */}
-
           <article className="table-card card--elevated order-card">
             <div className="table-header">
               <div>
@@ -687,6 +984,135 @@ function App() {
         </div>
 
         <aside className="workspace-side">
+          <article className="control-card card--elevated auth-settings-card">
+            <div className="card-head">
+              <div>
+                <h2>내 인터페이스 설정</h2>
+                <p className="sub">로그인 사용자별 기본 리스크 프로필과 관심 마켓 목록을 저장합니다.</p>
+              </div>
+              <span className="pill">USER</span>
+            </div>
+            {userSettingsError && <p className="status-error">{userSettingsError}</p>}
+            {userSettingsNotice && <p className="status-success">{userSettingsNotice}</p>}
+            <div className="form-grid auth-settings-grid">
+              <label className="form-field">
+                <span>리스크 프로필</span>
+                <select
+                  value={userRiskProfile}
+                  onChange={(event) => setUserRiskProfile(event.target.value)}
+                  disabled={settingsLoading || settingsSaving}
+                >
+                  {PROFILE_VALUES.map((profile) => (
+                    <option key={profile} value={profile}>
+                      {profile}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-field">
+                <span>관심 마켓</span>
+                <input
+                  type="text"
+                  value={userMarketsInput}
+                  onChange={(event) => setUserMarketsInput(event.target.value)}
+                  placeholder="예: KRW-BTC, KRW-ETH"
+                  disabled={settingsLoading || settingsSaving}
+                />
+              </label>
+            </div>
+            <p className="sub compact">마켓 코드는 쉼표로 구분해 입력하세요. 형식 예: KRW-BTC</p>
+            <div className="button-row">
+              <button
+                className="primary-button"
+                type="button"
+                onClick={handleSaveMySettings}
+                disabled={settingsLoading || settingsSaving}
+              >
+                {settingsSaving ? '저장 중...' : '내 설정 저장'}
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={fetchMySettings}
+                disabled={settingsLoading || settingsSaving}
+              >
+                {settingsLoading ? '불러오는 중...' : '다시 불러오기'}
+              </button>
+            </div>
+            {userSettings?.updatedAt && (
+              <p className="sub compact">마지막 저장 {formatDateTime(userSettings.updatedAt)}</p>
+            )}
+          </article>
+
+          <article className="control-card card--elevated auth-settings-card">
+            <div className="card-head">
+              <div>
+                <h2>거래소 API 키</h2>
+                <p className="sub">사용자별 Upbit API 키를 저장/검증합니다.</p>
+              </div>
+              <span className="pill">
+                {exchangeCredentialStatus?.configured
+                  ? '등록됨'
+                  : exchangeCredentialStatus?.usingDefaultCredentials
+                    ? '기본키 사용'
+                    : '미등록'}
+              </span>
+            </div>
+            {exchangeCredentialError && <p className="status-error">{exchangeCredentialError}</p>}
+            {exchangeCredentialNotice && <p className="status-success">{exchangeCredentialNotice}</p>}
+            <div className="form-grid auth-settings-grid">
+              <label className="form-field">
+                <span>Access Key</span>
+                <input
+                  type="text"
+                  value={exchangeAccessKeyInput}
+                  onChange={(event) => setExchangeAccessKeyInput(event.target.value)}
+                  placeholder="Upbit Access Key"
+                  disabled={exchangeCredentialSaving || exchangeCredentialVerifying}
+                />
+              </label>
+              <label className="form-field">
+                <span>Secret Key</span>
+                <input
+                  type="password"
+                  value={exchangeSecretKeyInput}
+                  onChange={(event) => setExchangeSecretKeyInput(event.target.value)}
+                  placeholder="Upbit Secret Key"
+                  disabled={exchangeCredentialSaving || exchangeCredentialVerifying}
+                />
+              </label>
+            </div>
+            <div className="button-row">
+              <button
+                className="primary-button"
+                type="button"
+                onClick={handleSaveExchangeCredentials}
+                disabled={exchangeCredentialSaving || exchangeCredentialVerifying}
+              >
+                {exchangeCredentialSaving ? '저장 중...' : '키 저장'}
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={handleVerifyExchangeCredentials}
+                disabled={exchangeCredentialLoading || exchangeCredentialSaving || exchangeCredentialVerifying}
+              >
+                {exchangeCredentialVerifying ? '검증 중...' : '키 검증'}
+              </button>
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={handleDeleteExchangeCredentials}
+                disabled={exchangeCredentialSaving || exchangeCredentialVerifying || !exchangeCredentialStatus?.configured}
+              >
+                키 삭제
+              </button>
+            </div>
+            {exchangeCredentialStatus?.updatedAt && (
+              <p className="sub compact">마지막 저장 {formatDateTime(exchangeCredentialStatus.updatedAt)}</p>
+            )}
+          </article>
+
           <article className="control-card card--elevated market-card">
             <div className="card-head">
               <div>
@@ -1309,124 +1735,6 @@ function App() {
   )
 }
 
-const appendOrderAlerts = (orders, lastOrderIdRef, setAlerts, options = {}) => {
-  const seedInitial = Boolean(options?.seedInitial)
-  if (!Array.isArray(orders) || orders.length === 0) {
-    return
-  }
-
-  const newestId = toNumber(orders[0]?.id)
-  if (newestId === null) {
-    return
-  }
-
-  if (lastOrderIdRef.current === null) {
-    if (seedInitial) {
-      const seedOrders = orders
-        .filter((order) => order?.side === 'BUY' || order?.side === 'SELL')
-        .slice(0, ALERT_SEED_LIMIT)
-      seedOrders.forEach((order) => {
-        const tone = order.side === 'BUY' ? 'positive' : 'negative'
-        const message = `주문 ${order.side} ${order.market}`
-        const meta = `${order.requestStatus ?? '-'} / ${order.state ?? '-'} / ${formatDateTime(order.requestedAt)}`
-        pushAlert(setAlerts, message, meta, tone, order.requestedAt)
-      })
-    }
-    lastOrderIdRef.current = newestId
-    return
-  }
-
-  const baseline = lastOrderIdRef.current
-  const newOrders = orders
-    .filter((order) => {
-      const id = toNumber(order?.id)
-      return id !== null && id > baseline && (order?.side === 'BUY' || order?.side === 'SELL')
-    })
-    .sort((a, b) => a.id - b.id)
-
-  if (newOrders.length === 0) {
-    if (newestId > baseline) {
-      lastOrderIdRef.current = newestId
-    }
-    return
-  }
-
-  newOrders.forEach((order) => {
-    const tone = order.side === 'BUY' ? 'positive' : 'negative'
-    const message = `주문 ${order.side} ${order.market}`
-    const meta = `${order.requestStatus ?? '-'} / ${order.state ?? '-'} / ${formatDateTime(order.requestedAt)}`
-    pushAlert(setAlerts, message, meta, tone, order.requestedAt)
-  })
-  lastOrderIdRef.current = newestId
-}
-
-const appendDecisionAlerts = (decisions, lastDecisionIdRef, setAlerts, options = {}) => {
-  const seedInitial = Boolean(options?.seedInitial)
-  if (!Array.isArray(decisions) || decisions.length === 0) {
-    return
-  }
-
-  const newestId = toNumber(decisions[0]?.id)
-  if (newestId === null) {
-    return
-  }
-
-  if (lastDecisionIdRef.current === null) {
-    if (seedInitial) {
-      const seedDecisions = decisions
-        .filter((decision) => decision?.action === 'BUY' || decision?.action === 'SELL')
-        .slice(0, ALERT_SEED_LIMIT)
-      seedDecisions.forEach((decision) => {
-        const tone = decision.action === 'BUY' ? 'positive' : 'negative'
-        const message = `신호 ${decision.action} ${decision.market}`
-        const meta = `${decision.reason ?? '-'} / ${formatDateTime(decision.executedAt)}`
-        pushAlert(setAlerts, message, meta, tone, decision.executedAt)
-      })
-    }
-    lastDecisionIdRef.current = newestId
-    return
-  }
-
-  const baseline = lastDecisionIdRef.current
-  const newDecisions = decisions
-    .filter((decision) => {
-      const id = toNumber(decision?.id)
-      return id !== null && id > baseline && (decision?.action === 'BUY' || decision?.action === 'SELL')
-    })
-    .sort((a, b) => a.id - b.id)
-
-  if (newDecisions.length === 0) {
-    if (newestId > baseline) {
-      lastDecisionIdRef.current = newestId
-    }
-    return
-  }
-
-  newDecisions.forEach((decision) => {
-    const tone = decision.action === 'BUY' ? 'positive' : 'negative'
-    const message = `신호 ${decision.action} ${decision.market}`
-    const meta = `${decision.reason ?? '-'} / ${formatDateTime(decision.executedAt)}`
-    pushAlert(setAlerts, message, meta, tone, decision.executedAt)
-  })
-  lastDecisionIdRef.current = newestId
-}
-
-const pushAlert = (setAlerts, message, meta, tone, occurredAt = null) => {
-  setAlerts((prev) => {
-    if (prev.some((item) => item.message === message && item.meta === meta)) {
-      return prev
-    }
-    const next = [{
-      id: `${Date.now()}-${Math.random()}`,
-      message,
-      meta,
-      tone,
-      time: occurredAt ?? new Date().toISOString(),
-    }, ...prev]
-    return next.slice(0, ALERT_MAX_SIZE)
-  })
-}
-
 const handleEngineStart = async (setEngineStatus, setEngineError, setEngineBusy) => {
   if (!window.confirm('자동매매 엔진을 시작할까요? 실제 주문이 발생할 수 있습니다.')) {
     return
@@ -1436,7 +1744,9 @@ const handleEngineStart = async (setEngineStatus, setEngineError, setEngineBusy)
   try {
     const response = await fetch('/api/engine/start', { method: 'POST' })
     if (!response.ok) {
-      throw new Error(`엔진 시작 실패 ${response.status}`)
+      const payload = await response.json().catch(() => null)
+      const message = buildApiErrorMessage(payload, `엔진 시작 실패 ${response.status}`)
+      throw new Error(message)
     }
     const data = await response.json()
     setEngineStatus(Boolean(data?.running))
@@ -1453,7 +1763,9 @@ const handleEngineStop = async (setEngineStatus, setEngineError, setEngineBusy) 
   try {
     const response = await fetch('/api/engine/stop', { method: 'POST' })
     if (!response.ok) {
-      throw new Error(`엔진 중지 실패 ${response.status}`)
+      const payload = await response.json().catch(() => null)
+      const message = buildApiErrorMessage(payload, `엔진 중지 실패 ${response.status}`)
+      throw new Error(message)
     }
     const data = await response.json()
     setEngineStatus(Boolean(data?.running))
@@ -1967,6 +2279,30 @@ const buildMarketListPayload = (rows) => {
   return { markets }
 }
 
+const parseUserMarketsInput = (value) => {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return []
+  }
+
+  const parsed = []
+  const seen = new Set()
+  value.split(',').forEach((token) => {
+    const market = normalizeMarket(token)
+    if (!market) {
+      return
+    }
+    if (!isValidMarketCode(market)) {
+      throw new Error(`${token.trim()} 마켓 코드 형식이 올바르지 않습니다. 예: KRW-BTC`)
+    }
+    if (seen.has(market)) {
+      return
+    }
+    seen.add(market)
+    parsed.push(market)
+  })
+  return parsed
+}
+
 const buildMarketOverrideSignature = (rows) => {
   if (!Array.isArray(rows)) {
     return ''
@@ -2148,6 +2484,13 @@ const normalizeDateInput = (value) => {
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
 }
 
+const isPlainObject = (value) => {
+  if (value === null || typeof value !== 'object') {
+    return false
+  }
+  return !Array.isArray(value)
+}
+
 const normalizeProfileValue = (value) => {
   if (value === null || value === undefined) {
     return ''
@@ -2190,11 +2533,6 @@ const toInputValue = (value) => {
   return String(value)
 }
 
-const toNumber = (value) => {
-  const numeric = Number(value)
-  return Number.isNaN(numeric) ? null : numeric
-}
-
 const formatKRW = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '-'
@@ -2232,17 +2570,6 @@ const formatDateTime = (value) => {
     return '-'
   }
   return date.toLocaleString('ko-KR', { hour12: false })
-}
-
-const formatTime = (value) => {
-  if (!value) {
-    return '-'
-  }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return '-'
-  }
-  return date.toLocaleTimeString('ko-KR', { hour12: false })
 }
 
 const truncateText = (value, max) => {
