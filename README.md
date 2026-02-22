@@ -84,6 +84,15 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
 - 파라미터 탐색 포함:
   - `python3 scripts/backtest.py --days 30 --optimize --max-combos 120`
 
+### Strategy Lab (지속 테스트 루프)
+- 실행 문서: `docs/STRATEGY_LAB.md`
+- 역할:
+  - 실시간 자동매매와 별개로 백테스트를 주기적으로 반복
+  - 결과를 `data/strategy-lab/`에 누적 저장
+  - 다음 Codex 요청 시 누적 데이터 기반으로 전략 코드/설정 반영
+- 설치/시작:
+  - `./scripts/strategy_lab_install.sh`
+
 ### Tenant 분리 확인 체크리스트
 1. 계정 A/B 각각 로그인 후 `/api/me`의 `tenantDatabase`가 다른지 확인
 2. A에서 `/api/strategy/markets` 변경 후 B에서 조회했을 때 값이 분리되는지 확인
