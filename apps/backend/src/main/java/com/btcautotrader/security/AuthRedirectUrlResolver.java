@@ -79,7 +79,8 @@ public class AuthRedirectUrlResolver {
     }
 
     private static ResolvedOrigin resolveOrigin(HttpServletRequest request) {
-        String scheme = firstForwardedValue(request.getHeader("X-Forwarded-Proto"));
+        String forwardedScheme = firstForwardedValue(request.getHeader("X-Forwarded-Proto"));
+        String scheme = forwardedScheme;
         if (scheme == null || scheme.isBlank()) {
             scheme = request.getScheme();
         }
@@ -99,6 +100,9 @@ public class AuthRedirectUrlResolver {
         if (port <= 0) {
             String forwardedPort = firstForwardedValue(request.getHeader("X-Forwarded-Port"));
             port = parsePort(forwardedPort);
+        }
+        if (port <= 0 && (forwardedHost != null || forwardedScheme != null)) {
+            port = defaultPortForScheme(scheme);
         }
         if (port <= 0) {
             port = request.getServerPort();
@@ -182,6 +186,16 @@ public class AuthRedirectUrlResolver {
         }
         return !(("http".equalsIgnoreCase(scheme) && port == 80)
                 || ("https".equalsIgnoreCase(scheme) && port == 443));
+    }
+
+    private static int defaultPortForScheme(String scheme) {
+        if ("https".equalsIgnoreCase(scheme)) {
+            return 443;
+        }
+        if ("http".equalsIgnoreCase(scheme)) {
+            return 80;
+        }
+        return -1;
     }
 
     private record ResolvedOrigin(String scheme, String host, int port) {
