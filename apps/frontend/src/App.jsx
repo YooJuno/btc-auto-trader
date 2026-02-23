@@ -23,6 +23,25 @@ const RATIO_FIELD_LABELS = {
   trendExitPct: '추세 이탈 매도 %',
   momentumExitPct: '모멘텀 역전 매도 %',
 }
+const DASHBOARD_ROUTE = 'dashboard'
+const SETTINGS_ROUTE = 'settings'
+const SETTINGS_PATH = '/settings'
+
+const resolveAppRoute = (pathname) => {
+  const normalizedPath = pathname.replace(/\/+$/, '') || '/'
+  if (normalizedPath === SETTINGS_PATH) {
+    return SETTINGS_ROUTE
+  }
+  return DASHBOARD_ROUTE
+}
+
+const resolveAppPath = (route) => {
+  if (route === SETTINGS_ROUTE) {
+    return SETTINGS_PATH
+  }
+  return '/'
+}
+
 function App() {
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -88,6 +107,7 @@ function App() {
   const [exchangeCredentialNotice, setExchangeCredentialNotice] = useState(null)
   const [exchangeAccessKeyInput, setExchangeAccessKeyInput] = useState('')
   const [exchangeSecretKeyInput, setExchangeSecretKeyInput] = useState('')
+  const [activeRoute, setActiveRoute] = useState(() => resolveAppRoute(window.location.pathname))
 
   const fetchAuthProviders = useCallback(async () => {
     try {
@@ -317,6 +337,14 @@ function App() {
     }
   }, [fetchExchangeCredentialStatus])
 
+  const navigateRoute = useCallback((route) => {
+    const nextPath = resolveAppPath(route)
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath)
+    }
+    setActiveRoute(resolveAppRoute(nextPath))
+  }, [])
+
   const fetchSummary = useCallback(async (isRefresh = false) => {
     if (!isRefresh) {
       setLoading(true)
@@ -495,6 +523,17 @@ function App() {
     fetchAuthProviders()
     checkAuthSession()
   }, [checkAuthSession, fetchAuthProviders])
+
+  useEffect(() => {
+    const handlePopstate = () => {
+      setActiveRoute(resolveAppRoute(window.location.pathname))
+    }
+
+    window.addEventListener('popstate', handlePopstate)
+    return () => {
+      window.removeEventListener('popstate', handlePopstate)
+    }
+  }, [])
 
   useEffect(() => {
     if (!authUser) {
@@ -774,8 +813,24 @@ function App() {
       <header className="app__header">
         <div className="brand-block">
           <p className="eyebrow">BTC AUTO TRADER</p>
-          <h1>Sundal</h1>
-          <p className="sub">Work Day & Night for your financial free life</p>
+          <h1>Trading Control Center</h1>
+          <p className="sub">실시간 상태는 메인에서 확인하고, 전략/거래 설정은 설정 페이지에서 관리합니다.</p>
+          <div className="route-tabs" role="tablist" aria-label="페이지 이동">
+            <button
+              type="button"
+              className={`route-tab ${activeRoute === DASHBOARD_ROUTE ? 'is-active' : ''}`}
+              onClick={() => navigateRoute(DASHBOARD_ROUTE)}
+            >
+              실시간 현황
+            </button>
+            <button
+              type="button"
+              className={`route-tab ${activeRoute === SETTINGS_ROUTE ? 'is-active' : ''}`}
+              onClick={() => navigateRoute(SETTINGS_ROUTE)}
+            >
+              매매 세팅
+            </button>
+          </div>
         </div>
         <div className="engine-inline-card">
           <div className="engine-inline-head">
@@ -829,6 +884,19 @@ function App() {
         </div>
       </header>
 
+      <section className="page-context">
+        <div>
+          <h2>{activeRoute === DASHBOARD_ROUTE ? '실시간 매매 현황' : '매매 세팅 센터'}</h2>
+          <p className="sub">
+            {activeRoute === DASHBOARD_ROUTE
+              ? '현재 자산, 포지션, 주문 로그를 한 화면에서 빠르게 확인합니다.'
+              : '사용자 설정, 거래소 키, 마켓별 전략 파라미터를 안전하게 관리합니다.'}
+          </p>
+        </div>
+        <span className="pill">{activeRoute === DASHBOARD_ROUTE ? 'LIVE' : 'SETTINGS'}</span>
+      </section>
+
+      {activeRoute === DASHBOARD_ROUTE && (
       <section className="summary-grid">
         <div className="summary-card">
           <h3>보유 KRW</h3>
@@ -861,9 +929,12 @@ function App() {
           <p className="summary-sub">현금 + 코인 평가 합계</p>
         </div>
       </section>
+      )}
 
-      <section className="workspace-grid">
+      <section className={`workspace-grid ${activeRoute === DASHBOARD_ROUTE ? 'workspace-grid--status' : 'workspace-grid--settings'}`}>
         <div className="workspace-main">
+          {activeRoute === DASHBOARD_ROUTE && (
+          <>
           <section className="table-card table-card--elevated positions-card">
             <div className="table-header">
               <div>
@@ -981,9 +1052,13 @@ function App() {
               </div>
             )}
           </article>
+          </>
+          )}
         </div>
 
         <aside className="workspace-side">
+          {activeRoute === SETTINGS_ROUTE && (
+          <>
           <article className="control-card card--elevated auth-settings-card">
             <div className="card-head">
               <div>
@@ -1620,6 +1695,8 @@ function App() {
               </>
             )}
           </article>
+          </>
+          )}
 
         </aside>
       </section>
