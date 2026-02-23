@@ -8,6 +8,10 @@ PostgreSQL is used as the primary database for storing application data.
 - Script: `apps/infra/caddy/setup.sh`
 - Example config: `apps/infra/caddy/Caddyfile.example`
 
+### Jenkins
+- CI/CD guide: `apps/infra/jenkins/README.md`
+- Pipeline file: `Jenkinsfile`
+
 ### Caching
 Redis is employed for caching frequently accessed data to improve performance.
 

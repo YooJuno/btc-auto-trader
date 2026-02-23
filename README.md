@@ -77,6 +77,12 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
   - 내부 앱 포트는 그대로 유지 (`frontend:5173`, `backend:8080`)
   - Caddy가 `/api`, `/oauth2`, `/login`, `/logout`은 백엔드로 프록시하고 나머지는 프론트로 전달
 
+### Jenkins CI/CD
+- 실행 문서: `apps/infra/jenkins/README.md`
+- 파이프라인 파일: `Jenkinsfile`
+- 기본 CI: backend test + frontend lint/build + artifact 보관
+- 선택 CD: `main` 브랜치에서 `DEPLOY=true`일 때 원격 `./scripts/build.sh` 실행
+
 ### 백테스트 가이드
 - 실행/검증 문서: `docs/BACKTEST_GUIDE.md`
 - 기본 실행:
