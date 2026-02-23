@@ -20,12 +20,14 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -94,6 +96,7 @@ public class AutoTradeService {
     private final long stopLossGuardLookbackMinutes;
     private final int stopLossGuardTriggerCount;
     private final long stopLossGuardLockMinutes;
+    private final double dailyLossLimitPct;
     private final int volatilityWindow;
     private final BigDecimal targetVolPct;
     private final boolean useClosedCandle;
@@ -126,6 +129,7 @@ public class AutoTradeService {
     private final Map<String, OffsetDateTime> lastExitAt = new ConcurrentHashMap<>();
     private final Map<String, Deque<OffsetDateTime>> stopLossEventsByMarket = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> stopLossGuardUntilByMarket = new ConcurrentHashMap<>();
+    private final Map<String, DailyLossBaseline> dailyLossBaselinesByTenant = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> trailingHighByMarket = new ConcurrentHashMap<>();
     private final Map<String, OrderChanceSnapshot> orderChanceCache = new ConcurrentHashMap<>();
     private final Map<String, MomentumSnapshot> relativeMomentumCache = new ConcurrentHashMap<>();
@@ -180,6 +184,7 @@ public class AutoTradeService {
             @Value("${risk.stop-loss-guard-lookback-minutes:180}") long stopLossGuardLookbackMinutes,
             @Value("${risk.stop-loss-guard-trigger-count:3}") int stopLossGuardTriggerCount,
             @Value("${risk.stop-loss-guard-lock-minutes:180}") long stopLossGuardLockMinutes,
+            @Value("${risk.daily-loss-limit-pct:0}") double dailyLossLimitPct,
             @Value("${risk.volatility-window:30}") int volatilityWindow,
             @Value("${risk.target-vol-pct:0.5}") BigDecimal targetVolPct,
             @Value("${signal.use-closed-candle:true}") boolean useClosedCandle,
@@ -254,6 +259,7 @@ public class AutoTradeService {
         this.stopLossGuardLookbackMinutes = stopLossGuardLookbackMinutes;
         this.stopLossGuardTriggerCount = stopLossGuardTriggerCount;
         this.stopLossGuardLockMinutes = stopLossGuardLockMinutes;
+        this.dailyLossLimitPct = Math.max(0.0, dailyLossLimitPct);
         this.volatilityWindow = volatilityWindow;
         this.targetVolPct = targetVolPct;
         this.useClosedCandle = useClosedCandle;
@@ -425,10 +431,25 @@ public class AutoTradeService {
             if (!regimeFilterPerMarket) {
                 globalRegime = evaluateRegime(regimeMarket);
             }
+            DailyLossStatus dailyLossStatus = evaluateDailyLossStatus(accounts);
             MarketSelection selection = selectMarketsForTick(markets, accounts);
             BigDecimal remainingCash = accounts.getOrDefault("KRW", AccountSnapshot.empty()).balance();
 
             List<AutoTradeAction> actions = new ArrayList<>();
+            if (dailyLossStatus.active()) {
+                AutoTradeAction action = new AutoTradeAction(
+                        SYSTEM_KEY,
+                        "SKIP",
+                        dailyLossStatus.reason(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                );
+                actions.add(action);
+                recordDecision(SYSTEM_KEY, action, config, StrategyProfile.from(config.profile()), null, null, globalRegime, null, null);
+            }
             for (String market : selection.selected()) {
                 RegimeSnapshot regime = regimeFilterPerMarket
                         ? regimeByMarket.computeIfAbsent(normalizeMarket(market, regimeMarket), this::evaluateRegime)
@@ -466,6 +487,32 @@ public class AutoTradeService {
                         String marketKey = tenantMarketKey;
                         if (marketKey != null) {
                             trailingHighByMarket.remove(marketKey);
+                        }
+                        if (dailyLossStatus.active()) {
+                            AutoTradeAction action = new AutoTradeAction(
+                                    market,
+                                    "SKIP",
+                                    dailyLossStatus.reason(),
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null
+                            );
+                            actions.add(action);
+                            recordDecision(
+                                    market,
+                                    action,
+                                    marketConfig,
+                                    profile,
+                                    null,
+                                    tuning,
+                                    regime,
+                                    momentumScorePct,
+                                    marketMaxOrderKrw
+                            );
+                            resetFailure(market);
+                            continue;
                         }
                         if (tradePaused) {
                             AutoTradeAction action = new AutoTradeAction(
@@ -527,7 +574,8 @@ public class AutoTradeService {
                         AutoTradeAction sellAction = handleSell(market, position, marketConfig, indicators, tuning);
                         AutoTradeAction actionToRecord = sellAction;
 
-                        if (!tradePaused
+                        if (!dailyLossStatus.active()
+                                && !tradePaused
                                 && canScaleInAfterSellAction(sellAction)
                                 && remainingCash.compareTo(BigDecimal.ZERO) > 0) {
                             AutoTradeAction buyAction = handleBuy(
@@ -1117,6 +1165,102 @@ public class AutoTradeService {
             }
         }
         return minTotal == null ? BigDecimal.ZERO : minTotal;
+    }
+
+    private DailyLossStatus evaluateDailyLossStatus(Map<String, AccountSnapshot> accounts) {
+        if (dailyLossLimitPct <= 0) {
+            return DailyLossStatus.disabled();
+        }
+
+        BigDecimal currentTotalAssetKrw = estimateTotalAssetKrw(accounts);
+        if (currentTotalAssetKrw.compareTo(BigDecimal.ZERO) <= 0) {
+            return DailyLossStatus.disabled();
+        }
+
+        String tenantKey = currentTenantKey();
+        LocalDate today = OffsetDateTime.now().toLocalDate();
+        DailyLossBaseline baseline = dailyLossBaselinesByTenant.get(tenantKey);
+        if (baseline == null || !today.equals(baseline.date())) {
+            dailyLossBaselinesByTenant.put(tenantKey, new DailyLossBaseline(today, currentTotalAssetKrw));
+            return DailyLossStatus.inactive(currentTotalAssetKrw);
+        }
+
+        BigDecimal baselineAsset = baseline.totalAssetKrw();
+        if (baselineAsset == null || baselineAsset.compareTo(BigDecimal.ZERO) <= 0) {
+            dailyLossBaselinesByTenant.put(tenantKey, new DailyLossBaseline(today, currentTotalAssetKrw));
+            return DailyLossStatus.inactive(currentTotalAssetKrw);
+        }
+
+        BigDecimal drawdownPct = baselineAsset
+                .subtract(currentTotalAssetKrw)
+                .divide(baselineAsset, 8, RoundingMode.HALF_UP)
+                .multiply(HUNDRED);
+        if (drawdownPct.compareTo(BigDecimal.ZERO) < 0) {
+            drawdownPct = BigDecimal.ZERO;
+        }
+
+        boolean active = drawdownPct.compareTo(BigDecimal.valueOf(dailyLossLimitPct)) >= 0;
+        return new DailyLossStatus(active, drawdownPct, baselineAsset, currentTotalAssetKrw, dailyLossLimitPct);
+    }
+
+    private BigDecimal estimateTotalAssetKrw(Map<String, AccountSnapshot> accounts) {
+        if (accounts == null || accounts.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal total = BigDecimal.ZERO;
+        AccountSnapshot krwAccount = accounts.get("KRW");
+        if (krwAccount != null) {
+            total = total.add(krwAccount.total());
+        }
+
+        Map<String, AccountSnapshot> holdingsByMarket = new LinkedHashMap<>();
+        for (Map.Entry<String, AccountSnapshot> entry : accounts.entrySet()) {
+            String currency = entry.getKey();
+            AccountSnapshot snapshot = entry.getValue();
+            if (currency == null || snapshot == null || "KRW".equalsIgnoreCase(currency)) {
+                continue;
+            }
+            if (snapshot.total().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            String market = "KRW-" + currency.toUpperCase(Locale.ROOT);
+            holdingsByMarket.put(market, snapshot);
+        }
+
+        if (holdingsByMarket.isEmpty()) {
+            return total;
+        }
+
+        Map<String, Map<String, Object>> tickersByMarket;
+        try {
+            tickersByMarket = upbitService.fetchTickers(new ArrayList<>(new LinkedHashSet<>(holdingsByMarket.keySet())));
+        } catch (RuntimeException ignored) {
+            tickersByMarket = Map.of();
+        }
+
+        for (Map.Entry<String, AccountSnapshot> holding : holdingsByMarket.entrySet()) {
+            String market = holding.getKey();
+            AccountSnapshot snapshot = holding.getValue();
+            BigDecimal quantity = snapshot.total();
+            if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            BigDecimal price = BigDecimal.ZERO;
+            Map<String, Object> ticker = tickersByMarket.get(market);
+            if (ticker != null) {
+                price = toDecimal(ticker.get("trade_price"));
+            }
+            if (price.compareTo(BigDecimal.ZERO) <= 0) {
+                price = snapshot.avgBuyPrice();
+            }
+            if (price.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            total = total.add(price.multiply(quantity));
+        }
+
+        return total;
     }
 
     private OrderChanceSnapshot fetchOrderChanceSnapshot(String market) {
@@ -2704,6 +2848,33 @@ public class AutoTradeService {
             BigDecimal score,
             OffsetDateTime fetchedAt
     ) {
+    }
+
+    private record DailyLossBaseline(LocalDate date, BigDecimal totalAssetKrw) {
+    }
+
+    private record DailyLossStatus(
+            boolean active,
+            BigDecimal drawdownPct,
+            BigDecimal baselineAssetKrw,
+            BigDecimal currentAssetKrw,
+            double limitPct
+    ) {
+        static DailyLossStatus disabled() {
+            return new DailyLossStatus(false, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0.0);
+        }
+
+        static DailyLossStatus inactive(BigDecimal currentAssetKrw) {
+            BigDecimal safeCurrent = currentAssetKrw == null ? BigDecimal.ZERO : currentAssetKrw;
+            return new DailyLossStatus(false, BigDecimal.ZERO, safeCurrent, safeCurrent, 0.0);
+        }
+
+        String reason() {
+            BigDecimal safeDrawdown = drawdownPct == null ? BigDecimal.ZERO : drawdownPct.max(BigDecimal.ZERO);
+            BigDecimal roundedDrawdown = safeDrawdown.setScale(2, RoundingMode.HALF_UP);
+            BigDecimal roundedLimit = BigDecimal.valueOf(Math.max(0.0, limitPct)).setScale(2, RoundingMode.HALF_UP);
+            return "daily_loss_guard:" + roundedDrawdown + ">=" + roundedLimit;
+        }
     }
 
     private static String truncate(String value, int max) {

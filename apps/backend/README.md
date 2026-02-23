@@ -53,6 +53,7 @@
 - 마켓별 최대 주문 금액 cap 지원 (`trading.market-max-order-krw`)
 - 매매 결정(매수/매도/스킵)과 지표 스냅샷을 `trade_decisions` 테이블에 기록
 - 변동성 타깃이 설정되어 있으면 주문 금액을 축소
+- 일일 손실 한도 초과 시 신규 매수 자동 중단(기존 보유분 매도는 계속 허용)
 - 최근 주문/대기 중 주문은 재주문 방지
 - 장애 발생 시 마켓별 지수 백오프 적용 (한 마켓 장애가 전체를 멈추지 않음)
 - tick당 처리할 마켓 수 제한 가능 (`engine.max-markets-per-tick`, 라운드로빈 처리)
@@ -86,6 +87,7 @@
 - `risk.trailing-window`
 - `risk.partial-take-profit-cooldown-minutes`
 - `risk.stop-loss-cooldown-minutes`
+- `risk.daily-loss-limit-pct`
 - `risk.volatility-window`
 - `risk.target-vol-pct`
 - `upbit.rate-limit.enabled`
