@@ -26,9 +26,16 @@ const RATIO_FIELD_LABELS = {
 const DASHBOARD_ROUTE = 'dashboard'
 const SETTINGS_ROUTE = 'settings'
 const SETTINGS_PATH = '/settings'
+const UI_SCOPE_COMMON = 'common'
+const UI_SCOPE_MOBILE = 'mobile'
+const UI_SCOPE_DESKTOP = 'desktop'
+const UI_DENSITY_COMFORTABLE = 'comfortable'
+const UI_DENSITY_COMPACT = 'compact'
+const UI_REFRESH_MIN_SEC = 2
+const UI_REFRESH_MAX_SEC = 30
 
 const resolveAppRoute = (pathname) => {
-  const normalizedPath = pathname.replace(/\/+$/, '') || '/'
+  const normalizedPath = normalizePathname(pathname)
   if (normalizedPath === SETTINGS_PATH) {
     return SETTINGS_ROUTE
   }
@@ -108,6 +115,21 @@ function App() {
   const [exchangeAccessKeyInput, setExchangeAccessKeyInput] = useState('')
   const [exchangeSecretKeyInput, setExchangeSecretKeyInput] = useState('')
   const [activeRoute, setActiveRoute] = useState(() => resolveAppRoute(window.location.pathname))
+  const [deviceKind, setDeviceKind] = useState(() => detectDeviceKind())
+  const [defaultRouteApplied, setDefaultRouteApplied] = useState(false)
+
+  const normalizedUserUiPrefs = useMemo(() => buildUiPrefsPayload(userUiPrefs), [userUiPrefs])
+  const effectiveUiPrefs = useMemo(
+    () => resolveEffectiveUiPrefs(normalizedUserUiPrefs, deviceKind),
+    [normalizedUserUiPrefs, deviceKind]
+  )
+  const pollingIntervalMs = useMemo(
+    () => normalizePollingIntervalMs(effectiveUiPrefs.refreshSec),
+    [effectiveUiPrefs.refreshSec]
+  )
+  const tableDensityClass = effectiveUiPrefs.tableDensity === UI_DENSITY_COMPACT
+    ? 'app--density-compact'
+    : 'app--density-comfortable'
 
   const fetchAuthProviders = useCallback(async () => {
     try {
@@ -161,7 +183,7 @@ function App() {
       setUserSettings(data)
       setUserRiskProfile(normalizeProfileValue(data?.riskProfile) || DEFAULT_MARKET_PROFILE)
       setUserMarketsInput(markets.join(', '))
-      setUserUiPrefs(isPlainObject(data?.uiPrefs) ? data.uiPrefs : {})
+      setUserUiPrefs(buildUiPrefsPayload(data?.uiPrefs))
     } catch (err) {
       setUserSettingsError(err?.message ?? '내 설정 조회 실패')
     } finally {
@@ -229,7 +251,7 @@ function App() {
       const payload = {
         markets: parseUserMarketsInput(userMarketsInput),
         riskProfile: normalizeProfileValue(userRiskProfile) || DEFAULT_MARKET_PROFILE,
-        uiPrefs: isPlainObject(userUiPrefs) ? userUiPrefs : {},
+        uiPrefs: buildUiPrefsPayload(userUiPrefs),
       }
       const response = await fetch('/api/me/settings', {
         method: 'PUT',
@@ -246,7 +268,7 @@ function App() {
       setUserSettings(data)
       setUserRiskProfile(normalizeProfileValue(data?.riskProfile) || DEFAULT_MARKET_PROFILE)
       setUserMarketsInput(markets.join(', '))
-      setUserUiPrefs(isPlainObject(data?.uiPrefs) ? data.uiPrefs : {})
+      setUserUiPrefs(buildUiPrefsPayload(data?.uiPrefs))
       setUserSettingsNotice('내 인터페이스 설정을 저장했습니다.')
     } catch (err) {
       setUserSettingsError(err?.message ?? '내 설정 저장 실패')
@@ -336,6 +358,25 @@ function App() {
       setExchangeCredentialSaving(false)
     }
   }, [fetchExchangeCredentialStatus])
+
+  const setUiPrefValue = useCallback((scope, key, value) => {
+    setUserUiPrefs((prev) => updateUiPrefsSectionValue(prev, scope, key, value))
+  }, [])
+
+  const handleRefreshSecChange = useCallback((event) => {
+    const nextValue = normalizeRefreshSeconds(event.target.value)
+    setUiPrefValue(UI_SCOPE_COMMON, 'refreshSec', nextValue)
+  }, [setUiPrefValue])
+
+  const handleDefaultRouteChange = useCallback((scope, value) => {
+    const nextValue = normalizeRouteToken(value, DASHBOARD_ROUTE)
+    setUiPrefValue(scope, 'defaultRoute', nextValue)
+  }, [setUiPrefValue])
+
+  const handleTableDensityChange = useCallback((scope, value) => {
+    const nextValue = normalizeTableDensity(value, UI_DENSITY_COMFORTABLE)
+    setUiPrefValue(scope, 'tableDensity', nextValue)
+  }, [setUiPrefValue])
 
   const navigateRoute = useCallback((route) => {
     const nextPath = resolveAppPath(route)
@@ -536,14 +577,44 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined
+    }
+    const mediaQuery = window.matchMedia('(max-width: 860px)')
+    const handleMediaChange = (event) => {
+      setDeviceKind(event.matches ? UI_SCOPE_MOBILE : UI_SCOPE_DESKTOP)
+    }
+    setDeviceKind(mediaQuery.matches ? UI_SCOPE_MOBILE : UI_SCOPE_DESKTOP)
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleMediaChange)
+      return () => mediaQuery.removeEventListener('change', handleMediaChange)
+    }
+    mediaQuery.addListener(handleMediaChange)
+    return () => mediaQuery.removeListener(handleMediaChange)
+  }, [])
+
+  useEffect(() => {
     if (!authUser) {
       setUserSettings(null)
       setExchangeCredentialStatus(null)
+      setDefaultRouteApplied(false)
       return
     }
+    setDefaultRouteApplied(false)
     fetchMySettings()
     fetchExchangeCredentialStatus()
   }, [authUser, fetchMySettings, fetchExchangeCredentialStatus])
+
+  useEffect(() => {
+    if (!authUser || !userSettings || defaultRouteApplied) {
+      return
+    }
+    const currentPath = normalizePathname(window.location.pathname)
+    if (currentPath === '/') {
+      navigateRoute(effectiveUiPrefs.defaultRoute)
+    }
+    setDefaultRouteApplied(true)
+  }, [authUser, defaultRouteApplied, effectiveUiPrefs.defaultRoute, navigateRoute, userSettings])
 
   useEffect(() => {
     if (!authUser) {
@@ -559,19 +630,19 @@ function App() {
     fetchDecisionHistory()
     fetchPerformance()
 
-    const summaryTimer = setInterval(() => fetchSummary(true), 2000)
-    const engineTimer = setInterval(() => fetchEngineStatus(), 2000)
+    const summaryTimer = setInterval(() => fetchSummary(true), pollingIntervalMs)
+    const engineTimer = setInterval(() => fetchEngineStatus(), pollingIntervalMs)
     const feedTimer = setInterval(() => {
       fetchOrderHistory()
       fetchDecisionHistory()
-    }, 3000)
+    }, pollingIntervalMs)
 
     return () => {
       clearInterval(summaryTimer)
       clearInterval(engineTimer)
       clearInterval(feedTimer)
     }
-  }, [authUser, fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchMarketCatalog, fetchOrderHistory, fetchDecisionHistory, fetchPerformance])
+  }, [authUser, fetchSummary, fetchEngineStatus, fetchStrategy, fetchRatioPresets, fetchMarketOverrides, fetchMarketCatalog, fetchOrderHistory, fetchDecisionHistory, fetchPerformance, pollingIntervalMs])
 
   const positions = useMemo(() => {
     if (!summary?.positions) {
@@ -632,6 +703,12 @@ function App() {
     [manualTradeMarket, positions]
   )
   const cashKrw = cash?.total ?? cash?.balance ?? 0
+  const commonUiPrefs = normalizedUserUiPrefs?.[UI_SCOPE_COMMON] ?? {}
+  const mobileUiPrefs = normalizedUserUiPrefs?.[UI_SCOPE_MOBILE] ?? {}
+  const desktopUiPrefs = normalizedUserUiPrefs?.[UI_SCOPE_DESKTOP] ?? {}
+  const deviceLabel = deviceKind === UI_SCOPE_MOBILE ? '스마트폰' : 'PC'
+  const effectiveRouteLabel = effectiveUiPrefs.defaultRoute === SETTINGS_ROUTE ? '매매 세팅' : '실시간 현황'
+  const effectiveDensityLabel = effectiveUiPrefs.tableDensity === UI_DENSITY_COMPACT ? '컴팩트' : '컴포터블'
 
   const handleMarketReload = useCallback(() => {
     if (marketRowsDirty && !window.confirm('저장하지 않은 변경사항이 있습니다. 서버 설정으로 덮어쓸까요?')) {
@@ -809,7 +886,7 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${tableDensityClass}`}>
       <header className="app__header">
         <div className="brand-block">
           <p className="eyebrow">BTC AUTO TRADER</p>
@@ -1063,7 +1140,7 @@ function App() {
             <div className="card-head">
               <div>
                 <h2>내 인터페이스 설정</h2>
-                <p className="sub">로그인 사용자별 기본 리스크 프로필과 관심 마켓 목록을 저장합니다.</p>
+                <p className="sub">로그인 사용자별 기본 리스크 프로필, 관심 마켓, 기기별 화면 옵션을 저장합니다.</p>
               </div>
               <span className="pill">USER</span>
             </div>
@@ -1094,6 +1171,69 @@ function App() {
                   disabled={settingsLoading || settingsSaving}
                 />
               </label>
+            </div>
+            <div className="ui-pref-block">
+              <p className="sub compact">기기별 UI 설정</p>
+              <div className="form-grid ui-pref-grid">
+                <label className="form-field">
+                  <span>공통 새로고침 주기 (초)</span>
+                  <input
+                    type="number"
+                    min={UI_REFRESH_MIN_SEC}
+                    max={UI_REFRESH_MAX_SEC}
+                    value={toInputValue(commonUiPrefs.refreshSec)}
+                    onChange={handleRefreshSecChange}
+                    disabled={settingsLoading || settingsSaving}
+                  />
+                </label>
+                <label className="form-field">
+                  <span>데스크톱 기본 화면</span>
+                  <select
+                    value={normalizeRouteToken(desktopUiPrefs.defaultRoute, DASHBOARD_ROUTE)}
+                    onChange={(event) => handleDefaultRouteChange(UI_SCOPE_DESKTOP, event.target.value)}
+                    disabled={settingsLoading || settingsSaving}
+                  >
+                    <option value={DASHBOARD_ROUTE}>실시간 현황</option>
+                    <option value={SETTINGS_ROUTE}>매매 세팅</option>
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>데스크톱 테이블 밀도</span>
+                  <select
+                    value={normalizeTableDensity(desktopUiPrefs.tableDensity, UI_DENSITY_COMFORTABLE)}
+                    onChange={(event) => handleTableDensityChange(UI_SCOPE_DESKTOP, event.target.value)}
+                    disabled={settingsLoading || settingsSaving}
+                  >
+                    <option value={UI_DENSITY_COMFORTABLE}>컴포터블</option>
+                    <option value={UI_DENSITY_COMPACT}>컴팩트</option>
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>모바일 기본 화면</span>
+                  <select
+                    value={normalizeRouteToken(mobileUiPrefs.defaultRoute, DASHBOARD_ROUTE)}
+                    onChange={(event) => handleDefaultRouteChange(UI_SCOPE_MOBILE, event.target.value)}
+                    disabled={settingsLoading || settingsSaving}
+                  >
+                    <option value={DASHBOARD_ROUTE}>실시간 현황</option>
+                    <option value={SETTINGS_ROUTE}>매매 세팅</option>
+                  </select>
+                </label>
+                <label className="form-field">
+                  <span>모바일 테이블 밀도</span>
+                  <select
+                    value={normalizeTableDensity(mobileUiPrefs.tableDensity, UI_DENSITY_COMPACT)}
+                    onChange={(event) => handleTableDensityChange(UI_SCOPE_MOBILE, event.target.value)}
+                    disabled={settingsLoading || settingsSaving}
+                  >
+                    <option value={UI_DENSITY_COMPACT}>컴팩트</option>
+                    <option value={UI_DENSITY_COMFORTABLE}>컴포터블</option>
+                  </select>
+                </label>
+              </div>
+              <p className="sub compact">
+                현재 접속: {deviceLabel} / 적용 화면: {effectiveRouteLabel} / 적용 밀도: {effectiveDensityLabel} / 자동 갱신: {Math.round(pollingIntervalMs / 1000)}초
+              </p>
             </div>
             <p className="sub compact">마켓 코드는 쉼표로 구분해 입력하세요. 형식 예: KRW-BTC</p>
             <div className="button-row">
@@ -2559,6 +2699,145 @@ const normalizeDateInput = (value) => {
     return null
   }
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
+}
+
+const detectDeviceKind = () => {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return UI_SCOPE_DESKTOP
+  }
+  return window.matchMedia('(max-width: 860px)').matches ? UI_SCOPE_MOBILE : UI_SCOPE_DESKTOP
+}
+
+const normalizePathname = (pathname) => {
+  if (typeof pathname !== 'string') {
+    return '/'
+  }
+  const trimmed = pathname.trim()
+  if (trimmed === '') {
+    return '/'
+  }
+  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  return withLeadingSlash.replace(/\/+$/, '') || '/'
+}
+
+const normalizeRouteToken = (value, fallback = DASHBOARD_ROUTE) => {
+  if (value === DASHBOARD_ROUTE || value === SETTINGS_ROUTE) {
+    return value
+  }
+  if (value === null || value === undefined) {
+    return fallback
+  }
+  const normalized = String(value).trim().toLowerCase()
+  if (normalized === SETTINGS_ROUTE) {
+    return SETTINGS_ROUTE
+  }
+  if (normalized === DASHBOARD_ROUTE) {
+    return DASHBOARD_ROUTE
+  }
+  return fallback
+}
+
+const normalizeTableDensity = (value, fallback = UI_DENSITY_COMFORTABLE) => {
+  if (value === UI_DENSITY_COMFORTABLE || value === UI_DENSITY_COMPACT) {
+    return value
+  }
+  if (value === null || value === undefined) {
+    return fallback
+  }
+  const normalized = String(value).trim().toLowerCase()
+  if (normalized === UI_DENSITY_COMPACT) {
+    return UI_DENSITY_COMPACT
+  }
+  if (normalized === UI_DENSITY_COMFORTABLE) {
+    return UI_DENSITY_COMFORTABLE
+  }
+  return fallback
+}
+
+const normalizeRefreshSeconds = (value, fallback = UI_REFRESH_MIN_SEC) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) {
+    return fallback
+  }
+  const rounded = Math.round(numeric)
+  return Math.min(UI_REFRESH_MAX_SEC, Math.max(UI_REFRESH_MIN_SEC, rounded))
+}
+
+const normalizePollingIntervalMs = (refreshSec) => normalizeRefreshSeconds(refreshSec, UI_REFRESH_MIN_SEC) * 1000
+
+const pickUiPrefScope = (source, scope) => {
+  if (!isPlainObject(source)) {
+    return {}
+  }
+  const candidate = source?.[scope]
+  return isPlainObject(candidate) ? candidate : {}
+}
+
+const buildUiPrefsPayload = (source) => {
+  const base = isPlainObject(source) ? { ...source } : {}
+  const legacyRefreshSec = normalizeRefreshSeconds(base.refreshSec, null)
+  const legacyDefaultRoute = normalizeRouteToken(base.defaultRoute, null)
+  const legacyDensity = normalizeTableDensity(base.tableDensity, null)
+
+  const common = { ...pickUiPrefScope(base, UI_SCOPE_COMMON) }
+  const mobile = { ...pickUiPrefScope(base, UI_SCOPE_MOBILE) }
+  const desktop = { ...pickUiPrefScope(base, UI_SCOPE_DESKTOP) }
+
+  const normalizedCommonRoute = normalizeRouteToken(common.defaultRoute, legacyDefaultRoute)
+  const normalizedCommonDensity = normalizeTableDensity(common.tableDensity, legacyDensity)
+
+  common.refreshSec = normalizeRefreshSeconds(common.refreshSec ?? legacyRefreshSec, UI_REFRESH_MIN_SEC)
+  common.defaultRoute = normalizeRouteToken(normalizedCommonRoute, DASHBOARD_ROUTE)
+  common.tableDensity = normalizeTableDensity(normalizedCommonDensity, UI_DENSITY_COMFORTABLE)
+
+  mobile.defaultRoute = normalizeRouteToken(mobile.defaultRoute ?? common.defaultRoute, DASHBOARD_ROUTE)
+  mobile.tableDensity = normalizeTableDensity(
+    mobile.tableDensity ?? common.tableDensity,
+    UI_DENSITY_COMPACT
+  )
+
+  desktop.defaultRoute = normalizeRouteToken(desktop.defaultRoute ?? common.defaultRoute, DASHBOARD_ROUTE)
+  desktop.tableDensity = normalizeTableDensity(
+    desktop.tableDensity ?? common.tableDensity,
+    UI_DENSITY_COMFORTABLE
+  )
+
+  delete base.refreshSec
+  delete base.defaultRoute
+  delete base.tableDensity
+
+  return {
+    ...base,
+    [UI_SCOPE_COMMON]: common,
+    [UI_SCOPE_MOBILE]: mobile,
+    [UI_SCOPE_DESKTOP]: desktop,
+  }
+}
+
+const resolveEffectiveUiPrefs = (source, deviceKind) => {
+  const normalized = buildUiPrefsPayload(source)
+  const scope = deviceKind === UI_SCOPE_MOBILE ? UI_SCOPE_MOBILE : UI_SCOPE_DESKTOP
+  const common = pickUiPrefScope(normalized, UI_SCOPE_COMMON)
+  const scoped = pickUiPrefScope(normalized, scope)
+  const densityFallback = scope === UI_SCOPE_MOBILE ? UI_DENSITY_COMPACT : UI_DENSITY_COMFORTABLE
+  return {
+    refreshSec: normalizeRefreshSeconds(scoped.refreshSec ?? common.refreshSec, UI_REFRESH_MIN_SEC),
+    defaultRoute: normalizeRouteToken(scoped.defaultRoute ?? common.defaultRoute, DASHBOARD_ROUTE),
+    tableDensity: normalizeTableDensity(scoped.tableDensity ?? common.tableDensity, densityFallback),
+  }
+}
+
+const updateUiPrefsSectionValue = (source, scope, key, value) => {
+  const normalized = buildUiPrefsPayload(source)
+  const safeScope = scope === UI_SCOPE_MOBILE || scope === UI_SCOPE_DESKTOP ? scope : UI_SCOPE_COMMON
+  const next = {
+    ...normalized,
+    [safeScope]: {
+      ...pickUiPrefScope(normalized, safeScope),
+      [key]: value,
+    },
+  }
+  return buildUiPrefsPayload(next)
 }
 
 const isPlainObject = (value) => {

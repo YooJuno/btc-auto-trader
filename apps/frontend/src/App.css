@@ -753,6 +753,15 @@ h3 {
   gap: 8px;
 }
 
+.ui-pref-block {
+  display: grid;
+  gap: 8px;
+}
+
+.ui-pref-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .auth-settings-grid {
   grid-template-columns: 1fr;
 }
@@ -1116,6 +1125,31 @@ table {
   width: 100%;
   min-width: 620px;
   border-collapse: collapse;
+}
+
+.app--density-comfortable thead th {
+  padding: 9px 8px;
+  font-size: 0.7rem;
+}
+
+.app--density-comfortable tbody td {
+  padding: 9px 8px;
+  font-size: 0.83rem;
+}
+
+.app--density-compact thead th {
+  padding: 6px 6px;
+  font-size: 0.63rem;
+}
+
+.app--density-compact tbody td {
+  padding: 6px 6px;
+  font-size: 0.75rem;
+}
+
+.app--density-compact .table-action-button {
+  padding: 4px 8px;
+  font-size: 0.68rem;
 }
 
 thead th {
