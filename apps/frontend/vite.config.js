@@ -1,4 +1,6 @@
-import { defineConfig } from 'vite'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
@@ -9,30 +11,35 @@ const defaultAllowedHosts = [
   'www.btc-trading-agent.com',
 ]
 
-const allowedHosts = process.env.VITE_ALLOWED_HOSTS
-  ? process.env.VITE_ALLOWED_HOSTS.split(',').map((host) => host.trim()).filter(Boolean)
-  : defaultAllowedHosts
+const currentDir = dirname(fileURLToPath(import.meta.url))
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    allowedHosts,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: false,
-      },
-      '/oauth2': {
-        target: 'http://localhost:8080',
-        changeOrigin: false,
-      },
-      '/login': {
-        target: 'http://localhost:8080',
-        changeOrigin: false,
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, currentDir, '')
+  const allowedHosts = env.VITE_ALLOWED_HOSTS
+    ? env.VITE_ALLOWED_HOSTS.split(',').map((host) => host.trim()).filter(Boolean)
+    : defaultAllowedHosts
+
+  return {
+    plugins: [react()],
+    server: {
+      allowedHosts,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:8080',
+          changeOrigin: false,
+        },
+        '/oauth2': {
+          target: 'http://localhost:8080',
+          changeOrigin: false,
+        },
+        '/login': {
+          target: 'http://localhost:8080',
+          changeOrigin: false,
+        },
       },
     },
-  },
-  preview: {
-    allowedHosts,
-  },
+    preview: {
+      allowedHosts,
+    },
+  }
 })
