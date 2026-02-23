@@ -1,0 +1,364 @@
+import {
+  DEFAULT_MARKET_MAX_ORDER_KRW,
+  DEFAULT_MARKET_PROFILE,
+  PROFILE_VALUES,
+} from '../../constants/tradingUi.js'
+import {
+  applyRatioPresetToMarket,
+  clearMarketRatioOverrides,
+  normalizeProfileValue,
+  removeMarketRow,
+  resolvePresetDisplayName,
+  toInputValue,
+  updateMarketOverrideInput,
+} from '../../utils/tradingUi.js'
+
+function MarketOverridesCard({
+  strategyError,
+  ratioError,
+  presetError,
+  ratioPresets,
+  selectedRatioPresetByMarket,
+  setSelectedRatioPresetByMarket,
+  marketRows,
+  marketConfigSaving,
+  marketConfigLoading,
+  marketConfigError,
+  marketConfigNotice,
+  marketRowsDirty,
+  newMarketInput,
+  setNewMarketInput,
+  marketSuggestions,
+  marketSuggestOpen,
+  setMarketSuggestOpen,
+  marketSuggestIndex,
+  setMarketSuggestIndex,
+  expandedMarket,
+  setExpandedMarket,
+  strategy,
+  setRatioError,
+  setMarketRows,
+  setMarketConfigError,
+  setMarketConfigNotice,
+  handleSelectMarketSuggestion,
+  handleAddMarket,
+  handleMarketReload,
+  onSaveMarketOverrides,
+}) {
+  return (
+    <article className="control-card card--elevated market-card">
+      <div className="card-head">
+        <div>
+          <h2>마켓별 설정</h2>
+          <p className="sub">마켓별 cap/profile 저장 + 행별 토글에서 비율 override 저장을 관리합니다.</p>
+        </div>
+        <span className={`pill ${marketRowsDirty ? 'pill-warning' : ''}`}>
+          {marketRowsDirty ? '변경 있음' : '저장됨'}
+        </span>
+      </div>
+      {strategyError && <p className="status-error">{strategyError}</p>}
+      {ratioError && <p className="status-error">{ratioError}</p>}
+      {presetError && <p className="status-error">{presetError}</p>}
+      {marketConfigError && <p className="status-error">{marketConfigError}</p>}
+      {marketConfigNotice && <p className="status-success">{marketConfigNotice}</p>}
+      <div className="market-add-row">
+        <div className="market-add-input-wrap">
+          <input
+            type="text"
+            value={newMarketInput}
+            placeholder="코인명/심볼/마켓코드 검색 (예: 이더리움, ETH, KRW-ETH)"
+            onFocus={() => {
+              if (marketSuggestions.length > 0) {
+                setMarketSuggestOpen(true)
+              }
+            }}
+            onBlur={() => {
+              window.setTimeout(() => setMarketSuggestOpen(false), 120)
+            }}
+            onChange={(event) => {
+              setNewMarketInput(event.target.value)
+              setMarketSuggestOpen(true)
+              setMarketSuggestIndex(0)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown' && marketSuggestions.length > 0) {
+                event.preventDefault()
+                setMarketSuggestOpen(true)
+                setMarketSuggestIndex((prev) => (prev + 1) % marketSuggestions.length)
+                return
+              }
+              if (event.key === 'ArrowUp' && marketSuggestions.length > 0) {
+                event.preventDefault()
+                setMarketSuggestOpen(true)
+                setMarketSuggestIndex((prev) => (prev - 1 + marketSuggestions.length) % marketSuggestions.length)
+                return
+              }
+              if (event.key === 'Escape') {
+                setMarketSuggestOpen(false)
+                return
+              }
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                if (marketSuggestOpen && marketSuggestions.length > 0) {
+                  const selected = marketSuggestions[Math.max(0, Math.min(marketSuggestIndex, marketSuggestions.length - 1))]
+                  if (selected?.market) {
+                    handleSelectMarketSuggestion(selected.market)
+                    return
+                  }
+                }
+                handleAddMarket()
+              }
+            }}
+          />
+          {marketSuggestOpen && marketSuggestions.length > 0 && (
+            <div className="market-suggest-list">
+              {marketSuggestions.map((item, index) => (
+                <button
+                  key={item.market}
+                  className={`market-suggest-item ${index === marketSuggestIndex ? 'active' : ''}`}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    handleSelectMarketSuggestion(item.market)
+                  }}
+                >
+                  <strong>{item.market}</strong>
+                  <span>{item.koreanName || item.englishName || item.ticker}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button
+          className="ghost-button"
+          onClick={() => handleAddMarket()}
+          disabled={marketConfigLoading || marketConfigSaving}
+        >
+          마켓 추가
+        </button>
+      </div>
+      {marketConfigLoading ? (
+        <div className="empty-state">마켓 설정을 불러오는 중입니다…</div>
+      ) : marketRows.length === 0 ? (
+        <div className="empty-state">설정 가능한 마켓이 없습니다.</div>
+      ) : (
+        <div className="market-override-list">
+          <div className="market-grid-header">
+            <span>마켓</span>
+            <span>최대 매수 KRW</span>
+            <span>프로필</span>
+            <span>자동매매</span>
+            <span>관리</span>
+          </div>
+          {marketRows.map((row) => {
+            const expanded = expandedMarket === row.market
+            const effectiveProfileLabel = normalizeProfileValue(row.profile) || DEFAULT_MARKET_PROFILE
+            return (
+              <div className={`market-override-row ${expanded ? 'expanded' : ''}`} key={row.market}>
+                <div className="market-override-main">
+                  <div className="market-symbol">
+                    <button
+                      className={`market-expand-button ${expanded ? 'open' : ''}`}
+                      onClick={() => setExpandedMarket((prev) => (prev === row.market ? null : row.market))}
+                      aria-label={expanded ? `${row.market} 비율 설정 닫기` : `${row.market} 비율 설정 열기`}
+                      type="button"
+                    >
+                      <span>▾</span>
+                    </button>
+                    <strong>{row.market}</strong>
+                  </div>
+                  <label className="market-inline-field">
+                    <input
+                      type="number"
+                      step="1000"
+                      min="0"
+                      placeholder={DEFAULT_MARKET_MAX_ORDER_KRW}
+                      value={row.maxOrderKrw}
+                      onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'maxOrderKrw', event.target.value)}
+                    />
+                  </label>
+                  <label className="market-inline-field">
+                    <select
+                      value={normalizeProfileValue(row.profile) || DEFAULT_MARKET_PROFILE}
+                      onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'profile', event.target.value)}
+                    >
+                      {PROFILE_VALUES.map((profile) => (
+                        <option key={profile} value={profile}>
+                          {profile}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="market-toggle-field">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(row.tradePaused)}
+                      onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'tradePaused', event.target.checked)}
+                    />
+                    <span className={row.tradePaused ? 'is-paused' : ''}>
+                      {row.tradePaused ? '일시정지' : '매매중'}
+                    </span>
+                  </label>
+                  <button
+                    className="market-remove-button"
+                    onClick={() => removeMarketRow(
+                      setMarketRows,
+                      row.market,
+                      setMarketConfigNotice,
+                      setMarketConfigError,
+                      setSelectedRatioPresetByMarket
+                    )}
+                    disabled={marketConfigSaving}
+                  >
+                    제거
+                  </button>
+                </div>
+
+                <div className={`market-ratio-panel ${expanded ? 'open' : ''}`}>
+                  <div className="market-ratio-panel-inner">
+                    <div className="market-ratio-head">
+                      <h3>{row.market} 비율 설정</h3>
+                      <span className="pill">PROFILE {effectiveProfileLabel}</span>
+                    </div>
+                    <p className="sub compact">빈 값은 전역 전략 비율을 사용하고, 입력한 값만 이 마켓 override로 저장됩니다.</p>
+                    <div className="preset-row">
+                      {ratioPresets.length === 0 ? (
+                        <p className="sub compact">등록된 프리셋이 없습니다.</p>
+                      ) : ratioPresets.map((preset) => (
+                        <button
+                          key={`${row.market}-${preset.code}`}
+                          className={`ghost-button ${selectedRatioPresetByMarket[row.market] === preset.code ? 'active' : ''}`}
+                          onClick={() => applyRatioPresetToMarket(
+                            preset,
+                            row.market,
+                            setMarketRows,
+                            setSelectedRatioPresetByMarket,
+                            setRatioError
+                          )}
+                          type="button"
+                        >
+                          {preset.displayName} 비율 적용
+                        </button>
+                      ))}
+                    </div>
+                    {selectedRatioPresetByMarket[row.market] && (
+                      <p className="sub compact">
+                        {resolvePresetDisplayName(ratioPresets, selectedRatioPresetByMarket[row.market])} 프리셋이
+                        입력값에 적용되었습니다. 아래 마켓 설정 저장 버튼을 눌러야 서버 반영됩니다.
+                      </p>
+                    )}
+                    <div className="form-grid market-ratio-grid">
+                      <label className="form-field">
+                        <span>익절 %</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder={toInputValue(strategy?.takeProfitPct)}
+                          value={row.takeProfitPct}
+                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'takeProfitPct', event.target.value)}
+                        />
+                      </label>
+                      <label className="form-field">
+                        <span>손절 %</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder={toInputValue(strategy?.stopLossPct)}
+                          value={row.stopLossPct}
+                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'stopLossPct', event.target.value)}
+                        />
+                      </label>
+                      <label className="form-field">
+                        <span>트레일링 %</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          placeholder={toInputValue(strategy?.trailingStopPct)}
+                          value={row.trailingStopPct}
+                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'trailingStopPct', event.target.value)}
+                        />
+                      </label>
+                      <label className="form-field">
+                        <span>부분 익절 %</span>
+                        <input
+                          type="number"
+                          step="1"
+                          placeholder={toInputValue(strategy?.partialTakeProfitPct)}
+                          value={row.partialTakeProfitPct}
+                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'partialTakeProfitPct', event.target.value)}
+                        />
+                      </label>
+                      <label className="form-field">
+                        <span>손절/트레일링 매도 %</span>
+                        <input
+                          type="number"
+                          step="1"
+                          placeholder={toInputValue(strategy?.stopExitPct)}
+                          value={row.stopExitPct}
+                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'stopExitPct', event.target.value)}
+                        />
+                      </label>
+                      <label className="form-field">
+                        <span>추세 이탈 매도 %</span>
+                        <input
+                          type="number"
+                          step="1"
+                          placeholder={toInputValue(strategy?.trendExitPct)}
+                          value={row.trendExitPct}
+                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'trendExitPct', event.target.value)}
+                        />
+                      </label>
+                      <label className="form-field">
+                        <span>모멘텀 역전 매도 %</span>
+                        <input
+                          type="number"
+                          step="1"
+                          placeholder={toInputValue(strategy?.momentumExitPct)}
+                          value={row.momentumExitPct}
+                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'momentumExitPct', event.target.value)}
+                        />
+                      </label>
+                    </div>
+                    <div className="button-row">
+                      <button
+                        className="ghost-button"
+                        onClick={() => clearMarketRatioOverrides(
+                          setMarketRows,
+                          row.market,
+                          setSelectedRatioPresetByMarket,
+                          setRatioError
+                        )}
+                        type="button"
+                      >
+                        이 마켓 비율 초기화
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <p className="sub compact">빈 값은 글로벌 전략 설정값을 사용합니다.</p>
+      <div className="button-row">
+        <button
+          className="primary-button"
+          onClick={onSaveMarketOverrides}
+          disabled={marketConfigLoading || marketConfigSaving || !marketRowsDirty}
+        >
+          {marketConfigSaving ? '저장 중...' : marketRowsDirty ? '마켓 설정 저장' : '변경사항 없음'}
+        </button>
+        <button
+          className="ghost-button"
+          onClick={() => handleMarketReload()}
+          disabled={marketConfigSaving}
+        >
+          다시 불러오기
+        </button>
+      </div>
+    </article>
+  )
+}
+
+export default MarketOverridesCard
