@@ -60,6 +60,8 @@ hs_err_pid*
 # Misc
 *.swp
 *.tmp
+__pycache__/
 
 # Backtest cache
 data/backtest/
+data/strategy-lab/

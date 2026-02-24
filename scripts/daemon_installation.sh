@@ -12,4 +12,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now btc-frontend.service
 sudo systemctl enable --now btc-backend.service
 
+if [ "${INSTALL_STRATEGY_LAB:-false}" = "true" ]; then
+  sudo cp "$ROOT_DIR/scripts/btc-strategy-lab.service" "$SYSTEMD_DIR/btc-strategy-lab.service"
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now btc-strategy-lab.service
+fi
+
 # sudo systemctl status btc-frontend.service btc-backend.service
