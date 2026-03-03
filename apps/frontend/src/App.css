@@ -64,13 +64,12 @@
 
 .app__header {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(340px, 1.05fr) minmax(190px, 0.62fr);
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.42fr);
   gap: 12px;
   align-items: stretch;
 }
 
 .brand-block,
-.engine-inline-card,
 .status-card,
 .summary-card,
 .table-card,
@@ -93,6 +92,14 @@
   margin-top: 14px;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.route-tabs-tools {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -118,6 +125,40 @@
   color: #f8fffd;
   border-color: rgba(34, 186, 166, 0.62);
   background: linear-gradient(135deg, rgba(34, 186, 166, 0.38), rgba(242, 168, 95, 0.3));
+}
+
+.engine-toggle-btn {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 8px 12px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #f8fffd;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+
+.engine-toggle-btn.is-on {
+  border-color: rgba(255, 133, 121, 0.56);
+  background: linear-gradient(135deg, #c85147, #ef9b5f);
+}
+
+.engine-toggle-btn.is-off {
+  border-color: rgba(34, 186, 166, 0.56);
+  background: linear-gradient(135deg, #0f7e71, #22baa6);
+}
+
+.engine-toggle-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+}
+
+.engine-toggle-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
 }
 
 .brand-block::after {
@@ -988,26 +1029,73 @@ h3 {
 }
 
 .market-toggle-field {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.market-status-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 0.78rem;
-  color: var(--muted);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
 }
 
-.market-toggle-field input {
-  width: 16px;
-  height: 16px;
-  accent-color: #1fc9a9;
+.market-status-pill.is-active {
+  color: #9af6dc;
+  background: rgba(31, 201, 169, 0.14);
+  border-color: rgba(31, 201, 169, 0.35);
 }
 
-.market-toggle-field span {
-  font-weight: 600;
+.market-status-pill.is-paused {
+  color: #ffd0a4;
+  background: rgba(255, 164, 89, 0.16);
+  border-color: rgba(255, 164, 89, 0.34);
+}
+
+.market-toggle-button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  background: rgba(17, 26, 40, 0.9);
   color: var(--text);
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease, transform 120ms ease;
 }
 
-.market-toggle-field span.is-paused {
-  color: #ffb36b;
+.market-toggle-button:hover {
+  transform: translateY(-1px);
+}
+
+.market-toggle-button.is-pause {
+  border-color: rgba(255, 164, 89, 0.4);
+  color: #ffcf9f;
+}
+
+.market-toggle-button.is-pause:hover {
+  background: rgba(255, 164, 89, 0.14);
+}
+
+.market-toggle-button.is-resume {
+  border-color: rgba(31, 201, 169, 0.45);
+  color: #9af6dc;
+}
+
+.market-toggle-button.is-resume:hover {
+  background: rgba(31, 201, 169, 0.14);
+}
+
+.market-toggle-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(31, 201, 169, 0.2);
 }
 
 .market-remove-button {
@@ -1279,11 +1367,7 @@ tbody tr:hover {
   }
 
   .app__header {
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 0.95fr);
-  }
-
-  .brand-block {
-    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) minmax(230px, 0.55fr);
   }
 }
 
@@ -1307,6 +1391,12 @@ tbody tr:hover {
 @media (max-width: 860px) {
   .app__header {
     grid-template-columns: 1fr;
+  }
+
+  .route-tabs-tools {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .summary-grid {
@@ -1345,7 +1435,6 @@ tbody tr:hover {
   .brand-block,
   .table-card,
   .control-card,
-  .engine-inline-card,
   .status-card,
   .summary-card {
     border-radius: 14px;
@@ -1358,13 +1447,8 @@ tbody tr:hover {
 
   .button-row,
   .preset-row,
-  .mode-row,
-  .engine-inline-actions {
+  .mode-row {
     flex-direction: column;
-  }
-
-  .engine-action-btn {
-    width: 100%;
   }
 
   .form-grid {
