@@ -14,17 +14,20 @@ public class TradingAccessService {
     private final CurrentUserService currentUserService;
     private final UserExchangeCredentialService userExchangeCredentialService;
     private final boolean ownerOnlyMode;
+    private final boolean adminApprovalEnabled;
     private final String ownerEmail;
 
     public TradingAccessService(
             CurrentUserService currentUserService,
             UserExchangeCredentialService userExchangeCredentialService,
             @Value("${app.trading.owner-only-mode:${APP_TRADING_OWNER_ONLY_MODE:true}}") boolean ownerOnlyMode,
+            @Value("${feature.admin-approval.enabled:true}") boolean adminApprovalEnabled,
             @Value("${app.multi-tenant.owner-email:juno980220@gmail.com}") String ownerEmail
     ) {
         this.currentUserService = currentUserService;
         this.userExchangeCredentialService = userExchangeCredentialService;
         this.ownerOnlyMode = ownerOnlyMode;
+        this.adminApprovalEnabled = adminApprovalEnabled;
         this.ownerEmail = ownerEmail == null ? "" : ownerEmail.trim().toLowerCase(Locale.ROOT);
     }
 
@@ -47,6 +50,12 @@ public class TradingAccessService {
         if (ownerOnlyMode && !isOwner(user)) {
             return false;
         }
+        if (!ownerOnlyMode && adminApprovalEnabled) {
+            TradingApprovalStatus status = TradingApprovalStatus.from(user.getTradingApprovalStatus());
+            if (status != TradingApprovalStatus.APPROVED) {
+                return false;
+            }
+        }
         return userExchangeCredentialService.hasCredentialsForUser(user);
     }
 
@@ -56,6 +65,15 @@ public class TradingAccessService {
         }
         if (ownerOnlyMode && !isOwner(user)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, forbiddenMessage + " (owner 전용 모드)");
+        }
+        if (!ownerOnlyMode && adminApprovalEnabled) {
+            TradingApprovalStatus status = TradingApprovalStatus.from(user.getTradingApprovalStatus());
+            if (status == TradingApprovalStatus.SUSPENDED) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "관리자에 의해 거래가 중지되었습니다.");
+            }
+            if (status != TradingApprovalStatus.APPROVED) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "거래 승인 대기 상태입니다.");
+            }
         }
         if (!userExchangeCredentialService.hasCredentialsForUser(user)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "거래소 API 키를 먼저 등록해주세요.");
