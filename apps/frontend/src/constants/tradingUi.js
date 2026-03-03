@@ -25,7 +25,11 @@ export const RATIO_FIELD_LABELS = {
 
 export const DASHBOARD_ROUTE = 'dashboard'
 export const SETTINGS_ROUTE = 'settings'
+export const ONBOARDING_ROUTE = 'onboarding'
+export const ADMIN_USERS_ROUTE = 'adminUsers'
 export const SETTINGS_PATH = '/settings'
+export const ONBOARDING_PATH = '/onboarding'
+export const ADMIN_USERS_PATH = '/admin/users'
 
 export const UI_SCOPE_COMMON = 'common'
 export const UI_SCOPE_MOBILE = 'mobile'
