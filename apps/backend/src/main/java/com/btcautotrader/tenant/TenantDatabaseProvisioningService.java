@@ -2,6 +2,9 @@ package com.btcautotrader.tenant;
 
 import com.btcautotrader.auth.UserEntity;
 import com.btcautotrader.auth.UserRepository;
+import com.btcautotrader.auth.TradingApprovalStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -24,6 +27,8 @@ import java.util.Set;
 
 @Service
 public class TenantDatabaseProvisioningService {
+    private static final Logger log = LoggerFactory.getLogger(TenantDatabaseProvisioningService.class);
+
     private final UserRepository userRepository;
     private final TenantDataSourceProvider tenantDataSourceProvider;
     private final Resource tenantSchemaScript = new ClassPathResource("db/tenant-schema.sql");
@@ -46,33 +51,89 @@ public class TenantDatabaseProvisioningService {
         }
 
         String existingTenant = trimToNull(user.getTenantDatabase());
-        if (existingTenant != null) {
+        String systemTenant = tenantDataSourceProvider.getSystemDatabaseName();
+        boolean owner = isOwner(user);
+        TradingApprovalStatus approvalStatus = TradingApprovalStatus.from(user.getTradingApprovalStatus());
+        boolean approved = approvalStatus == TradingApprovalStatus.APPROVED;
+        String resolvedTenant = existingTenant;
+        String dedicatedTenant = null;
+
+        if (owner) {
+            resolvedTenant = systemTenant;
+        } else {
+            // 승인 전 사용자(PENDING/SUSPENDED)는 시스템 DB를 사용하고,
+            // 승인 시점에만 전용 DB를 할당/생성한다.
+            if (approved) {
+                if (user.getId() == null) {
+                    throw new IllegalStateException("user id is required to provision tenant database");
+                }
+                dedicatedTenant = "btc_user_" + user.getId();
+                if (existingTenant == null || systemTenant.equals(existingTenant)) {
+                    resolvedTenant = dedicatedTenant;
+                }
+            } else {
+                resolvedTenant = systemTenant;
+            }
+        }
+
+        boolean shouldProvisionDedicatedTenant = dedicatedTenant != null && dedicatedTenant.equals(resolvedTenant);
+        if ((existingTenant == null && resolvedTenant == null)
+                || (existingTenant != null && existingTenant.equals(resolvedTenant))) {
+            if (shouldProvisionDedicatedTenant) {
+                boolean provisioned = provisionDedicatedTenantBestEffort(user, dedicatedTenant);
+                if (!provisioned && !systemTenant.equals(resolvedTenant)) {
+                    user.setTenantDatabase(systemTenant);
+                    return userRepository.save(user);
+                }
+            }
             return user;
         }
 
-        String resolvedTenant;
-        if (isOwner(user)) {
-            resolvedTenant = tenantDataSourceProvider.getSystemDatabaseName();
-        } else {
-            if (user.getId() == null) {
-                throw new IllegalStateException("user id is required to provision tenant database");
-            }
-            resolvedTenant = "btc_user_" + user.getId();
-            createDatabaseIfNeeded(resolvedTenant);
-            initializeDatabaseIfNeeded(resolvedTenant);
+        if (!owner && existingTenant != null && systemTenant.equals(existingTenant)) {
+            log.warn(
+                    "Rebinding non-owner user {} ({}) from system tenant {} to {}",
+                    user.getId(),
+                    user.getEmail(),
+                    existingTenant,
+                    resolvedTenant
+            );
+        } else if (owner && existingTenant != null && !systemTenant.equals(existingTenant)) {
+            log.warn(
+                    "Rebinding owner user {} ({}) from tenant {} to system tenant {}",
+                    user.getId(),
+                    user.getEmail(),
+                    existingTenant,
+                    systemTenant
+            );
         }
 
         user.setTenantDatabase(resolvedTenant);
-        return userRepository.save(user);
+        UserEntity saved = userRepository.save(user);
+        if (shouldProvisionDedicatedTenant) {
+            boolean provisioned = provisionDedicatedTenantBestEffort(saved, dedicatedTenant);
+            if (!provisioned && !systemTenant.equals(resolvedTenant)) {
+                saved.setTenantDatabase(systemTenant);
+                saved = userRepository.save(saved);
+            }
+        }
+        return saved;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     @Transactional
-    public void bindOwnerTenantOnStartup() {
-        if (ownerEmail.isBlank()) {
-            return;
+    public void normalizeTenantBindingsOnStartup() {
+        for (UserEntity user : userRepository.findAll()) {
+            try {
+                ensureTenant(user);
+            } catch (RuntimeException ex) {
+                log.warn(
+                        "Tenant binding normalization skipped for user {} ({}): {}",
+                        user.getId(),
+                        user.getEmail(),
+                        ex.getMessage()
+                );
+            }
         }
-        userRepository.findFirstByEmailIgnoreCase(ownerEmail).ifPresent(this::ensureTenant);
     }
 
     @Transactional(readOnly = true)
@@ -98,6 +159,26 @@ public class TenantDatabaseProvisioningService {
             return false;
         }
         return ownerEmail.equals(email.trim().toLowerCase(Locale.ROOT));
+    }
+
+    private boolean provisionDedicatedTenantBestEffort(UserEntity user, String tenantDatabase) {
+        if (tenantDatabase == null || tenantDatabase.isBlank()) {
+            return false;
+        }
+        try {
+            createDatabaseIfNeeded(tenantDatabase);
+            initializeDatabaseIfNeeded(tenantDatabase);
+            return true;
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "Tenant database provisioning skipped for user {} ({}) tenant {}: {}",
+                    user == null ? null : user.getId(),
+                    user == null ? null : user.getEmail(),
+                    tenantDatabase,
+                    ex.getMessage()
+            );
+            return false;
+        }
     }
 
     private void createDatabaseIfNeeded(String databaseName) {
