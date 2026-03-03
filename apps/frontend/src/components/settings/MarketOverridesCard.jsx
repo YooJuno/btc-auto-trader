@@ -189,16 +189,19 @@ function MarketOverridesCard({
                       ))}
                     </select>
                   </label>
-                  <label className="market-toggle-field">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(row.tradePaused)}
-                      onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'tradePaused', event.target.checked)}
-                    />
-                    <span className={row.tradePaused ? 'is-paused' : ''}>
-                      {row.tradePaused ? '일시정지' : '매매중'}
+                  <div className="market-toggle-field">
+                    <span className={`market-status-pill ${row.tradePaused ? 'is-paused' : 'is-active'}`}>
+                      {row.tradePaused ? '일시정지' : '활성'}
                     </span>
-                  </label>
+                    <button
+                      type="button"
+                      className={`market-toggle-button ${row.tradePaused ? 'is-resume' : 'is-pause'}`}
+                      onClick={() => updateMarketOverrideInput(setMarketRows, row.market, 'tradePaused', !Boolean(row.tradePaused))}
+                      aria-pressed={Boolean(row.tradePaused)}
+                    >
+                      {row.tradePaused ? '재개' : '일시정지'}
+                    </button>
+                  </div>
                   <button
                     className="market-remove-button"
                     onClick={() => removeMarketRow(
