@@ -17,7 +17,7 @@ public class StrategyService {
     private static final long CONFIG_ID = 1L;
     private static final StrategyConfig DEFAULT_CONFIG =
             new StrategyConfig(true, 30000.0, 2.4, 1.6, 1.2, 35.0, StrategyProfile.BALANCED.name(),
-                    100.0, 40.0, 25.0);
+                    100.0, 40.0, 25.0, "V1", 65.0, 60.0, 0.7, 180);
     private static final List<StrategyPresetItem> DEFAULT_PRESETS = List.of(
             new StrategyPresetItem(
                     "BALANCED",
@@ -99,6 +99,26 @@ public class StrategyService {
             entity.setStopExitPct(DEFAULT_CONFIG.stopExitPct());
             entity.setTrendExitPct(DEFAULT_CONFIG.trendExitPct());
             entity.setMomentumExitPct(DEFAULT_CONFIG.momentumExitPct());
+            dirty = true;
+        }
+        if (entity.getSignalModel() == null || entity.getSignalModel().isBlank()) {
+            entity.setSignalModel(DEFAULT_CONFIG.signalModel());
+            dirty = true;
+        }
+        if (entity.getEntryScoreThreshold() <= 0.0) {
+            entity.setEntryScoreThreshold(DEFAULT_CONFIG.entryScoreThreshold());
+            dirty = true;
+        }
+        if (entity.getExitScoreThreshold() <= 0.0) {
+            entity.setExitScoreThreshold(DEFAULT_CONFIG.exitScoreThreshold());
+            dirty = true;
+        }
+        if (entity.getRiskPerTradePct() <= 0.0) {
+            entity.setRiskPerTradePct(DEFAULT_CONFIG.riskPerTradePct());
+            dirty = true;
+        }
+        if (entity.getTimeStopCandles() <= 0) {
+            entity.setTimeStopCandles(DEFAULT_CONFIG.timeStopCandles());
             dirty = true;
         }
         if (dirty) {
