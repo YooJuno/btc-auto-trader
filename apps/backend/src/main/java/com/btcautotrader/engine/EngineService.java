@@ -1,5 +1,6 @@
 package com.btcautotrader.engine;
 
+import com.btcautotrader.tenant.TenantContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,10 +32,19 @@ public class EngineService {
         return stateRepository.save(state).isRunning();
     }
 
-    @Transactional(readOnly = true)
     public boolean isRunning() {
         return stateRepository.findById(STATE_ID)
                 .map(EngineStateEntity::isRunning)
-                .orElse(false);
+                .orElseGet(this::resolveSystemRunningState);
+    }
+
+    private boolean resolveSystemRunningState() {
+        String tenantDatabase = TenantContext.getTenantDatabase();
+        if (tenantDatabase == null || tenantDatabase.isBlank()) {
+            return false;
+        }
+        return TenantContext.callWithTenantDatabase(null, () -> stateRepository.findById(STATE_ID)
+                .map(EngineStateEntity::isRunning)
+                .orElse(false));
     }
 }
