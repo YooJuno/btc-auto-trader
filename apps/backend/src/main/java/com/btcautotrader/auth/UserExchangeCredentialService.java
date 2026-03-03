@@ -1,7 +1,6 @@
 package com.btcautotrader.auth;
 
 import com.btcautotrader.tenant.TenantContext;
-import com.btcautotrader.tenant.TenantDataSourceProvider;
 import com.btcautotrader.upbit.UpbitAuthCredentials;
 import com.btcautotrader.upbit.UpbitCredentials;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,25 +18,21 @@ public class UserExchangeCredentialService {
     private final CredentialCryptoService credentialCryptoService;
     private final UpbitCredentials defaultUpbitCredentials;
     private final String ownerEmail;
-    private final String systemDatabaseName;
 
     public UserExchangeCredentialService(
             UserExchangeCredentialRepository credentialRepository,
             UserRepository userRepository,
             CredentialCryptoService credentialCryptoService,
             UpbitCredentials defaultUpbitCredentials,
-            TenantDataSourceProvider tenantDataSourceProvider,
             @Value("${app.multi-tenant.owner-email:juno980220@gmail.com}") String ownerEmail
     ) {
         this.credentialRepository = credentialRepository;
         this.userRepository = userRepository;
         this.credentialCryptoService = credentialCryptoService;
         this.defaultUpbitCredentials = defaultUpbitCredentials;
-        this.systemDatabaseName = tenantDataSourceProvider.getSystemDatabaseName();
         this.ownerEmail = ownerEmail == null ? "" : ownerEmail.trim().toLowerCase(Locale.ROOT);
     }
 
-    @Transactional(readOnly = true)
     public UserExchangeCredentialStatusResponse getStatus(UserEntity user) {
         if (user == null || user.getId() == null) {
             return new UserExchangeCredentialStatusResponse(false, false, null);
@@ -87,7 +82,6 @@ public class UserExchangeCredentialService {
         TenantContext.runWithTenantDatabase(null, () -> credentialRepository.deleteById(user.getId()));
     }
 
-    @Transactional(readOnly = true)
     public Optional<UpbitAuthCredentials> resolveCredentialsForCurrentTenant() {
         String tenantDatabase = TenantContext.getTenantDatabase();
         if (tenantDatabase == null || tenantDatabase.isBlank()) {
@@ -102,7 +96,6 @@ public class UserExchangeCredentialService {
         });
     }
 
-    @Transactional(readOnly = true)
     public Optional<UserEntity> findUserForCurrentTenant() {
         String tenantDatabase = TenantContext.getTenantDatabase();
         if (tenantDatabase == null || tenantDatabase.isBlank()) {
@@ -113,12 +106,10 @@ public class UserExchangeCredentialService {
         });
     }
 
-    @Transactional(readOnly = true)
     public boolean hasCredentialsForUser(UserEntity user) {
         return user != null && resolveCredentialsForUser(user).isPresent();
     }
 
-    @Transactional(readOnly = true)
     public Optional<UpbitAuthCredentials> resolveCredentialsForUser(UserEntity user) {
         if (user == null || user.getId() == null) {
             return Optional.empty();
@@ -146,14 +137,7 @@ public class UserExchangeCredentialService {
         if (tenantDatabase == null || tenantDatabase.isBlank()) {
             return Optional.empty();
         }
-        Optional<UserEntity> found = userRepository.findFirstByTenantDatabase(tenantDatabase);
-        if (found.isPresent()) {
-            return found;
-        }
-        if (tenantDatabase.equals(systemDatabaseName) && !ownerEmail.isBlank()) {
-            return userRepository.findFirstByEmailIgnoreCase(ownerEmail);
-        }
-        return Optional.empty();
+        return userRepository.findFirstByTenantDatabase(tenantDatabase.trim());
     }
 
     private boolean isOwner(UserEntity user) {
