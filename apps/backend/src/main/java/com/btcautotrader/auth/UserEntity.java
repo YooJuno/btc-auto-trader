@@ -48,6 +48,15 @@ public class UserEntity {
     @Column(name = "last_login_at", nullable = false)
     private OffsetDateTime lastLoginAt;
 
+    @Column(name = "trading_approval_status", nullable = false, length = 20)
+    private String tradingApprovalStatus;
+
+    @Column(name = "trading_approval_note", length = 500)
+    private String tradingApprovalNote;
+
+    @Column(name = "trading_approval_updated_at")
+    private OffsetDateTime tradingApprovalUpdatedAt;
+
     @PrePersist
     void onCreate() {
         OffsetDateTime now = OffsetDateTime.now();
@@ -56,6 +65,12 @@ public class UserEntity {
         }
         if (lastLoginAt == null) {
             lastLoginAt = now;
+        }
+        if (tradingApprovalStatus == null || tradingApprovalStatus.isBlank()) {
+            tradingApprovalStatus = TradingApprovalStatus.PENDING.name();
+        }
+        if (tradingApprovalUpdatedAt == null) {
+            tradingApprovalUpdatedAt = now;
         }
     }
 
@@ -117,5 +132,29 @@ public class UserEntity {
 
     public void setLastLoginAt(OffsetDateTime lastLoginAt) {
         this.lastLoginAt = lastLoginAt;
+    }
+
+    public String getTradingApprovalStatus() {
+        return tradingApprovalStatus;
+    }
+
+    public void setTradingApprovalStatus(String tradingApprovalStatus) {
+        this.tradingApprovalStatus = tradingApprovalStatus;
+    }
+
+    public String getTradingApprovalNote() {
+        return tradingApprovalNote;
+    }
+
+    public void setTradingApprovalNote(String tradingApprovalNote) {
+        this.tradingApprovalNote = tradingApprovalNote;
+    }
+
+    public OffsetDateTime getTradingApprovalUpdatedAt() {
+        return tradingApprovalUpdatedAt;
+    }
+
+    public void setTradingApprovalUpdatedAt(OffsetDateTime tradingApprovalUpdatedAt) {
+        this.tradingApprovalUpdatedAt = tradingApprovalUpdatedAt;
     }
 }
