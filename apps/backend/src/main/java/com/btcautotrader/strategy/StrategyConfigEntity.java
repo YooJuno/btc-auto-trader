@@ -45,6 +45,21 @@ public class StrategyConfigEntity {
     @Column(name = "momentum_exit_pct")
     private double momentumExitPct;
 
+    @Column(name = "signal_model")
+    private String signalModel;
+
+    @Column(name = "entry_score_threshold")
+    private double entryScoreThreshold;
+
+    @Column(name = "exit_score_threshold")
+    private double exitScoreThreshold;
+
+    @Column(name = "risk_per_trade_pct")
+    private double riskPerTradePct;
+
+    @Column(name = "time_stop_candles")
+    private int timeStopCandles;
+
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
@@ -62,7 +77,12 @@ public class StrategyConfigEntity {
             String profile,
             double stopExitPct,
             double trendExitPct,
-            double momentumExitPct
+            double momentumExitPct,
+            String signalModel,
+            double entryScoreThreshold,
+            double exitScoreThreshold,
+            double riskPerTradePct,
+            int timeStopCandles
     ) {
         this.id = id;
         this.enabled = enabled;
@@ -75,6 +95,11 @@ public class StrategyConfigEntity {
         this.stopExitPct = stopExitPct;
         this.trendExitPct = trendExitPct;
         this.momentumExitPct = momentumExitPct;
+        this.signalModel = signalModel;
+        this.entryScoreThreshold = entryScoreThreshold;
+        this.exitScoreThreshold = exitScoreThreshold;
+        this.riskPerTradePct = riskPerTradePct;
+        this.timeStopCandles = timeStopCandles;
     }
 
     public static StrategyConfigEntity from(Long id, StrategyConfig config) {
@@ -89,7 +114,12 @@ public class StrategyConfigEntity {
                 config.profile(),
                 config.stopExitPct(),
                 config.trendExitPct(),
-                config.momentumExitPct()
+                config.momentumExitPct(),
+                config.signalModel(),
+                config.entryScoreThreshold(),
+                config.exitScoreThreshold(),
+                config.riskPerTradePct(),
+                config.timeStopCandles()
         );
     }
 
@@ -104,7 +134,12 @@ public class StrategyConfigEntity {
                 profile,
                 stopExitPct,
                 trendExitPct,
-                momentumExitPct
+                momentumExitPct,
+                signalModel,
+                entryScoreThreshold,
+                exitScoreThreshold,
+                riskPerTradePct,
+                timeStopCandles
         );
     }
 
@@ -121,6 +156,13 @@ public class StrategyConfigEntity {
         this.stopExitPct = config.stopExitPct();
         this.trendExitPct = config.trendExitPct();
         this.momentumExitPct = config.momentumExitPct();
+        if (config.signalModel() != null && !config.signalModel().isBlank()) {
+            this.signalModel = config.signalModel();
+        }
+        this.entryScoreThreshold = config.entryScoreThreshold();
+        this.exitScoreThreshold = config.exitScoreThreshold();
+        this.riskPerTradePct = config.riskPerTradePct();
+        this.timeStopCandles = config.timeStopCandles();
     }
 
     @PrePersist
@@ -215,6 +257,46 @@ public class StrategyConfigEntity {
 
     public void setMomentumExitPct(double momentumExitPct) {
         this.momentumExitPct = momentumExitPct;
+    }
+
+    public String getSignalModel() {
+        return signalModel;
+    }
+
+    public void setSignalModel(String signalModel) {
+        this.signalModel = signalModel;
+    }
+
+    public double getEntryScoreThreshold() {
+        return entryScoreThreshold;
+    }
+
+    public void setEntryScoreThreshold(double entryScoreThreshold) {
+        this.entryScoreThreshold = entryScoreThreshold;
+    }
+
+    public double getExitScoreThreshold() {
+        return exitScoreThreshold;
+    }
+
+    public void setExitScoreThreshold(double exitScoreThreshold) {
+        this.exitScoreThreshold = exitScoreThreshold;
+    }
+
+    public double getRiskPerTradePct() {
+        return riskPerTradePct;
+    }
+
+    public void setRiskPerTradePct(double riskPerTradePct) {
+        this.riskPerTradePct = riskPerTradePct;
+    }
+
+    public int getTimeStopCandles() {
+        return timeStopCandles;
+    }
+
+    public void setTimeStopCandles(int timeStopCandles) {
+        this.timeStopCandles = timeStopCandles;
     }
 
     public OffsetDateTime getUpdatedAt() {
