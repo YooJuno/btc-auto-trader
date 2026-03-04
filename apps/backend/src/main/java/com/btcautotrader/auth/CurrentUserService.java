@@ -1,6 +1,7 @@
 package com.btcautotrader.auth;
 
 import com.btcautotrader.tenant.TenantDatabaseProvisioningService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
@@ -21,13 +22,16 @@ public class CurrentUserService {
 
     private final UserRepository userRepository;
     private final TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
+    private final String ownerEmail;
 
     public CurrentUserService(
             UserRepository userRepository,
-            TenantDatabaseProvisioningService tenantDatabaseProvisioningService
+            TenantDatabaseProvisioningService tenantDatabaseProvisioningService,
+            @Value("${app.multi-tenant.owner-email:juno980220@gmail.com}") String ownerEmail
     ) {
         this.userRepository = userRepository;
         this.tenantDatabaseProvisioningService = tenantDatabaseProvisioningService;
+        this.ownerEmail = ownerEmail == null ? "" : ownerEmail.trim().toLowerCase(Locale.ROOT);
     }
 
     @Transactional
@@ -45,6 +49,7 @@ public class CurrentUserService {
         entity.setEmail(identity.email());
         entity.setDisplayName(identity.displayName());
         entity.setLastLoginAt(OffsetDateTime.now());
+        applyApprovalDefaults(entity);
         UserEntity saved = userRepository.save(entity);
         return tenantDatabaseProvisioningService.ensureTenant(saved);
     }
@@ -61,8 +66,18 @@ public class CurrentUserService {
                     created.setEmail(identity.email());
                     created.setDisplayName(identity.displayName());
                     created.setLastLoginAt(OffsetDateTime.now());
+                    applyApprovalDefaults(created);
                     return userRepository.save(created);
                 });
+        boolean approvalNeedsSave = resolved.getTradingApprovalStatus() == null
+                || resolved.getTradingApprovalStatus().isBlank()
+                || resolved.getTradingApprovalUpdatedAt() == null
+                || (isOwner(resolved)
+                && TradingApprovalStatus.from(resolved.getTradingApprovalStatus()) != TradingApprovalStatus.APPROVED);
+        applyApprovalDefaults(resolved);
+        if (approvalNeedsSave) {
+            resolved = userRepository.save(resolved);
+        }
         return tenantDatabaseProvisioningService.ensureTenant(resolved);
     }
 
@@ -70,6 +85,46 @@ public class CurrentUserService {
     public Optional<UserEntity> findByAuthentication(Authentication authentication) {
         Identity identity = resolveIdentity(authentication);
         return userRepository.findByProviderAndProviderUserId(identity.provider(), identity.providerUserId());
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isOwner(UserEntity user) {
+        if (user == null || ownerEmail.isBlank()) {
+            return false;
+        }
+        String email = user.getEmail();
+        if (email == null || email.isBlank()) {
+            return false;
+        }
+        return ownerEmail.equals(email.trim().toLowerCase(Locale.ROOT));
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isOwner(Authentication authentication) {
+        return findByAuthentication(authentication)
+                .map(this::isOwner)
+                .orElse(false);
+    }
+
+    private void applyApprovalDefaults(UserEntity entity) {
+        if (entity == null) {
+            return;
+        }
+        TradingApprovalStatus current = TradingApprovalStatus.from(entity.getTradingApprovalStatus());
+        if (current == TradingApprovalStatus.PENDING && isOwner(entity)) {
+            entity.setTradingApprovalStatus(TradingApprovalStatus.APPROVED.name());
+            if (entity.getTradingApprovalNote() == null || entity.getTradingApprovalNote().isBlank()) {
+                entity.setTradingApprovalNote("owner auto approved");
+            }
+            entity.setTradingApprovalUpdatedAt(OffsetDateTime.now());
+            return;
+        }
+        if (entity.getTradingApprovalStatus() == null || entity.getTradingApprovalStatus().isBlank()) {
+            entity.setTradingApprovalStatus(TradingApprovalStatus.PENDING.name());
+        }
+        if (entity.getTradingApprovalUpdatedAt() == null) {
+            entity.setTradingApprovalUpdatedAt(OffsetDateTime.now());
+        }
     }
 
     private static Identity resolveIdentity(Authentication authentication) {

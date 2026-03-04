@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { formatKRW, formatPercent, pnlClass } from '../../utils/tradingUi.js'
 
 function PerformanceCard({
@@ -102,7 +103,7 @@ function PerformanceCard({
       <div className="button-row">
         <button
           className="primary-button"
-          onClick={() => fetchPerformance()}
+          onClick={() => fetchPerformance(performanceMode, performanceInputs)}
           disabled={performanceLoading}
         >
           {performanceLoading ? '조회 중...' : '수익 조회'}
@@ -202,4 +203,4 @@ function PerformanceCard({
   )
 }
 
-export default PerformanceCard
+export default memo(PerformanceCard)

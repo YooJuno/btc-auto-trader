@@ -1,30 +1,35 @@
 package com.btcautotrader.auth;
 
+import com.btcautotrader.tenant.TenantDataSourceProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 
 @Service
 public class TradingAccessService {
     private final CurrentUserService currentUserService;
     private final UserExchangeCredentialService userExchangeCredentialService;
     private final boolean ownerOnlyMode;
+    private final boolean adminApprovalEnabled;
     private final String ownerEmail;
 
     public TradingAccessService(
             CurrentUserService currentUserService,
             UserExchangeCredentialService userExchangeCredentialService,
+            TenantDataSourceProvider tenantDataSourceProvider,
             @Value("${app.trading.owner-only-mode:${APP_TRADING_OWNER_ONLY_MODE:true}}") boolean ownerOnlyMode,
+            @Value("${feature.admin-approval.enabled:true}") boolean adminApprovalEnabled,
             @Value("${app.multi-tenant.owner-email:juno980220@gmail.com}") String ownerEmail
     ) {
         this.currentUserService = currentUserService;
         this.userExchangeCredentialService = userExchangeCredentialService;
         this.ownerOnlyMode = ownerOnlyMode;
+        this.adminApprovalEnabled = adminApprovalEnabled;
         this.ownerEmail = ownerEmail == null ? "" : ownerEmail.trim().toLowerCase(Locale.ROOT);
     }
 
@@ -39,15 +44,51 @@ public class TradingAccessService {
     }
 
     public boolean canRunAutomatedTradingForCurrentTenant() {
-        Optional<UserEntity> userOptional = userExchangeCredentialService.findUserForCurrentTenant();
-        if (userOptional.isEmpty()) {
-            return false;
+        return evaluateAutomatedTradingAccessForCurrentTenant().allowed();
+    }
+
+    public AutomatedTradingAccess evaluateAutomatedTradingAccessForCurrentTenant() {
+        UserExchangeCredentialService.TenantTradingPrincipalResolution resolution =
+                userExchangeCredentialService.resolveTradingPrincipalForCurrentTenant();
+        String tenantDatabase = resolution.tenantDatabase();
+        List<Long> candidateUserIds = resolution.candidateUserIds();
+
+        switch (resolution.status()) {
+            case NO_TENANT -> {
+                return AutomatedTradingAccess.denied("no_tenant", tenantDatabase, null, candidateUserIds);
+            }
+            case NO_USER -> {
+                return AutomatedTradingAccess.denied("no_user", tenantDatabase, null, candidateUserIds);
+            }
+            case NOT_APPROVED -> {
+                return AutomatedTradingAccess.denied("not_approved", tenantDatabase, null, candidateUserIds);
+            }
+            case MISSING_CREDENTIALS -> {
+                return AutomatedTradingAccess.denied("missing_credentials", tenantDatabase, null, candidateUserIds);
+            }
+            case MULTIPLE_CANDIDATES -> {
+                return AutomatedTradingAccess.denied("multiple_candidates", tenantDatabase, null, candidateUserIds);
+            }
+            case READY -> {
+                UserEntity user = resolution.user().orElse(null);
+                if (user == null) {
+                    return AutomatedTradingAccess.denied("no_user", tenantDatabase, null, candidateUserIds);
+                }
+                if (ownerOnlyMode && !isOwner(user)) {
+                    return AutomatedTradingAccess.denied("owner_only_blocked", tenantDatabase, user.getId(), candidateUserIds);
+                }
+                if (!ownerOnlyMode && adminApprovalEnabled) {
+                    TradingApprovalStatus status = TradingApprovalStatus.from(user.getTradingApprovalStatus());
+                    if (status != TradingApprovalStatus.APPROVED) {
+                        return AutomatedTradingAccess.denied("not_approved", tenantDatabase, user.getId(), candidateUserIds);
+                    }
+                }
+                return AutomatedTradingAccess.allowed(tenantDatabase, user.getId(), candidateUserIds);
+            }
+            default -> {
+                return AutomatedTradingAccess.denied("unknown", tenantDatabase, null, candidateUserIds);
+            }
         }
-        UserEntity user = userOptional.get();
-        if (ownerOnlyMode && !isOwner(user)) {
-            return false;
-        }
-        return userExchangeCredentialService.hasCredentialsForUser(user);
     }
 
     private void requireTradingAllowed(UserEntity user, String forbiddenMessage) {
@@ -56,6 +97,15 @@ public class TradingAccessService {
         }
         if (ownerOnlyMode && !isOwner(user)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, forbiddenMessage + " (owner 전용 모드)");
+        }
+        if (!ownerOnlyMode && adminApprovalEnabled) {
+            TradingApprovalStatus status = TradingApprovalStatus.from(user.getTradingApprovalStatus());
+            if (status == TradingApprovalStatus.SUSPENDED) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "관리자에 의해 거래가 중지되었습니다.");
+            }
+            if (status != TradingApprovalStatus.APPROVED) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "거래 승인 대기 상태입니다.");
+            }
         }
         if (!userExchangeCredentialService.hasCredentialsForUser(user)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "거래소 API 키를 먼저 등록해주세요.");
@@ -71,5 +121,38 @@ public class TradingAccessService {
             return false;
         }
         return ownerEmail.equals(email.trim().toLowerCase(Locale.ROOT));
+    }
+
+    public record AutomatedTradingAccess(
+            boolean allowed,
+            String reason,
+            String tenantDatabase,
+            Long userId,
+            List<Long> candidateUserIds
+    ) {
+        static AutomatedTradingAccess allowed(String tenantDatabase, Long userId, List<Long> candidateUserIds) {
+            return new AutomatedTradingAccess(
+                    true,
+                    "allowed",
+                    tenantDatabase,
+                    userId,
+                    candidateUserIds == null ? List.of() : List.copyOf(candidateUserIds)
+            );
+        }
+
+        static AutomatedTradingAccess denied(
+                String reason,
+                String tenantDatabase,
+                Long userId,
+                List<Long> candidateUserIds
+        ) {
+            return new AutomatedTradingAccess(
+                    false,
+                    reason == null || reason.isBlank() ? "denied" : reason,
+                    tenantDatabase,
+                    userId,
+                    candidateUserIds == null ? List.of() : List.copyOf(candidateUserIds)
+            );
+        }
     }
 }

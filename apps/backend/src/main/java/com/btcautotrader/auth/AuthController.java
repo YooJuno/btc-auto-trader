@@ -1,12 +1,15 @@
 package com.btcautotrader.auth;
 
+import com.btcautotrader.feature.FeatureFlagService;
 import com.btcautotrader.upbit.UpbitApiException;
+import com.btcautotrader.upbit.UpbitAuthNetworkStatusResolver;
 import com.btcautotrader.upbit.UpbitAuthCredentials;
 import com.btcautotrader.upbit.UpbitService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -14,6 +17,7 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,20 +37,29 @@ public class AuthController {
     private final CurrentUserService currentUserService;
     private final UserSettingsService userSettingsService;
     private final UserExchangeCredentialService userExchangeCredentialService;
+    private final UserOnboardingService userOnboardingService;
+    private final FeatureFlagService featureFlagService;
     private final UpbitService upbitService;
+    private final boolean sessionCookieSecure;
 
     public AuthController(
             ObjectProvider<ClientRegistrationRepository> clientRegistrationRepositoryProvider,
             CurrentUserService currentUserService,
             UserSettingsService userSettingsService,
             UserExchangeCredentialService userExchangeCredentialService,
-            UpbitService upbitService
+            UserOnboardingService userOnboardingService,
+            FeatureFlagService featureFlagService,
+            UpbitService upbitService,
+            @Value("${server.servlet.session.cookie.secure:false}") boolean sessionCookieSecure
     ) {
         this.clientRegistrationRepositoryProvider = clientRegistrationRepositoryProvider;
         this.currentUserService = currentUserService;
         this.userSettingsService = userSettingsService;
         this.userExchangeCredentialService = userExchangeCredentialService;
+        this.userOnboardingService = userOnboardingService;
+        this.featureFlagService = featureFlagService;
         this.upbitService = upbitService;
+        this.sessionCookieSecure = sessionCookieSecure;
     }
 
     @GetMapping("/auth/providers")
@@ -87,6 +100,8 @@ public class AuthController {
         Cookie cookie = new Cookie("JSESSIONID", "");
         cookie.setPath("/");
         cookie.setMaxAge(0);
+        cookie.setHttpOnly(true);
+        cookie.setSecure(sessionCookieSecure);
         response.addCookie(cookie);
 
         Map<String, Object> result = new HashMap<>();
@@ -97,7 +112,44 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<MeResponse> getMe(Authentication authentication) {
         UserEntity user = currentUserService.requireUser(authentication);
-        return ResponseEntity.ok(MeResponse.from(user));
+        return ResponseEntity.ok(MeResponse.from(user, currentUserService.isOwner(user)));
+    }
+
+    @GetMapping("/me/bootstrap")
+    public ResponseEntity<MeBootstrapResponse> getBootstrap(Authentication authentication) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        UserSettingsResponse settings = userSettingsService.getSettings(user.getId());
+        UserExchangeCredentialStatusResponse exchangeCredentials = userExchangeCredentialService.getStatus(user);
+        UserOnboardingStateResponse onboarding = userOnboardingService.getState(user);
+        MeBootstrapResponse response = new MeBootstrapResponse(
+                MeBootstrapUserResponse.from(user, currentUserService.isOwner(user)),
+                settings,
+                exchangeCredentials,
+                onboarding,
+                featureFlagService.toMap()
+        );
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/me/onboarding")
+    public ResponseEntity<UserOnboardingStateResponse> getOnboardingState(Authentication authentication) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        return ResponseEntity.ok(userOnboardingService.getState(user));
+    }
+
+    @PatchMapping("/me/onboarding")
+    public ResponseEntity<?> patchOnboardingState(
+            Authentication authentication,
+            @RequestBody(required = false) UserOnboardingStatePatchRequest request
+    ) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        try {
+            return ResponseEntity.ok(userOnboardingService.patchState(user, request));
+        } catch (IllegalArgumentException ex) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
     }
 
     @GetMapping("/me/settings")
@@ -172,12 +224,14 @@ public class AuthController {
                     true,
                     accountCount,
                     status.usingDefaultCredentials(),
+                    UpbitAuthNetworkStatusResolver.OK,
                     java.time.OffsetDateTime.now()
             ));
         } catch (UpbitApiException ex) {
             Map<String, Object> error = new HashMap<>();
             error.put("error", "거래소 API 키 검증 실패");
             error.put("status", ex.getStatusCode());
+            error.put("authNetworkStatus", UpbitAuthNetworkStatusResolver.fromError(ex));
             if (ex.getResponseBody() != null && !ex.getResponseBody().isBlank()) {
                 error.put("details", ex.getResponseBody());
             }

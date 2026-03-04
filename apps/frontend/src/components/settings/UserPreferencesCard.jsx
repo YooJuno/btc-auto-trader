@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import {
   DASHBOARD_ROUTE,
   PROFILE_VALUES,
@@ -165,4 +166,4 @@ function UserPreferencesCard({
   )
 }
 
-export default UserPreferencesCard
+export default memo(UserPreferencesCard)

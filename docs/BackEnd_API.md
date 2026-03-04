@@ -456,7 +456,6 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
       "orderChanceBidMinTotal": 5000,
       "orderChanceAskMinTotal": 5000,
       "regimeFilterEnabled": true,
-      "regimeFilterPerMarket": true,
       "regimeMarket": "KRW-BTC"
     }
   }

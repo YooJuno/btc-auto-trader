@@ -4,15 +4,17 @@ import com.btcautotrader.auth.CurrentUserService;
 import com.btcautotrader.auth.UserEntity;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.servlet.HandlerInterceptor;
 
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 public class TenantContextInterceptor implements HandlerInterceptor {
+    private static final Logger log = LoggerFactory.getLogger(TenantContextInterceptor.class);
     private static final List<String> TENANT_PREFIXES = List.of(
             "/api/order",
             "/api/strategy",
@@ -54,11 +56,14 @@ public class TenantContextInterceptor implements HandlerInterceptor {
             }
             return true;
         } catch (RuntimeException ex) {
-            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            response.setContentType("application/json");
-            response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-            response.getWriter().write("{\"error\":\"tenant resolution failed\"}");
-            return false;
+            // Fall back to system DB so tenant provisioning glitches don't block strategy/order APIs.
+            TenantContext.clear();
+            log.warn(
+                    "Tenant resolution failed for path {}. Falling back to system tenant: {}",
+                    path,
+                    ex.getMessage()
+            );
+            return true;
         }
     }
 

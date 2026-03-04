@@ -65,6 +65,16 @@ public class TenantDataSourceProvider {
         return buildJdbcUrl("postgres");
     }
 
+    public void closeTenantDataSource(String databaseName) {
+        if (databaseName == null || databaseName.isBlank()) {
+            return;
+        }
+        HikariDataSource removed = tenantDataSources.remove(databaseName.trim());
+        if (removed != null) {
+            removed.close();
+        }
+    }
+
     private HikariDataSource createTenantDataSource(String databaseName) {
         validateDatabaseName(databaseName);
         return createDataSource(databaseName, buildJdbcUrl(databaseName), 5);

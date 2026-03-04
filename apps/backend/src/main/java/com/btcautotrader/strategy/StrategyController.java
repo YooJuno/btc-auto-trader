@@ -94,8 +94,15 @@ public class StrategyController {
         validatePct("stopExitPct", config.stopExitPct(), errors);
         validatePct("trendExitPct", config.trendExitPct(), errors);
         validatePct("momentumExitPct", config.momentumExitPct(), errors);
+        validatePct("entryScoreThreshold", config.entryScoreThreshold(), errors);
+        validatePct("exitScoreThreshold", config.exitScoreThreshold(), errors);
+        validatePct("riskPerTradePct", config.riskPerTradePct(), errors);
+        validateNonNegativeInt("timeStopCandles", config.timeStopCandles(), errors);
         if (config.profile() != null && !config.profile().isBlank() && parseProfile(config.profile()) == null) {
             errors.put("profile", "must be AGGRESSIVE, BALANCED, or CONSERVATIVE");
+        }
+        if (config.signalModel() != null && !config.signalModel().isBlank() && parseSignalModel(config.signalModel()) == null) {
+            errors.put("signalModel", "must be V1 or V2");
         }
         if (!errors.isEmpty()) {
             Map<String, Object> error = new HashMap<>();
@@ -361,6 +368,17 @@ public class StrategyController {
         return normalized;
     }
 
+    private static String parseSignalModel(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim().toUpperCase();
+        if ("V1".equals(normalized) || "V2".equals(normalized)) {
+            return normalized;
+        }
+        return null;
+    }
+
     private static List<String> normalizeMarkets(List<String> source, Map<String, String> errors) {
         if (source == null) {
             return List.of();
@@ -396,6 +414,12 @@ public class StrategyController {
     private static void validateRequiredPositive(String field, double value, Map<String, String> errors) {
         if (Double.isNaN(value) || Double.isInfinite(value) || value <= 0) {
             errors.put(field, "must be greater than 0");
+        }
+    }
+
+    private static void validateNonNegativeInt(String field, int value, Map<String, String> errors) {
+        if (value < 0) {
+            errors.put(field, "must be 0 or greater");
         }
     }
 }

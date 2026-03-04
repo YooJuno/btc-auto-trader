@@ -1,4 +1,6 @@
 import {
+  ADMIN_USERS_PATH,
+  ADMIN_USERS_ROUTE,
   DASHBOARD_ROUTE,
   DEFAULT_MARKET_MAX_ORDER_KRW,
   DEFAULT_MARKET_PROFILE,
@@ -19,6 +21,9 @@ import {
 
 export const resolveAppRoute = (pathname) => {
   const normalizedPath = normalizePathname(pathname)
+  if (normalizedPath === ADMIN_USERS_PATH) {
+    return ADMIN_USERS_ROUTE
+  }
   if (normalizedPath === SETTINGS_PATH) {
     return SETTINGS_ROUTE
   }
@@ -26,6 +31,9 @@ export const resolveAppRoute = (pathname) => {
 }
 
 export const resolveAppPath = (route) => {
+  if (route === ADMIN_USERS_ROUTE) {
+    return ADMIN_USERS_PATH
+  }
   if (route === SETTINGS_ROUTE) {
     return SETTINGS_PATH
   }

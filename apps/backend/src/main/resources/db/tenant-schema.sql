@@ -76,6 +76,11 @@ CREATE TABLE strategy_config (
   stop_exit_pct           DOUBLE PRECISION,
   trend_exit_pct          DOUBLE PRECISION,
   momentum_exit_pct       DOUBLE PRECISION,
+  signal_model            VARCHAR(10),
+  entry_score_threshold   DOUBLE PRECISION,
+  exit_score_threshold    DOUBLE PRECISION,
+  risk_per_trade_pct      DOUBLE PRECISION,
+  time_stop_candles       INTEGER,
   updated_at              TIMESTAMPTZ NOT NULL
 );
 
@@ -104,6 +109,7 @@ CREATE TABLE strategy_market_overrides (
   market         VARCHAR(20) PRIMARY KEY,
   max_order_krw  DOUBLE PRECISION,
   profile        VARCHAR(20),
+  trade_paused   BOOLEAN,
   take_profit_pct         DOUBLE PRECISION,
   stop_loss_pct           DOUBLE PRECISION,
   trailing_stop_pct       DOUBLE PRECISION,
@@ -165,6 +171,9 @@ CREATE TABLE app_users (
   email             VARCHAR(160),
   display_name      VARCHAR(160),
   tenant_db         VARCHAR(63),
+  trading_approval_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  trading_approval_note VARCHAR(500),
+  trading_approval_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_login_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uk_app_users_provider_subject UNIQUE (provider, provider_user_id)
@@ -188,4 +197,14 @@ CREATE TABLE user_settings (
   risk_profile      VARCHAR(20) NOT NULL DEFAULT 'BALANCED',
   ui_prefs          TEXT NOT NULL DEFAULT '{}',
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 사용자 온보딩 상태
+CREATE TABLE user_onboarding_state (
+  user_id              BIGINT PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
+  profile_completed    BOOLEAN NOT NULL DEFAULT false,
+  credentials_completed BOOLEAN NOT NULL DEFAULT false,
+  strategy_completed   BOOLEAN NOT NULL DEFAULT false,
+  completed_at         TIMESTAMPTZ,
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );

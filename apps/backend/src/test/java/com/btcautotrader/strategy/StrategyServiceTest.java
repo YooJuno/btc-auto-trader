@@ -72,4 +72,34 @@ class StrategyServiceTest {
         assertThat(config.maxOrderKrw()).isEqualTo(30000.0);
         assertThat(config.profile()).isEqualTo("BALANCED");
     }
+
+    @Test
+    void getConfig_migratesBaselineBalancedRatiosToTunedDefaults() {
+        StrategyConfigEntity baseline = new StrategyConfigEntity(
+                1L,
+                true,
+                30000.0,
+                2.4,
+                1.6,
+                1.2,
+                35.0,
+                StrategyProfile.BALANCED.name(),
+                100.0,
+                40.0,
+                25.0,
+                "V1",
+                65.0,
+                60.0,
+                0.7,
+                180
+        );
+        when(configRepository.findById(1L)).thenReturn(Optional.of(baseline));
+        when(configRepository.save(any(StrategyConfigEntity.class))).thenAnswer((invocation) -> invocation.getArgument(0));
+
+        StrategyConfig config = strategyService.getConfig();
+
+        assertThat(config.takeProfitPct()).isEqualTo(2.4);
+        assertThat(config.stopLossPct()).isEqualTo(1.28);
+        assertThat(config.trailingStopPct()).isEqualTo(0.9);
+    }
 }
