@@ -12,6 +12,7 @@ import com.btcautotrader.strategy.StrategyProfile;
 import com.btcautotrader.strategy.StrategyService;
 import com.btcautotrader.tenant.TenantContext;
 import com.btcautotrader.tenant.TenantDatabaseProvisioningService;
+import com.btcautotrader.upbit.UpbitAuthNetworkStatusResolver;
 import com.btcautotrader.upbit.UpbitService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,8 +105,6 @@ public class AutoTradeService {
     private final BigDecimal targetVolPct;
     private final boolean useClosedCandle;
     private final boolean regimeFilterEnabled;
-    private final boolean regimeFilterPerMarket;
-    private final String regimeMarket;
     private final int regimeTimeframeUnit;
     private final int regimeMaShort;
     private final int regimeMaLong;
@@ -113,6 +112,26 @@ public class AutoTradeService {
     private final double regimeMinMaLongSlopePct;
     private final int regimeVolatilityWindow;
     private final BigDecimal regimeMaxVolatilityPct;
+    private final boolean regimeParameterSwitchEnabled;
+    private final double regimeRiskOnSlopePct;
+    private final double regimeRiskOnMaxVolatilityPct;
+    private final double regimeRiskOnSizeMultiplier;
+    private final double regimeRiskOnTakeProfitMultiplier;
+    private final double regimeRiskOnStopLossMultiplier;
+    private final double regimeRiskOnTrailingStopMultiplier;
+    private final double regimeRiskOnRsiBuyAdjust;
+    private final double regimeCautionSizeMultiplier;
+    private final double regimeCautionTakeProfitMultiplier;
+    private final double regimeCautionStopLossMultiplier;
+    private final double regimeCautionTrailingStopMultiplier;
+    private final double regimeCautionRsiBuyAdjust;
+    private final boolean htfConfirmEnabled;
+    private final int htfConfirmUnitMinutes;
+    private final int htfConfirmMaShort;
+    private final int htfConfirmMaLong;
+    private final int htfConfirmSlopeLookback;
+    private final double htfConfirmMinMaLongSlopePct;
+    private final long htfConfirmCacheMinutes;
     private final boolean relativeMomentumEnabled;
     private final int relativeMomentumTimeframeUnit;
     private final int relativeMomentumShortLookback;
@@ -139,6 +158,7 @@ public class AutoTradeService {
     private final Map<String, OffsetDateTime> lastEntryAtByMarket = new ConcurrentHashMap<>();
     private final Map<String, OrderChanceSnapshot> orderChanceCache = new ConcurrentHashMap<>();
     private final Map<String, MomentumSnapshot> relativeMomentumCache = new ConcurrentHashMap<>();
+    private final Map<String, HtfTrendSnapshot> htfTrendCache = new ConcurrentHashMap<>();
 
     public AutoTradeService(
             UpbitService upbitService,
@@ -195,8 +215,6 @@ public class AutoTradeService {
             @Value("${risk.target-vol-pct:0.5}") BigDecimal targetVolPct,
             @Value("${signal.use-closed-candle:true}") boolean useClosedCandle,
             @Value("${regime.filter.enabled:true}") boolean regimeFilterEnabled,
-            @Value("${regime.filter.per-market:false}") boolean regimeFilterPerMarket,
-            @Value("${regime.filter.market:KRW-BTC}") String regimeMarket,
             @Value("${regime.filter.timeframe-unit:15}") int regimeTimeframeUnit,
             @Value("${regime.filter.ma-short:40}") int regimeMaShort,
             @Value("${regime.filter.ma-long:120}") int regimeMaLong,
@@ -204,6 +222,26 @@ public class AutoTradeService {
             @Value("${regime.filter.min-ma-long-slope-pct:0.0}") double regimeMinMaLongSlopePct,
             @Value("${regime.filter.volatility-window:48}") int regimeVolatilityWindow,
             @Value("${regime.filter.max-volatility-pct:1.2}") BigDecimal regimeMaxVolatilityPct,
+            @Value("${regime.switch.enabled:true}") boolean regimeParameterSwitchEnabled,
+            @Value("${regime.switch.risk-on-slope-pct:0.12}") double regimeRiskOnSlopePct,
+            @Value("${regime.switch.risk-on-max-volatility-pct:0.8}") double regimeRiskOnMaxVolatilityPct,
+            @Value("${regime.switch.risk-on-size-multiplier:1.15}") double regimeRiskOnSizeMultiplier,
+            @Value("${regime.switch.risk-on-take-profit-multiplier:1.1}") double regimeRiskOnTakeProfitMultiplier,
+            @Value("${regime.switch.risk-on-stop-loss-multiplier:1.05}") double regimeRiskOnStopLossMultiplier,
+            @Value("${regime.switch.risk-on-trailing-stop-multiplier:1.1}") double regimeRiskOnTrailingStopMultiplier,
+            @Value("${regime.switch.risk-on-rsi-buy-adjust:-1.0}") double regimeRiskOnRsiBuyAdjust,
+            @Value("${regime.switch.caution-size-multiplier:0.8}") double regimeCautionSizeMultiplier,
+            @Value("${regime.switch.caution-take-profit-multiplier:0.95}") double regimeCautionTakeProfitMultiplier,
+            @Value("${regime.switch.caution-stop-loss-multiplier:0.9}") double regimeCautionStopLossMultiplier,
+            @Value("${regime.switch.caution-trailing-stop-multiplier:0.9}") double regimeCautionTrailingStopMultiplier,
+            @Value("${regime.switch.caution-rsi-buy-adjust:1.5}") double regimeCautionRsiBuyAdjust,
+            @Value("${signal.htf-confirm.enabled:true}") boolean htfConfirmEnabled,
+            @Value("${signal.htf-confirm.unit:60}") int htfConfirmUnitMinutes,
+            @Value("${signal.htf-confirm.ma-short:20}") int htfConfirmMaShort,
+            @Value("${signal.htf-confirm.ma-long:50}") int htfConfirmMaLong,
+            @Value("${signal.htf-confirm.slope-lookback:3}") int htfConfirmSlopeLookback,
+            @Value("${signal.htf-confirm.min-ma-long-slope-pct:0.0}") double htfConfirmMinMaLongSlopePct,
+            @Value("${signal.htf-confirm.cache-minutes:3}") long htfConfirmCacheMinutes,
             @Value("${signal.relative-momentum.enabled:true}") boolean relativeMomentumEnabled,
             @Value("${signal.relative-momentum.timeframe-unit:15}") int relativeMomentumTimeframeUnit,
             @Value("${signal.relative-momentum.short-lookback:24}") int relativeMomentumShortLookback,
@@ -272,8 +310,6 @@ public class AutoTradeService {
         this.targetVolPct = targetVolPct;
         this.useClosedCandle = useClosedCandle;
         this.regimeFilterEnabled = regimeFilterEnabled;
-        this.regimeFilterPerMarket = regimeFilterPerMarket;
-        this.regimeMarket = normalizeMarket(regimeMarket, "KRW-BTC");
         this.regimeTimeframeUnit = Math.max(1, regimeTimeframeUnit);
         this.regimeMaShort = Math.max(2, Math.min(regimeMaShort, 199));
         this.regimeMaLong = Math.max(this.regimeMaShort + 1, Math.min(regimeMaLong, 200));
@@ -281,6 +317,26 @@ public class AutoTradeService {
         this.regimeMinMaLongSlopePct = regimeMinMaLongSlopePct;
         this.regimeVolatilityWindow = Math.max(2, Math.min(regimeVolatilityWindow, 200));
         this.regimeMaxVolatilityPct = regimeMaxVolatilityPct;
+        this.regimeParameterSwitchEnabled = regimeParameterSwitchEnabled;
+        this.regimeRiskOnSlopePct = regimeRiskOnSlopePct;
+        this.regimeRiskOnMaxVolatilityPct = Math.max(0.0, regimeRiskOnMaxVolatilityPct);
+        this.regimeRiskOnSizeMultiplier = clamp(regimeRiskOnSizeMultiplier, 0.1, 3.0);
+        this.regimeRiskOnTakeProfitMultiplier = clamp(regimeRiskOnTakeProfitMultiplier, 0.5, 3.0);
+        this.regimeRiskOnStopLossMultiplier = clamp(regimeRiskOnStopLossMultiplier, 0.5, 3.0);
+        this.regimeRiskOnTrailingStopMultiplier = clamp(regimeRiskOnTrailingStopMultiplier, 0.5, 3.0);
+        this.regimeRiskOnRsiBuyAdjust = clamp(regimeRiskOnRsiBuyAdjust, -10.0, 10.0);
+        this.regimeCautionSizeMultiplier = clamp(regimeCautionSizeMultiplier, 0.1, 2.0);
+        this.regimeCautionTakeProfitMultiplier = clamp(regimeCautionTakeProfitMultiplier, 0.5, 3.0);
+        this.regimeCautionStopLossMultiplier = clamp(regimeCautionStopLossMultiplier, 0.5, 3.0);
+        this.regimeCautionTrailingStopMultiplier = clamp(regimeCautionTrailingStopMultiplier, 0.5, 3.0);
+        this.regimeCautionRsiBuyAdjust = clamp(regimeCautionRsiBuyAdjust, -10.0, 10.0);
+        this.htfConfirmEnabled = htfConfirmEnabled;
+        this.htfConfirmUnitMinutes = Math.max(1, htfConfirmUnitMinutes);
+        this.htfConfirmMaShort = Math.max(2, Math.min(htfConfirmMaShort, 199));
+        this.htfConfirmMaLong = Math.max(this.htfConfirmMaShort + 1, Math.min(htfConfirmMaLong, 200));
+        this.htfConfirmSlopeLookback = Math.max(0, Math.min(htfConfirmSlopeLookback, 60));
+        this.htfConfirmMinMaLongSlopePct = htfConfirmMinMaLongSlopePct;
+        this.htfConfirmCacheMinutes = Math.max(0, htfConfirmCacheMinutes);
         this.relativeMomentumEnabled = relativeMomentumEnabled;
         this.relativeMomentumTimeframeUnit = Math.max(1, relativeMomentumTimeframeUnit);
         int maxMomentumLookback = useClosedCandle ? 198 : 199;
@@ -373,9 +429,20 @@ public class AutoTradeService {
         for (String tenantDatabase : tenants) {
             try {
                 TenantContext.runWithTenantDatabase(tenantDatabase, () -> {
-                    if (engineService.isRunning() && tradingAccessService.canRunAutomatedTradingForCurrentTenant()) {
-                        runOnce();
+                    if (!engineService.isRunning()) {
+                        logSchedulerSkip(tenantDatabase, "engine_off", null, List.of());
+                        return;
                     }
+                    TradingAccessService.AutomatedTradingAccess access =
+                            tradingAccessService.evaluateAutomatedTradingAccessForCurrentTenant();
+                    if (!access.allowed()) {
+                        String resolvedTenant = access.tenantDatabase() == null || access.tenantDatabase().isBlank()
+                                ? tenantDatabase
+                                : access.tenantDatabase();
+                        logSchedulerSkip(resolvedTenant, access.reason(), access.userId(), access.candidateUserIds());
+                        return;
+                    }
+                    runOnce();
                 });
             } catch (RuntimeException ex) {
                 // Keep ticking other tenants even when one tenant fails.
@@ -424,10 +491,19 @@ public class AutoTradeService {
                 resetFailure(SYSTEM_KEY);
             } catch (RuntimeException ex) {
                 recordFailure(SYSTEM_KEY, now);
+                String reason = resolveSystemErrorReason(ex);
+                if ("api_auth_ip_block".equals(reason)) {
+                    log.warn(
+                            "Auto-trade account load blocked tenant={} reason={} message={}",
+                            currentTenantDatabase(),
+                            reason,
+                            truncate(safeErrorMessage(ex), 200)
+                    );
+                }
                 AutoTradeAction action = new AutoTradeAction(
                         SYSTEM_KEY,
                         "ERROR",
-                        truncate(ex.getMessage(), 200),
+                        reason,
                         null,
                         null,
                         null,
@@ -437,11 +513,7 @@ public class AutoTradeService {
                 recordDecision(SYSTEM_KEY, action, null, null, null, null, null, null, null);
                 return new AutoTradeResult(now.toString(), List.of(action));
             }
-            RegimeSnapshot globalRegime = null;
             Map<String, RegimeSnapshot> regimeByMarket = new HashMap<>();
-            if (!regimeFilterPerMarket) {
-                globalRegime = evaluateRegime(regimeMarket);
-            }
             DailyLossStatus dailyLossStatus = evaluateDailyLossStatus(accounts);
             BigDecimal totalAssetKrw = dailyLossStatus.currentAssetKrw() != null
                     && dailyLossStatus.currentAssetKrw().compareTo(BigDecimal.ZERO) > 0
@@ -463,15 +535,18 @@ public class AutoTradeService {
                         null
                 );
                 actions.add(action);
-                recordDecision(SYSTEM_KEY, action, config, StrategyProfile.from(config.profile()), null, null, globalRegime, null, null);
+                recordDecision(SYSTEM_KEY, action, config, StrategyProfile.from(config.profile()), null, null, null, null, null);
             }
             for (String market : selection.selected()) {
-                RegimeSnapshot regime = regimeFilterPerMarket
-                        ? regimeByMarket.computeIfAbsent(normalizeMarket(market, regimeMarket), this::evaluateRegime)
-                        : globalRegime;
-                StrategyConfig marketConfig = resolveConfigForMarket(market, config, runtimeOverrides);
-                StrategyProfile profile = resolveProfileForMarket(market, marketConfig, marketProfileByMarket);
-                SignalTuning tuning = resolveSignalTuning(profile);
+                RegimeSnapshot regime = regimeByMarket.computeIfAbsent(market, this::evaluateRegime);
+                StrategyConfig baseMarketConfig = resolveConfigForMarket(market, config, runtimeOverrides);
+                StrategyProfile profile = resolveProfileForMarket(market, baseMarketConfig, marketProfileByMarket);
+                SignalTuning baseTuning = resolveSignalTuning(profile);
+                RegimeAdjustedContext adjustedContext = resolveRegimeAdjustedContext(baseMarketConfig, baseTuning, regime);
+                StrategyConfig marketConfig = adjustedContext.config();
+                SignalTuning tuning = adjustedContext.tuning();
+                BigDecimal positionSizeMultiplier = adjustedContext.positionSizeMultiplier();
+                String regimeMode = adjustedContext.mode();
                 BigDecimal marketMaxOrderKrw = resolveMarketMaxOrderKrw(market, marketConfig, marketMaxOrderKrwByMarket);
                 BigDecimal momentumScorePct = selection.momentumScorePctByMarket().get(market);
                 boolean tradePaused = Boolean.TRUE.equals(tradePausedByMarket.get(market));
@@ -611,7 +686,10 @@ public class AutoTradeService {
                                     marketMaxOrderKrw,
                                     profile,
                                     momentumScorePct,
-                                    totalAssetKrw
+                                    totalAssetKrw,
+                                    dailyLossStatus,
+                                    positionSizeMultiplier,
+                                    regimeMode
                             );
                             if (buyAction != null && "BUY".equalsIgnoreCase(buyAction.action())) {
                                 actionToRecord = buyAction;
@@ -651,7 +729,10 @@ public class AutoTradeService {
                             marketMaxOrderKrw,
                             profile,
                             momentumScorePct,
-                            totalAssetKrw
+                            totalAssetKrw,
+                            dailyLossStatus,
+                            positionSizeMultiplier,
+                            regimeMode
                     );
                     if (action != null) {
                         actions.add(action);
@@ -703,9 +784,7 @@ public class AutoTradeService {
 
             for (Map.Entry<String, String> deferred : selection.deferredReasonsByMarket().entrySet()) {
                 String market = deferred.getKey();
-                RegimeSnapshot regime = regimeFilterPerMarket
-                        ? regimeByMarket.computeIfAbsent(normalizeMarket(market, regimeMarket), this::evaluateRegime)
-                        : globalRegime;
+                RegimeSnapshot regime = regimeByMarket.computeIfAbsent(market, this::evaluateRegime);
                 StrategyConfig marketConfig = resolveConfigForMarket(market, config, runtimeOverrides);
                 StrategyProfile profile = resolveProfileForMarket(market, marketConfig, marketProfileByMarket);
                 SignalTuning tuning = resolveSignalTuning(profile);
@@ -964,10 +1043,26 @@ public class AutoTradeService {
             BigDecimal marketMaxOrderKrw,
             StrategyProfile profile,
             BigDecimal momentumScorePct,
-            BigDecimal totalAssetKrw
+            BigDecimal totalAssetKrw,
+            DailyLossStatus dailyLossStatus,
+            BigDecimal regimeSizeMultiplier,
+            String regimeMode
     ) {
         if (indicators == null || indicators.maShort() == null || indicators.maLong() == null || indicators.currentPrice() == null) {
             return new AutoTradeAction(market, "SKIP", "insufficient candles", null, null, null, null, null);
+        }
+        HtfTrendSnapshot htfTrend = evaluateHigherTimeframeTrend(market);
+        if (htfTrend != null && !htfTrend.allowEntries()) {
+            return new AutoTradeAction(
+                    market,
+                    "SKIP",
+                    "htf_filter:" + htfTrend.reason(),
+                    indicators.currentPrice(),
+                    null,
+                    null,
+                    null,
+                    null
+            );
         }
         boolean rsiOk = indicators.rsi() != null
                 && indicators.rsi().doubleValue() >= tuning.rsiBuyThreshold()
@@ -1037,12 +1132,14 @@ public class AutoTradeService {
         }
 
         BigDecimal orderFunds = min(cash, marketMaxOrderKrw);
-        if (useV2Model && totalAssetKrw != null && totalAssetKrw.compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal riskBudget = totalAssetKrw.multiply(BigDecimal.valueOf(Math.max(config.riskPerTradePct(), 0.0)))
-                    .divide(HUNDRED, 8, RoundingMode.HALF_UP);
-            orderFunds = min(orderFunds, riskBudget);
-        }
-        orderFunds = applyVolatilityTarget(orderFunds, indicators.volatilityPct());
+        orderFunds = applyDynamicPositionSizing(
+                orderFunds,
+                config,
+                totalAssetKrw,
+                indicators.volatilityPct(),
+                dailyLossStatus,
+                regimeSizeMultiplier
+        );
         orderFunds = applyCostBuffer(orderFunds);
         BigDecimal minTotal = resolveMinOrderKrw(market, "BUY");
         if (orderFunds.compareTo(minTotal) < 0) {
@@ -1100,15 +1197,285 @@ public class AutoTradeService {
         return new AutoTradeAction(
                 market,
                 "BUY",
-                useV2Model
+                appendRegimeMode(
+                        useV2Model
                         ? "v2_score_entry"
                         : buildEntryReason(rsiOk, macdOk, breakoutOk),
+                        regimeMode
+                ),
                 null,
                 null,
                 orderFunds,
                 response.orderId(),
                 response.requestStatus()
         );
+    }
+
+    private BigDecimal applyDynamicPositionSizing(
+            BigDecimal funds,
+            StrategyConfig config,
+            BigDecimal totalAssetKrw,
+            BigDecimal volatilityPct,
+            DailyLossStatus dailyLossStatus,
+            BigDecimal regimeSizeMultiplier
+    ) {
+        if (funds == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal sizedFunds = funds.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : funds;
+
+        if (config != null
+                && totalAssetKrw != null
+                && totalAssetKrw.compareTo(BigDecimal.ZERO) > 0
+                && config.riskPerTradePct() > 0) {
+            BigDecimal riskBudget = totalAssetKrw.multiply(BigDecimal.valueOf(config.riskPerTradePct()))
+                    .divide(HUNDRED, 8, RoundingMode.HALF_UP);
+            if (riskBudget.compareTo(BigDecimal.ZERO) > 0 && sizedFunds.compareTo(riskBudget) > 0) {
+                BigDecimal riskScale = riskBudget.divide(sizedFunds, 8, RoundingMode.HALF_UP);
+                if (riskScale.compareTo(BigDecimal.valueOf(0.5)) < 0) {
+                    riskScale = BigDecimal.valueOf(0.5);
+                }
+                sizedFunds = sizedFunds.multiply(riskScale);
+            }
+        }
+
+        sizedFunds = applyVolatilityTarget(sizedFunds, volatilityPct);
+
+        if (dailyLossStatus != null
+                && dailyLossStatus.drawdownPct() != null
+                && dailyLossStatus.drawdownPct().compareTo(BigDecimal.ZERO) > 0
+                && dailyLossStatus.limitPct() > 0) {
+            BigDecimal limitPct = BigDecimal.valueOf(dailyLossStatus.limitPct());
+            if (limitPct.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal drawdownRatio = dailyLossStatus.drawdownPct()
+                        .divide(limitPct, 8, RoundingMode.HALF_UP);
+                if (drawdownRatio.compareTo(BigDecimal.ZERO) < 0) {
+                    drawdownRatio = BigDecimal.ZERO;
+                }
+                if (drawdownRatio.compareTo(BigDecimal.valueOf(2.0)) > 0) {
+                    drawdownRatio = BigDecimal.valueOf(2.0);
+                }
+                BigDecimal drawdownScale = BigDecimal.ONE.subtract(drawdownRatio.multiply(BigDecimal.valueOf(0.5)));
+                if (drawdownScale.compareTo(BigDecimal.valueOf(0.35)) < 0) {
+                    drawdownScale = BigDecimal.valueOf(0.35);
+                }
+                sizedFunds = sizedFunds.multiply(drawdownScale);
+            }
+        }
+
+        if (regimeSizeMultiplier != null && regimeSizeMultiplier.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal boundedRegimeScale = BigDecimal.valueOf(
+                    clamp(regimeSizeMultiplier.doubleValue(), 0.2, 2.0)
+            );
+            sizedFunds = sizedFunds.multiply(boundedRegimeScale);
+        }
+
+        if (sizedFunds.compareTo(BigDecimal.ZERO) < 0) {
+            return BigDecimal.ZERO;
+        }
+        return sizedFunds;
+    }
+
+    private RegimeAdjustedContext resolveRegimeAdjustedContext(
+            StrategyConfig config,
+            SignalTuning tuning,
+            RegimeSnapshot regime
+    ) {
+        if (config == null || tuning == null || regime == null || !regime.allowEntries() || !regimeParameterSwitchEnabled) {
+            return RegimeAdjustedContext.base(config, tuning);
+        }
+
+        boolean slopeStrong = regime.maLongSlopePct() != null
+                && regime.maLongSlopePct().doubleValue() >= regimeRiskOnSlopePct;
+        boolean volatilitySafe = regime.volatilityPct() == null
+                || regime.volatilityPct().doubleValue() <= regimeRiskOnMaxVolatilityPct;
+        boolean riskOn = slopeStrong && volatilitySafe;
+
+        double takeProfitMultiplier = riskOn ? regimeRiskOnTakeProfitMultiplier : regimeCautionTakeProfitMultiplier;
+        double stopLossMultiplier = riskOn ? regimeRiskOnStopLossMultiplier : regimeCautionStopLossMultiplier;
+        double trailingStopMultiplier = riskOn ? regimeRiskOnTrailingStopMultiplier : regimeCautionTrailingStopMultiplier;
+        double rsiBuyAdjust = riskOn ? regimeRiskOnRsiBuyAdjust : regimeCautionRsiBuyAdjust;
+        BigDecimal positionSizeMultiplier = BigDecimal.valueOf(
+                riskOn ? regimeRiskOnSizeMultiplier : regimeCautionSizeMultiplier
+        );
+
+        StrategyConfig adjustedConfig = new StrategyConfig(
+                config.enabled(),
+                config.maxOrderKrw(),
+                applyRatioMultiplier(config.takeProfitPct(), takeProfitMultiplier),
+                applyRatioMultiplier(config.stopLossPct(), stopLossMultiplier),
+                applyRatioMultiplier(config.trailingStopPct(), trailingStopMultiplier),
+                config.partialTakeProfitPct(),
+                config.profile(),
+                config.stopExitPct(),
+                config.trendExitPct(),
+                config.momentumExitPct(),
+                config.signalModel(),
+                config.entryScoreThreshold(),
+                config.exitScoreThreshold(),
+                config.riskPerTradePct(),
+                config.timeStopCandles()
+        );
+
+        SignalTuning adjustedTuning = new SignalTuning(
+                clamp(tuning.rsiBuyThreshold() + rsiBuyAdjust, 40.0, 80.0),
+                tuning.rsiSellThreshold(),
+                tuning.rsiOverbought(),
+                tuning.minAdx(),
+                tuning.minVolumeRatio(),
+                tuning.breakoutPct(),
+                tuning.minConfirmations(),
+                tuning.maxExtensionPct(),
+                tuning.minMaLongSlopePct()
+        );
+
+        return new RegimeAdjustedContext(
+                adjustedConfig,
+                adjustedTuning,
+                positionSizeMultiplier,
+                riskOn ? "regime_risk_on" : "regime_caution"
+        );
+    }
+
+    private HtfTrendSnapshot evaluateHigherTimeframeTrend(String market) {
+        String normalizedMarket = normalizeMarketKey(market);
+        if (!htfConfirmEnabled) {
+            return HtfTrendSnapshot.allow("htf_disabled", normalizedMarket, null, null, null, null, OffsetDateTime.now());
+        }
+        if (normalizedMarket == null) {
+            return HtfTrendSnapshot.allow("htf_invalid_market", null, null, null, null, null, OffsetDateTime.now());
+        }
+        String cacheKey = tenantScopedKey("HTF" + TENANT_KEY_SEPARATOR + normalizedMarket);
+        OffsetDateTime now = OffsetDateTime.now();
+        HtfTrendSnapshot cached = htfTrendCache.get(cacheKey);
+        if (cached != null && htfConfirmCacheMinutes > 0 && cached.fetchedAt() != null) {
+            OffsetDateTime threshold = now.minusMinutes(htfConfirmCacheMinutes);
+            if (cached.fetchedAt().isAfter(threshold)) {
+                return cached;
+            }
+        }
+
+        int requestCount = htfConfirmMaLong;
+        if (htfConfirmSlopeLookback > 0) {
+            requestCount = Math.max(requestCount, htfConfirmMaLong + htfConfirmSlopeLookback);
+        }
+        if (useClosedCandle) {
+            requestCount += 1;
+        }
+
+        try {
+            List<Map<String, Object>> candles = upbitService.fetchMinuteCandles(normalizedMarket, htfConfirmUnitMinutes, requestCount);
+            List<BigDecimal> closes = extractSortedCloses(candles);
+            if (useClosedCandle) {
+                dropLast(closes);
+            }
+            if (closes.size() < htfConfirmMaLong) {
+                return cacheHtfTrend(cacheKey, HtfTrendSnapshot.allow(
+                        "htf_insufficient_data",
+                        normalizedMarket,
+                        closes.isEmpty() ? null : closes.get(closes.size() - 1),
+                        null,
+                        null,
+                        null,
+                        now
+                ));
+            }
+
+            BigDecimal currentPrice = closes.get(closes.size() - 1);
+            BigDecimal maShortValue = averageLast(closes, htfConfirmMaShort);
+            BigDecimal maLongValue = averageLast(closes, htfConfirmMaLong);
+            if (maShortValue == null || maLongValue == null || maLongValue.compareTo(BigDecimal.ZERO) <= 0) {
+                return cacheHtfTrend(cacheKey, HtfTrendSnapshot.allow(
+                        "htf_invalid_trend",
+                        normalizedMarket,
+                        currentPrice,
+                        maShortValue,
+                        maLongValue,
+                        null,
+                        now
+                ));
+            }
+
+            BigDecimal slopePct = null;
+            if (htfConfirmSlopeLookback > 0) {
+                BigDecimal maLongPrev = averageLastWithOffset(closes, htfConfirmMaLong, htfConfirmSlopeLookback);
+                if (maLongPrev != null && maLongPrev.compareTo(BigDecimal.ZERO) > 0) {
+                    slopePct = maLongValue.subtract(maLongPrev)
+                            .divide(maLongPrev, 8, RoundingMode.HALF_UP)
+                            .multiply(HUNDRED);
+                }
+            }
+
+            if (currentPrice.compareTo(maLongValue) <= 0 || maShortValue.compareTo(maLongValue) <= 0) {
+                return cacheHtfTrend(cacheKey, HtfTrendSnapshot.block(
+                        "htf_trend_off",
+                        normalizedMarket,
+                        currentPrice,
+                        maShortValue,
+                        maLongValue,
+                        slopePct,
+                        now
+                ));
+            }
+            if (htfConfirmMinMaLongSlopePct > 0
+                    && slopePct != null
+                    && slopePct.doubleValue() < htfConfirmMinMaLongSlopePct) {
+                return cacheHtfTrend(cacheKey, HtfTrendSnapshot.block(
+                        "htf_slope_off",
+                        normalizedMarket,
+                        currentPrice,
+                        maShortValue,
+                        maLongValue,
+                        slopePct,
+                        now
+                ));
+            }
+
+            return cacheHtfTrend(cacheKey, HtfTrendSnapshot.allow(
+                    "htf_on",
+                    normalizedMarket,
+                    currentPrice,
+                    maShortValue,
+                    maLongValue,
+                    slopePct,
+                    now
+            ));
+        } catch (RuntimeException ex) {
+            return cacheHtfTrend(cacheKey, HtfTrendSnapshot.allow(
+                    "htf_unavailable",
+                    normalizedMarket,
+                    null,
+                    null,
+                    null,
+                    null,
+                    now
+            ));
+        }
+    }
+
+    private HtfTrendSnapshot cacheHtfTrend(String cacheKey, HtfTrendSnapshot snapshot) {
+        if (cacheKey == null || snapshot == null) {
+            return snapshot;
+        }
+        htfTrendCache.put(cacheKey, snapshot);
+        return snapshot;
+    }
+
+    private static String appendRegimeMode(String reason, String regimeMode) {
+        if (reason == null || reason.isBlank()) {
+            return reason;
+        }
+        if (regimeMode == null || regimeMode.isBlank() || "regime_base".equalsIgnoreCase(regimeMode)) {
+            return reason;
+        }
+        return reason + ":" + regimeMode;
+    }
+
+    private static double applyRatioMultiplier(double value, double multiplier) {
+        if (value <= 0) {
+            return value;
+        }
+        return value * multiplier;
     }
 
     private boolean isStrategyV2(StrategyConfig config) {
@@ -1633,17 +2000,6 @@ public class AutoTradeService {
         return market.substring(idx + 1).trim().toUpperCase();
     }
 
-    private static String normalizeMarket(String market, String fallback) {
-        String resolved = market;
-        if (resolved == null || resolved.isBlank()) {
-            resolved = fallback;
-        }
-        if (resolved == null || resolved.isBlank()) {
-            return "KRW-BTC";
-        }
-        return resolved.trim().toUpperCase();
-    }
-
     private static String normalizeMarketKey(String market) {
         if (market == null || market.isBlank()) {
             return null;
@@ -2082,7 +2438,10 @@ public class AutoTradeService {
     }
 
     private RegimeSnapshot evaluateRegime(String market) {
-        String regimeTarget = normalizeMarket(market, regimeMarket);
+        String regimeTarget = normalizeMarketKey(market);
+        if (regimeTarget == null) {
+            return RegimeSnapshot.block("regime_invalid_market", null, null, null, null, null, null);
+        }
         if (!regimeFilterEnabled) {
             return RegimeSnapshot.allow("regime_disabled", regimeTarget, null, null, null, null, null);
         }
@@ -3000,8 +3359,7 @@ public class AutoTradeService {
             details.put("marketMaxOrderKrw", marketMaxOrderKrw);
             details.put("useClosedCandle", useClosedCandle);
             details.put("regimeFilterEnabled", regimeFilterEnabled);
-            details.put("regimeFilterPerMarket", regimeFilterPerMarket);
-            details.put("regimeMarket", regime != null ? regime.market() : regimeMarket);
+            details.put("regimeMarket", regime != null ? regime.market() : normalizeMarketKey(market));
             details.put("regimeTimeframeUnit", regimeTimeframeUnit);
             details.put("relativeMomentumEnabled", relativeMomentumEnabled);
             details.put("relativeMomentumTopN", relativeMomentumTopN);
@@ -3189,6 +3547,55 @@ public class AutoTradeService {
         return value.substring(0, max);
     }
 
+    private void logSchedulerSkip(String tenantDatabase, String reason, Long userId, List<Long> candidateUserIds) {
+        String tenant = tenantDatabase == null || tenantDatabase.isBlank() ? DEFAULT_TENANT_KEY : tenantDatabase;
+        String resolvedReason = reason == null || reason.isBlank() ? "unknown" : reason;
+        List<Long> candidates = candidateUserIds == null ? List.of() : candidateUserIds;
+        if ("multiple_candidates".equals(resolvedReason)) {
+            log.error(
+                    "Auto-trade scheduler skip tenant={} reason={} userId={} candidateUserIds={}",
+                    tenant,
+                    resolvedReason,
+                    userId,
+                    candidates
+            );
+            return;
+        }
+        log.info(
+                "Auto-trade scheduler skip tenant={} reason={} userId={} candidateUserIds={}",
+                tenant,
+                resolvedReason,
+                userId,
+                candidates
+        );
+    }
+
+    private static String resolveSystemErrorReason(RuntimeException ex) {
+        if (UpbitAuthNetworkStatusResolver.isIpNotWhitelisted(ex)) {
+            return "api_auth_ip_block";
+        }
+        return truncate(safeErrorMessage(ex), 200);
+    }
+
+    private static String safeErrorMessage(Throwable ex) {
+        if (ex == null) {
+            return "unknown_error";
+        }
+        String message = ex.getMessage();
+        if (message != null && !message.isBlank()) {
+            return message;
+        }
+        return ex.getClass().getSimpleName();
+    }
+
+    private static String currentTenantDatabase() {
+        String tenant = TenantContext.getTenantDatabase();
+        if (tenant == null || tenant.isBlank()) {
+            return DEFAULT_TENANT_KEY;
+        }
+        return tenant.trim();
+    }
+
     private boolean isBackoffActive(String key, OffsetDateTime now) {
         String scopedKey = tenantScopedKey(key);
         BackoffState state = backoffStates.get(scopedKey);
@@ -3236,6 +3643,57 @@ public class AutoTradeService {
             Map<String, String> deferredReasonsByMarket,
             Map<String, BigDecimal> momentumScorePctByMarket
     ) {
+    }
+
+    private record RegimeAdjustedContext(
+            StrategyConfig config,
+            SignalTuning tuning,
+            BigDecimal positionSizeMultiplier,
+            String mode
+    ) {
+        static RegimeAdjustedContext base(StrategyConfig config, SignalTuning tuning) {
+            return new RegimeAdjustedContext(
+                    config,
+                    tuning,
+                    BigDecimal.ONE,
+                    "regime_base"
+            );
+        }
+    }
+
+    private record HtfTrendSnapshot(
+            boolean allowEntries,
+            String reason,
+            String market,
+            BigDecimal price,
+            BigDecimal maShort,
+            BigDecimal maLong,
+            BigDecimal maLongSlopePct,
+            OffsetDateTime fetchedAt
+    ) {
+        static HtfTrendSnapshot allow(
+                String reason,
+                String market,
+                BigDecimal price,
+                BigDecimal maShort,
+                BigDecimal maLong,
+                BigDecimal maLongSlopePct,
+                OffsetDateTime fetchedAt
+        ) {
+            return new HtfTrendSnapshot(true, reason, market, price, maShort, maLong, maLongSlopePct, fetchedAt);
+        }
+
+        static HtfTrendSnapshot block(
+                String reason,
+                String market,
+                BigDecimal price,
+                BigDecimal maShort,
+                BigDecimal maLong,
+                BigDecimal maLongSlopePct,
+                OffsetDateTime fetchedAt
+        ) {
+            return new HtfTrendSnapshot(false, reason, market, price, maShort, maLong, maLongSlopePct, fetchedAt);
+        }
     }
 
     private record RegimeSnapshot(

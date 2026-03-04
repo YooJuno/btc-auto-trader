@@ -2,6 +2,7 @@ package com.btcautotrader.auth;
 
 import com.btcautotrader.feature.FeatureFlagService;
 import com.btcautotrader.upbit.UpbitApiException;
+import com.btcautotrader.upbit.UpbitAuthNetworkStatusResolver;
 import com.btcautotrader.upbit.UpbitAuthCredentials;
 import com.btcautotrader.upbit.UpbitService;
 import jakarta.servlet.http.Cookie;
@@ -223,12 +224,14 @@ public class AuthController {
                     true,
                     accountCount,
                     status.usingDefaultCredentials(),
+                    UpbitAuthNetworkStatusResolver.OK,
                     java.time.OffsetDateTime.now()
             ));
         } catch (UpbitApiException ex) {
             Map<String, Object> error = new HashMap<>();
             error.put("error", "거래소 API 키 검증 실패");
             error.put("status", ex.getStatusCode());
+            error.put("authNetworkStatus", UpbitAuthNetworkStatusResolver.fromError(ex));
             if (ex.getResponseBody() != null && !ex.getResponseBody().isBlank()) {
                 error.put("details", ex.getResponseBody());
             }

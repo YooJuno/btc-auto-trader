@@ -1,5 +1,6 @@
 package com.btcautotrader.auth;
 
+import com.btcautotrader.tenant.TenantDataSourceProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -9,10 +10,12 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -21,6 +24,8 @@ class TradingAccessServiceTest {
     private CurrentUserService currentUserService;
     @Mock
     private UserExchangeCredentialService userExchangeCredentialService;
+    @Mock
+    private TenantDataSourceProvider tenantDataSourceProvider;
     @Mock
     private Authentication authentication;
 
@@ -33,7 +38,7 @@ class TradingAccessServiceTest {
         user.setProvider("google");
         user.setProviderUserId("123");
         user.setTradingApprovalUpdatedAt(OffsetDateTime.now());
-        when(currentUserService.requireUser(authentication)).thenReturn(user);
+        lenient().when(currentUserService.requireUser(authentication)).thenReturn(user);
     }
 
     @Test
@@ -43,6 +48,7 @@ class TradingAccessServiceTest {
         TradingAccessService service = new TradingAccessService(
                 currentUserService,
                 userExchangeCredentialService,
+                tenantDataSourceProvider,
                 false,
                 true,
                 "owner@example.com"
@@ -64,6 +70,7 @@ class TradingAccessServiceTest {
         TradingAccessService service = new TradingAccessService(
                 currentUserService,
                 userExchangeCredentialService,
+                tenantDataSourceProvider,
                 false,
                 true,
                 "owner@example.com"
@@ -86,6 +93,7 @@ class TradingAccessServiceTest {
         TradingAccessService service = new TradingAccessService(
                 currentUserService,
                 userExchangeCredentialService,
+                tenantDataSourceProvider,
                 false,
                 true,
                 "owner@example.com"
@@ -108,6 +116,7 @@ class TradingAccessServiceTest {
         TradingAccessService service = new TradingAccessService(
                 currentUserService,
                 userExchangeCredentialService,
+                tenantDataSourceProvider,
                 false,
                 true,
                 "owner@example.com"
@@ -115,5 +124,31 @@ class TradingAccessServiceTest {
 
         assertDoesNotThrow(() -> service.requireOrderSubmissionAllowed(authentication));
         assertDoesNotThrow(() -> service.requireEngineExecutionAllowed(authentication));
+    }
+
+    @Test
+    void systemTenant_readyCandidate_isAllowedForAutomatedTrading() {
+        user.setTradingApprovalStatus(TradingApprovalStatus.APPROVED.name());
+        TradingAccessService service = new TradingAccessService(
+                currentUserService,
+                userExchangeCredentialService,
+                tenantDataSourceProvider,
+                false,
+                true,
+                "owner@example.com"
+        );
+        UserExchangeCredentialService.TenantTradingPrincipalResolution resolution =
+                UserExchangeCredentialService.TenantTradingPrincipalResolution.ready(
+                        "btc-auto-trader",
+                        user,
+                        null,
+                        List.of()
+                );
+        when(userExchangeCredentialService.resolveTradingPrincipalForCurrentTenant()).thenReturn(resolution);
+
+        TradingAccessService.AutomatedTradingAccess access = service.evaluateAutomatedTradingAccessForCurrentTenant();
+
+        assertThat(access.allowed()).isTrue();
+        assertThat(access.reason()).isEqualTo("allowed");
     }
 }

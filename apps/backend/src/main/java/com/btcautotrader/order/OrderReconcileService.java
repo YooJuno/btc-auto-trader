@@ -58,9 +58,21 @@ public class OrderReconcileService {
         for (String tenantDatabase : tenantDatabaseProvisioningService.listKnownTenantDatabases()) {
             try {
                 TenantContext.runWithTenantDatabase(tenantDatabase, () -> {
-                    if (tradingAccessService.canRunAutomatedTradingForCurrentTenant()) {
-                        reconcilePendingForCurrentTenant();
+                    TradingAccessService.AutomatedTradingAccess access =
+                            tradingAccessService.evaluateAutomatedTradingAccessForCurrentTenant();
+                    if (!access.allowed()) {
+                        log.info(
+                                "Order reconcile skip tenant={} reason={} userId={} candidateUserIds={}",
+                                access.tenantDatabase() == null || access.tenantDatabase().isBlank()
+                                        ? tenantDatabase
+                                        : access.tenantDatabase(),
+                                access.reason(),
+                                access.userId(),
+                                access.candidateUserIds()
+                        );
+                        return;
                     }
+                    reconcilePendingForCurrentTenant();
                 });
             } catch (RuntimeException ex) {
                 // Keep reconciling remaining tenants even if one tenant fails.

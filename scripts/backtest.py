@@ -685,18 +685,38 @@ def build_indicators(closes, highs, lows, quote_vols, params, tuning):
     }
 
 
+def regime_result(
+    allow_entries,
+    reason,
+    current_price=None,
+    ma_short=None,
+    ma_long=None,
+    slope_pct=None,
+    volatility_pct=None,
+):
+    return {
+        "allow_entries": bool(allow_entries),
+        "reason": reason,
+        "price": current_price,
+        "ma_short": ma_short,
+        "ma_long": ma_long,
+        "ma_long_slope_pct": slope_pct,
+        "volatility_pct": volatility_pct,
+    }
+
+
 def evaluate_regime(closes, params):
     if not params["regime_filter_enabled"]:
-        return {"allow_entries": True, "reason": "regime_disabled"}
+        return regime_result(True, "regime_disabled")
 
     if len(closes) < regime_required_history(params):
-        return {"allow_entries": False, "reason": "regime_insufficient_data"}
+        return regime_result(False, "regime_insufficient_data")
 
     current_price = closes[-1]
     ma_short = sma(closes, params["regime_ma_short"])
     ma_long = sma(closes, params["regime_ma_long"])
     if ma_short is None or ma_long is None or ma_long <= 0:
-        return {"allow_entries": False, "reason": "regime_invalid_trend"}
+        return regime_result(False, "regime_invalid_trend", current_price, ma_short, ma_long)
 
     slope_pct = None
     if params["regime_ma_long_slope_lookback"] > 0:
@@ -704,30 +724,147 @@ def evaluate_regime(closes, params):
         if previous is not None and previous > 0:
             slope_pct = ((ma_long - previous) / previous) * 100.0
         elif params["regime_min_ma_long_slope_pct"] > 0:
-            return {"allow_entries": False, "reason": "regime_missing_slope"}
+            return regime_result(False, "regime_missing_slope", current_price, ma_short, ma_long)
 
     volatility_pct = None
     if params["regime_volatility_window"] > 1:
         volatility_pct = compute_volatility_pct(closes, params["regime_volatility_window"])
 
     if current_price <= ma_long or ma_short <= ma_long:
-        return {"allow_entries": False, "reason": "regime_trend_off"}
+        return regime_result(False, "regime_trend_off", current_price, ma_short, ma_long, slope_pct, volatility_pct)
 
     if (
         params["regime_min_ma_long_slope_pct"] > 0
         and slope_pct is not None
         and slope_pct < params["regime_min_ma_long_slope_pct"]
     ):
-        return {"allow_entries": False, "reason": "regime_slope_off"}
+        return regime_result(False, "regime_slope_off", current_price, ma_short, ma_long, slope_pct, volatility_pct)
 
     if (
         params["regime_max_volatility_pct"] > 0
         and volatility_pct is not None
         and volatility_pct > params["regime_max_volatility_pct"]
     ):
-        return {"allow_entries": False, "reason": "regime_high_vol"}
+        return regime_result(False, "regime_high_vol", current_price, ma_short, ma_long, slope_pct, volatility_pct)
 
-    return {"allow_entries": True, "reason": "regime_on"}
+    return regime_result(True, "regime_on", current_price, ma_short, ma_long, slope_pct, volatility_pct)
+
+
+def evaluate_htf_confirmation(closes, params, unit):
+    if not params.get("htf_confirm_enabled", True):
+        return {"allow_entries": True, "reason": "htf_disabled"}
+
+    htf_unit = int(to_float(params.get("htf_confirm_unit"), 60))
+    htf_short = int(to_float(params.get("htf_confirm_ma_short"), 20))
+    htf_long = int(to_float(params.get("htf_confirm_ma_long"), 50))
+    htf_slope_lookback = int(to_float(params.get("htf_confirm_slope_lookback"), 3))
+    htf_min_slope_pct = to_float(params.get("htf_confirm_min_ma_long_slope_pct"), 0.0)
+
+    if htf_unit <= 0 or htf_short <= 1 or htf_long <= htf_short:
+        return {"allow_entries": True, "reason": "htf_invalid_config"}
+
+    # Build higher timeframe close series by sampling the closing candle of each HTF block.
+    if htf_unit > unit and htf_unit % unit == 0:
+        factor = htf_unit // unit
+        usable = (len(closes) // factor) * factor
+        if usable <= 0:
+            return {"allow_entries": True, "reason": "htf_insufficient_data"}
+        htf_closes = [closes[i + factor - 1] for i in range(0, usable, factor)]
+    else:
+        htf_closes = list(closes)
+
+    required = htf_long + max(0, htf_slope_lookback)
+    if len(htf_closes) < required:
+        return {"allow_entries": True, "reason": "htf_insufficient_data"}
+
+    current_price = htf_closes[-1]
+    ma_short = sma(htf_closes, htf_short)
+    ma_long = sma(htf_closes, htf_long)
+    if ma_short is None or ma_long is None or ma_long <= 0:
+        return {"allow_entries": True, "reason": "htf_invalid_trend"}
+
+    slope_pct = None
+    if htf_slope_lookback > 0:
+        previous = sma_with_offset(htf_closes, htf_long, htf_slope_lookback)
+        if previous is not None and previous > 0:
+            slope_pct = ((ma_long - previous) / previous) * 100.0
+
+    if current_price <= ma_long or ma_short <= ma_long:
+        return {"allow_entries": False, "reason": "htf_trend_off"}
+    if htf_min_slope_pct > 0 and slope_pct is not None and slope_pct < htf_min_slope_pct:
+        return {"allow_entries": False, "reason": "htf_slope_off"}
+
+    return {"allow_entries": True, "reason": "htf_on"}
+
+
+def resolve_regime_adjustment(params, tuning, regime):
+    if not params.get("regime_switch_enabled", True) or not regime.get("allow_entries", False):
+        return {
+            "params": params,
+            "tuning": tuning,
+            "size_multiplier": 1.0,
+            "mode": "regime_base",
+        }
+
+    slope = regime.get("ma_long_slope_pct")
+    volatility = regime.get("volatility_pct")
+    slope_threshold = to_float(params.get("regime_switch_risk_on_slope_pct"), 0.12)
+    max_vol_threshold = to_float(params.get("regime_switch_risk_on_max_volatility_pct"), 0.8)
+
+    strong_slope = slope is not None and slope >= slope_threshold
+    safe_volatility = volatility is None or volatility <= max_vol_threshold
+    risk_on = strong_slope and safe_volatility
+
+    if risk_on:
+        tp_mul = to_float(params.get("regime_switch_risk_on_take_profit_multiplier"), 1.1)
+        sl_mul = to_float(params.get("regime_switch_risk_on_stop_loss_multiplier"), 1.05)
+        trailing_mul = to_float(params.get("regime_switch_risk_on_trailing_stop_multiplier"), 1.1)
+        size_mul = to_float(params.get("regime_switch_risk_on_size_multiplier"), 1.15)
+        rsi_buy_adjust = to_float(params.get("regime_switch_risk_on_rsi_buy_adjust"), -1.0)
+        mode = "regime_risk_on"
+    else:
+        tp_mul = to_float(params.get("regime_switch_caution_take_profit_multiplier"), 0.95)
+        sl_mul = to_float(params.get("regime_switch_caution_stop_loss_multiplier"), 0.9)
+        trailing_mul = to_float(params.get("regime_switch_caution_trailing_stop_multiplier"), 0.9)
+        size_mul = to_float(params.get("regime_switch_caution_size_multiplier"), 0.8)
+        rsi_buy_adjust = to_float(params.get("regime_switch_caution_rsi_buy_adjust"), 1.5)
+        mode = "regime_caution"
+
+    adjusted_params = copy.deepcopy(params)
+    if adjusted_params.get("take_profit_pct", 0.0) > 0:
+        adjusted_params["take_profit_pct"] *= tp_mul
+    if adjusted_params.get("stop_loss_pct", 0.0) > 0:
+        adjusted_params["stop_loss_pct"] *= sl_mul
+    if adjusted_params.get("trailing_stop_pct", 0.0) > 0:
+        adjusted_params["trailing_stop_pct"] *= trailing_mul
+
+    adjusted_tuning = copy.deepcopy(tuning)
+    adjusted_tuning["rsi_buy"] = clamp(adjusted_tuning["rsi_buy"] + rsi_buy_adjust, 40.0, 80.0)
+
+    return {
+        "params": adjusted_params,
+        "tuning": adjusted_tuning,
+        "size_multiplier": clamp(size_mul, 0.2, 2.0),
+        "mode": mode,
+    }
+
+def update_daily_drawdown_state(index, candle, state):
+    current_equity = state["cash"] + (state["qty"] * candle["close"])
+    timestamp = parse_time_utc(candle.get("time"))
+    if timestamp is None:
+        return
+    current_date = timestamp.date().isoformat()
+    baseline_date = state.get("daily_baseline_date")
+    baseline_equity = state.get("daily_baseline_equity")
+    if baseline_date != current_date or baseline_equity is None or baseline_equity <= 0:
+        state["daily_baseline_date"] = current_date
+        state["daily_baseline_equity"] = max(current_equity, 0.0)
+        state["daily_drawdown_pct"] = 0.0
+        return
+    drawdown = 0.0
+    if baseline_equity > 0:
+        drawdown = max(0.0, ((baseline_equity - current_equity) / baseline_equity) * 100.0)
+    state["daily_drawdown_pct"] = drawdown
 
 
 def is_stop_loss_guard_active(index, state):
@@ -862,7 +999,46 @@ def choose_sell_intent(index, state, indicators, params, tuning):
     return None
 
 
-def choose_buy_intent(index, state, indicators, params, tuning):
+def apply_dynamic_position_sizing(order_funds, state, indicators, params, regime_size_multiplier=1.0):
+    if order_funds <= 0:
+        return 0.0
+
+    price = indicators.get("current_price") or 0.0
+    total_asset = state["cash"] + (state["qty"] * price)
+    risk_per_trade_pct = max(0.0, to_float(params.get("risk_per_trade_pct"), 0.0))
+    if total_asset > 0 and risk_per_trade_pct > 0:
+        risk_budget = total_asset * (risk_per_trade_pct / 100.0)
+        if risk_budget > 0 and order_funds > risk_budget:
+            risk_scale = max(0.5, risk_budget / order_funds)
+            order_funds *= risk_scale
+
+    if params["target_vol_pct"] > 0 and indicators["volatility_pct"] is not None and indicators["volatility_pct"] > 0:
+        scale = min(1.0, params["target_vol_pct"] / indicators["volatility_pct"])
+        order_funds *= scale
+
+    if params.get("dynamic_risk_enabled", True):
+        limit_pct = max(0.0, to_float(params.get("dynamic_drawdown_limit_pct"), 1.2))
+        drawdown_pct = max(0.0, to_float(state.get("daily_drawdown_pct"), 0.0))
+        if limit_pct > 0 and drawdown_pct > 0:
+            ratio = clamp(drawdown_pct / limit_pct, 0.0, 2.0)
+            scale = max(to_float(params.get("dynamic_risk_min_scale"), 0.35), 1.0 - (ratio * 0.5))
+            order_funds *= scale
+
+    order_funds *= clamp(to_float(regime_size_multiplier, 1.0), 0.2, 2.0)
+    return max(0.0, order_funds)
+
+
+def choose_buy_intent(
+    index,
+    state,
+    indicators,
+    params,
+    tuning,
+    unit,
+    closes,
+    regime_size_multiplier=1.0,
+    regime_mode="regime_base",
+):
     cash = state["cash"]
     price = indicators["current_price"]
     ma_short = indicators["ma_short"]
@@ -925,19 +1101,21 @@ def choose_buy_intent(index, state, indicators, params, tuning):
     if last_stop_loss is not None and (index - last_stop_loss) < params["stop_loss_cooldown_candles"]:
         return None
 
-    order_funds = min(cash, params["max_order_krw"])
+    htf = evaluate_htf_confirmation(closes, params, unit)
+    if not htf["allow_entries"]:
+        return None
 
-    if params["target_vol_pct"] > 0 and indicators["volatility_pct"] is not None and indicators["volatility_pct"] > 0:
-        scale = min(1.0, params["target_vol_pct"] / indicators["volatility_pct"])
-        order_funds *= scale
+    order_funds = min(cash, params["max_order_krw"])
+    order_funds = apply_dynamic_position_sizing(order_funds, state, indicators, params, regime_size_multiplier)
 
     if order_funds < params["min_order_krw"]:
         return None
 
+    reason = "entry" if regime_mode == "regime_base" else f"entry:{regime_mode}"
     return {
         "type": "BUY",
         "funds": order_funds,
-        "reason": "entry",
+        "reason": reason,
     }
 
 
@@ -1043,7 +1221,18 @@ def compute_v2_exit_score(indicators, tuning):
     return clamp(score, 0.0, 100.0)
 
 
-def choose_buy_intent_v2(index, state, indicators, params, tuning, shadow_mode=False):
+def choose_buy_intent_v2(
+    index,
+    state,
+    indicators,
+    params,
+    tuning,
+    unit,
+    closes,
+    regime_size_multiplier=1.0,
+    regime_mode="regime_base",
+    shadow_mode=False,
+):
     if indicators is None:
         return None
 
@@ -1066,10 +1255,15 @@ def choose_buy_intent_v2(index, state, indicators, params, tuning, shadow_mode=F
     if last_stop_loss is not None and (index - last_stop_loss) < params["stop_loss_cooldown_candles"]:
         return None
 
+    htf = evaluate_htf_confirmation(closes, params, unit)
+    if not htf["allow_entries"]:
+        return None
+
     if shadow_mode:
+        reason = "v2_shadow_buy" if regime_mode == "regime_base" else f"v2_shadow_buy:{regime_mode}"
         return {
             "type": "SHADOW_BUY",
-            "reason": f"v2_shadow_buy:{entry_score:.1f}",
+            "reason": f"{reason}:{entry_score:.1f}",
         }
 
     cash = state["cash"]
@@ -1078,22 +1272,16 @@ def choose_buy_intent_v2(index, state, indicators, params, tuning, shadow_mode=F
         return None
 
     order_funds = min(cash, params["max_order_krw"])
-    total_asset = state["cash"] + (state["qty"] * price)
-    risk_per_trade_pct = resolve_v2_risk_per_trade_pct(params)
-    risk_budget = total_asset * (risk_per_trade_pct / 100.0)
-    order_funds = min(order_funds, risk_budget)
-
-    if params["target_vol_pct"] > 0 and indicators["volatility_pct"] is not None and indicators["volatility_pct"] > 0:
-        scale = min(1.0, params["target_vol_pct"] / indicators["volatility_pct"])
-        order_funds *= scale
+    order_funds = apply_dynamic_position_sizing(order_funds, state, indicators, params, regime_size_multiplier)
 
     if order_funds < params["min_order_krw"]:
         return None
 
+    reason = "v2_score_entry" if regime_mode == "regime_base" else f"v2_score_entry:{regime_mode}"
     return {
         "type": "BUY",
         "funds": order_funds,
-        "reason": "v2_score_entry",
+        "reason": reason,
         "entry_score": entry_score,
     }
 
@@ -1445,6 +1633,9 @@ def backtest_strategy(candles, params, unit):
         "stop_loss_guard_until_index": None,
         "stop_loss_events": deque(),
         "shadow_events": [],
+        "daily_baseline_date": None,
+        "daily_baseline_equity": None,
+        "daily_drawdown_pct": 0.0,
         "times": [c.get("time") for c in candles],
     }
 
@@ -1477,6 +1668,7 @@ def backtest_strategy(candles, params, unit):
         quote_vols.append(candle["quote"])
 
         equity_curve.append(state["cash"] + state["qty"] * close_price)
+        update_daily_drawdown_state(index, candle, state)
 
         if index >= len(candles) - 1:
             continue
@@ -1485,17 +1677,33 @@ def backtest_strategy(candles, params, unit):
         if indicators is None:
             continue
 
+        regime = evaluate_regime(closes, params)
+        regime_adjustment = resolve_regime_adjustment(params, tuning, regime)
+        effective_params = regime_adjustment["params"]
+        effective_tuning = regime_adjustment["tuning"]
+        regime_size_multiplier = regime_adjustment["size_multiplier"]
+        regime_mode = regime_adjustment["mode"]
+
         if state["qty"] > 0:
-            sell_intent = choose_sell_intent(index, state, indicators, params, tuning)
+            sell_intent = choose_sell_intent(index, state, indicators, effective_params, effective_tuning)
             if sell_intent is not None:
                 pending_intent = sell_intent
             continue
 
-        regime = evaluate_regime(closes, params)
         if not regime["allow_entries"]:
             continue
 
-        buy_intent = choose_buy_intent(index, state, indicators, params, tuning)
+        buy_intent = choose_buy_intent(
+            index,
+            state,
+            indicators,
+            effective_params,
+            effective_tuning,
+            unit,
+            closes,
+            regime_size_multiplier=regime_size_multiplier,
+            regime_mode=regime_mode,
+        )
         if buy_intent is not None:
             pending_intent = buy_intent
 
@@ -1537,6 +1745,9 @@ def backtest_strategy_v2(candles, params, unit, shadow_mode=False):
         "stop_loss_guard_until_index": None,
         "stop_loss_events": deque(),
         "shadow_events": [],
+        "daily_baseline_date": None,
+        "daily_baseline_equity": None,
+        "daily_drawdown_pct": 0.0,
         "times": [c.get("time") for c in candles],
     }
 
@@ -1569,6 +1780,7 @@ def backtest_strategy_v2(candles, params, unit, shadow_mode=False):
         quote_vols.append(candle["quote"])
 
         equity_curve.append(state["cash"] + state["qty"] * close_price)
+        update_daily_drawdown_state(index, candle, state)
 
         if index >= len(candles) - 1:
             continue
@@ -1577,17 +1789,41 @@ def backtest_strategy_v2(candles, params, unit, shadow_mode=False):
         if indicators is None:
             continue
 
+        regime = evaluate_regime(closes, params)
+        regime_adjustment = resolve_regime_adjustment(params, tuning, regime)
+        effective_params = regime_adjustment["params"]
+        effective_tuning = regime_adjustment["tuning"]
+        regime_size_multiplier = regime_adjustment["size_multiplier"]
+        regime_mode = regime_adjustment["mode"]
+
         if state["qty"] > 0:
-            sell_intent = choose_sell_intent_v2(index, state, indicators, params, tuning, shadow_mode=shadow_mode)
+            sell_intent = choose_sell_intent_v2(
+                index,
+                state,
+                indicators,
+                effective_params,
+                effective_tuning,
+                shadow_mode=shadow_mode,
+            )
             if sell_intent is not None:
                 pending_intent = sell_intent
             continue
 
-        regime = evaluate_regime(closes, params)
         if not regime["allow_entries"]:
             continue
 
-        buy_intent = choose_buy_intent_v2(index, state, indicators, params, tuning, shadow_mode=shadow_mode)
+        buy_intent = choose_buy_intent_v2(
+            index,
+            state,
+            indicators,
+            effective_params,
+            effective_tuning,
+            unit,
+            closes,
+            regime_size_multiplier=regime_size_multiplier,
+            regime_mode=regime_mode,
+            shadow_mode=shadow_mode,
+        )
         if buy_intent is not None:
             pending_intent = buy_intent
 
@@ -1676,7 +1912,7 @@ def make_params(timeframe_unit, profile="BALANCED"):
         "macd_slow": 26,
         "macd_signal": 9,
         "adx_period": 14,
-        "min_adx": 22.0,
+        "min_adx": 18.0,
         "volume_lookback": 20,
         "min_volume_ratio": 0.9,
         "boll_window": 20,
@@ -1689,9 +1925,9 @@ def make_params(timeframe_unit, profile="BALANCED"):
         "ma_long_slope_lookback": 5,
         "min_confirmations": 2,
         "trailing_window": 20,
-        "stop_loss_pct": 1.6,
+        "stop_loss_pct": 1.28,
         "take_profit_pct": 2.4,
-        "trailing_stop_pct": 1.2,
+        "trailing_stop_pct": 0.9,
         "partial_take_profit_pct": 35.0,
         "stop_exit_pct": 100.0,
         "trend_exit_pct": 40.0,
@@ -1710,6 +1946,9 @@ def make_params(timeframe_unit, profile="BALANCED"):
         "entry_score_threshold": v2_entry,
         "exit_score_threshold": v2_exit,
         "risk_per_trade_pct": v2_risk,
+        "dynamic_risk_enabled": True,
+        "dynamic_drawdown_limit_pct": 1.2,
+        "dynamic_risk_min_scale": 0.35,
         "time_stop_candles": 180,
         "regime_filter_enabled": True,
         "regime_ma_short": 40,
@@ -1718,6 +1957,25 @@ def make_params(timeframe_unit, profile="BALANCED"):
         "regime_min_ma_long_slope_pct": 0.02,
         "regime_volatility_window": 48,
         "regime_max_volatility_pct": 1.0,
+        "regime_switch_enabled": True,
+        "regime_switch_risk_on_slope_pct": 0.10,
+        "regime_switch_risk_on_max_volatility_pct": 0.8,
+        "regime_switch_risk_on_size_multiplier": 1.20,
+        "regime_switch_risk_on_take_profit_multiplier": 1.1,
+        "regime_switch_risk_on_stop_loss_multiplier": 1.05,
+        "regime_switch_risk_on_trailing_stop_multiplier": 1.0,
+        "regime_switch_risk_on_rsi_buy_adjust": -1.0,
+        "regime_switch_caution_size_multiplier": 0.8,
+        "regime_switch_caution_take_profit_multiplier": 1.0,
+        "regime_switch_caution_stop_loss_multiplier": 0.9,
+        "regime_switch_caution_trailing_stop_multiplier": 1.0,
+        "regime_switch_caution_rsi_buy_adjust": 1.5,
+        "htf_confirm_enabled": True,
+        "htf_confirm_unit": 60,
+        "htf_confirm_ma_short": 20,
+        "htf_confirm_ma_long": 50,
+        "htf_confirm_slope_lookback": 3,
+        "htf_confirm_min_ma_long_slope_pct": 0.0,
     }
 
 
