@@ -1,11 +1,13 @@
 package com.btcautotrader.auth;
 
+import com.btcautotrader.tenant.TenantDatabaseProvisioningService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 @Service
 public class AdminUserService {
@@ -13,17 +15,20 @@ public class AdminUserService {
     private final UserExchangeCredentialService userExchangeCredentialService;
     private final UserOnboardingService userOnboardingService;
     private final CurrentUserService currentUserService;
+    private final TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
 
     public AdminUserService(
             UserRepository userRepository,
             UserExchangeCredentialService userExchangeCredentialService,
             UserOnboardingService userOnboardingService,
-            CurrentUserService currentUserService
+            CurrentUserService currentUserService,
+            TenantDatabaseProvisioningService tenantDatabaseProvisioningService
     ) {
         this.userRepository = userRepository;
         this.userExchangeCredentialService = userExchangeCredentialService;
         this.userOnboardingService = userOnboardingService;
         this.currentUserService = currentUserService;
+        this.tenantDatabaseProvisioningService = tenantDatabaseProvisioningService;
     }
 
     @Transactional
@@ -60,12 +65,50 @@ public class AdminUserService {
         user.setTradingApprovalNote(normalizeNote(request.note()));
         user.setTradingApprovalUpdatedAt(OffsetDateTime.now());
         UserEntity saved = userRepository.save(user);
+        saved = tenantDatabaseProvisioningService.ensureTenant(saved);
+        OffsetDateTime tenantProvisionedAt = tenantDatabaseProvisioningService.resolveTenantProvisionedAt(saved.getTenantDatabase());
         return new AdminApprovalUpdateResponse(
                 saved.getId(),
                 TradingApprovalStatus.from(saved.getTradingApprovalStatus()).name(),
                 saved.getTradingApprovalNote(),
-                saved.getTradingApprovalUpdatedAt()
+                saved.getTradingApprovalUpdatedAt(),
+                saved.getTenantDatabase(),
+                tenantProvisionedAt
         );
+    }
+
+    @Transactional
+    public AdminUserDeleteResponse deleteUser(Long userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId is required");
+        }
+
+        UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("user not found"));
+        if (currentUserService.isOwner(user)) {
+            throw new IllegalArgumentException("owner account cannot be deleted");
+        }
+
+        String tenantDatabase = normalizeTenantDatabase(user.getTenantDatabase());
+        boolean dedicatedTenant = tenantDatabase != null
+                && !tenantDatabaseProvisioningService.isSystemTenantDatabase(tenantDatabase);
+        if (dedicatedTenant) {
+            boolean sharedByOthers = userRepository.findAllByTenantDatabaseOrderByIdAsc(tenantDatabase)
+                    .stream()
+                    .anyMatch(candidate -> !Objects.equals(candidate.getId(), userId));
+            if (sharedByOthers) {
+                throw new IllegalArgumentException("tenant database is shared by multiple users");
+            }
+        }
+
+        userRepository.delete(user);
+
+        boolean tenantDatabaseDropped = false;
+        if (dedicatedTenant) {
+            tenantDatabaseDropped = tenantDatabaseProvisioningService.dropDedicatedTenantDatabase(tenantDatabase);
+        }
+
+        return new AdminUserDeleteResponse(userId, tenantDatabase, tenantDatabaseDropped);
     }
 
     private AdminUserItemResponse toItem(UserEntity user) {
@@ -128,5 +171,13 @@ public class AdminUserService {
             return trimmed.substring(0, 500);
         }
         return trimmed;
+    }
+
+    private static String normalizeTenantDatabase(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

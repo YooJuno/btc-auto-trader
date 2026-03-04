@@ -17,6 +17,9 @@ public record MeResponse(
         OffsetDateTime lastLoginAt
 ) {
     public static MeResponse from(UserEntity user, boolean owner) {
+        String approvalStatus = owner
+                ? "ADMIN"
+                : TradingApprovalStatus.from(user.getTradingApprovalStatus()).name();
         return new MeResponse(
                 user.getId(),
                 user.getProvider(),
@@ -24,7 +27,7 @@ public record MeResponse(
                 user.getEmail(),
                 user.getDisplayName(),
                 user.getTenantDatabase(),
-                TradingApprovalStatus.from(user.getTradingApprovalStatus()).name(),
+                approvalStatus,
                 user.getTradingApprovalNote(),
                 user.getTradingApprovalUpdatedAt(),
                 owner,

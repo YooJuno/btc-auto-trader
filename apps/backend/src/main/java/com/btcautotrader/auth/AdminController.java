@@ -2,6 +2,7 @@ package com.btcautotrader.auth;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -47,6 +48,21 @@ public class AdminController {
         adminAccessService.requireOwner(authentication);
         try {
             return ResponseEntity.ok(adminUserService.updateApproval(userId, request));
+        } catch (IllegalArgumentException ex) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    @DeleteMapping("/users/{userId}")
+    public ResponseEntity<?> deleteUser(
+            Authentication authentication,
+            @PathVariable("userId") Long userId
+    ) {
+        adminAccessService.requireOwner(authentication);
+        try {
+            return ResponseEntity.ok(adminUserService.deleteUser(userId));
         } catch (IllegalArgumentException ex) {
             Map<String, Object> error = new HashMap<>();
             error.put("error", ex.getMessage());

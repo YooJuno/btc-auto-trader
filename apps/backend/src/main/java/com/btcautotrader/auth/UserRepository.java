@@ -10,7 +10,7 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     Optional<UserEntity> findFirstByEmailIgnoreCase(String email);
 
-    Optional<UserEntity> findFirstByTenantDatabase(String tenantDatabase);
+    List<UserEntity> findAllByTenantDatabaseOrderByIdAsc(String tenantDatabase);
 
     List<UserEntity> findAllByOrderByLastLoginAtDesc();
 }

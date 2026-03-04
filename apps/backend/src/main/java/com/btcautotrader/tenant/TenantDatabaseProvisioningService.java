@@ -20,6 +20,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.OffsetDateTime;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -28,6 +29,7 @@ import java.util.Set;
 @Service
 public class TenantDatabaseProvisioningService {
     private static final Logger log = LoggerFactory.getLogger(TenantDatabaseProvisioningService.class);
+    private static final long ENGINE_STATE_ID = 1L;
 
     private final UserRepository userRepository;
     private final TenantDataSourceProvider tenantDataSourceProvider;
@@ -153,6 +155,46 @@ public class TenantDatabaseProvisioningService {
         return List.copyOf(databases);
     }
 
+    @Transactional(readOnly = true)
+    public boolean isSystemTenantDatabase(String tenantDatabase) {
+        String resolved = trimToNull(tenantDatabase);
+        if (resolved == null) {
+            return true;
+        }
+        return tenantDataSourceProvider.getSystemDatabaseName().equals(resolved);
+    }
+
+    public boolean dropDedicatedTenantDatabase(String tenantDatabase) {
+        String resolved = trimToNull(tenantDatabase);
+        if (resolved == null || isSystemTenantDatabase(resolved)) {
+            return false;
+        }
+        if (!resolved.startsWith("btc_user_")) {
+            throw new IllegalArgumentException("refusing to drop non-dedicated tenant database: " + resolved);
+        }
+
+        tenantDataSourceProvider.closeTenantDataSource(resolved);
+        String adminUrl = tenantDataSourceProvider.buildAdminJdbcUrl();
+
+        try (Connection connection = java.sql.DriverManager.getConnection(
+                adminUrl,
+                tenantDataSourceProvider.getUsername(),
+                tenantDataSourceProvider.getPassword()
+        )) {
+            if (!databaseExists(connection, resolved)) {
+                return false;
+            }
+
+            terminateActiveConnections(connection, resolved);
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("DROP DATABASE IF EXISTS \"" + resolved + "\"");
+            }
+            return true;
+        } catch (SQLException ex) {
+            throw new IllegalStateException("failed to drop tenant database: " + resolved, ex);
+        }
+    }
+
     private boolean isOwner(UserEntity user) {
         String email = user.getEmail();
         if (email == null || email.isBlank() || ownerEmail.isBlank()) {
@@ -168,6 +210,7 @@ public class TenantDatabaseProvisioningService {
         try {
             createDatabaseIfNeeded(tenantDatabase);
             initializeDatabaseIfNeeded(tenantDatabase);
+            seedEngineStateIfNeeded(tenantDatabase);
             return true;
         } catch (RuntimeException ex) {
             log.warn(
@@ -197,6 +240,15 @@ public class TenantDatabaseProvisioningService {
             }
         } catch (SQLException ex) {
             throw new IllegalStateException("failed to create tenant database: " + databaseName, ex);
+        }
+    }
+
+    private static void terminateActiveConnections(Connection connection, String databaseName) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "select pg_terminate_backend(pid) from pg_stat_activity where datname = ? and pid <> pg_backend_pid()"
+        )) {
+            statement.setString(1, databaseName);
+            statement.execute();
         }
     }
 
@@ -235,6 +287,54 @@ public class TenantDatabaseProvisioningService {
         populator.setIgnoreFailedDrops(true);
         populator.addScript(tenantSchemaScript);
         populator.execute(dataSource);
+    }
+
+    @Transactional(readOnly = true)
+    public OffsetDateTime resolveTenantProvisionedAt(String tenantDatabase) {
+        String resolved = trimToNull(tenantDatabase);
+        if (resolved == null) {
+            return null;
+        }
+        try {
+            String jdbcUrl = tenantDataSourceProvider.buildJdbcUrl(resolved);
+            try (Connection connection = java.sql.DriverManager.getConnection(
+                    jdbcUrl,
+                    tenantDataSourceProvider.getUsername(),
+                    tenantDataSourceProvider.getPassword()
+            );
+                 PreparedStatement statement = connection.prepareStatement(
+                         "select updated_at from engine_state where id = ?"
+                 )) {
+                statement.setLong(1, ENGINE_STATE_ID);
+                try (ResultSet resultSet = statement.executeQuery()) {
+                    if (!resultSet.next()) {
+                        return null;
+                    }
+                    return resultSet.getObject(1, OffsetDateTime.class);
+                }
+            }
+        } catch (SQLException | IllegalArgumentException ex) {
+            log.warn("Failed to resolve tenant provisioning timestamp for {}: {}", resolved, ex.getMessage());
+            return null;
+        }
+    }
+
+    private void seedEngineStateIfNeeded(String databaseName) {
+        String jdbcUrl = tenantDataSourceProvider.buildJdbcUrl(databaseName);
+        try (Connection connection = java.sql.DriverManager.getConnection(
+                jdbcUrl,
+                tenantDataSourceProvider.getUsername(),
+                tenantDataSourceProvider.getPassword()
+        );
+             PreparedStatement statement = connection.prepareStatement(
+                     "insert into engine_state (id, running, updated_at) values (?, ?, now()) on conflict (id) do nothing"
+             )) {
+            statement.setLong(1, ENGINE_STATE_ID);
+            statement.setBoolean(2, false);
+            statement.executeUpdate();
+        } catch (SQLException ex) {
+            throw new IllegalStateException("failed to seed engine_state for tenant database: " + databaseName, ex);
+        }
     }
 
     private static boolean tableExists(Connection connection, String tableName) throws SQLException {

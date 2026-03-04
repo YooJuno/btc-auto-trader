@@ -6,6 +6,8 @@ public record AdminApprovalUpdateResponse(
         Long userId,
         String approvalStatus,
         String approvalNote,
-        OffsetDateTime approvalUpdatedAt
+        OffsetDateTime approvalUpdatedAt,
+        String tenantDb,
+        OffsetDateTime tenantProvisionedAt
 ) {
 }

@@ -9,11 +9,14 @@ public record MeBootstrapUserResponse(
         boolean owner
 ) {
     public static MeBootstrapUserResponse from(UserEntity user, boolean owner) {
+        String approvalStatus = owner
+                ? "ADMIN"
+                : (user == null ? TradingApprovalStatus.PENDING.name() : TradingApprovalStatus.from(user.getTradingApprovalStatus()).name());
         return new MeBootstrapUserResponse(
                 user == null ? null : user.getId(),
                 user == null ? null : user.getEmail(),
                 user == null ? null : user.getDisplayName(),
-                user == null ? TradingApprovalStatus.PENDING.name() : TradingApprovalStatus.from(user.getTradingApprovalStatus()).name(),
+                approvalStatus,
                 user == null ? null : user.getTradingApprovalNote(),
                 owner
         );
