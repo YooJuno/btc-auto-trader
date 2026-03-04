@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { formatDateTime } from '../../utils/tradingUi.js'
 
 function ExchangeCredentialsCard({
@@ -87,4 +88,4 @@ function ExchangeCredentialsCard({
   )
 }
 
-export default ExchangeCredentialsCard
+export default memo(ExchangeCredentialsCard)

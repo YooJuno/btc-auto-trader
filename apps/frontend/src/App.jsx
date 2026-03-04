@@ -1,10 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import DashboardRoute from './routes/DashboardRoute.jsx'
-import SettingsRoute from './routes/SettingsRoute.jsx'
-import OnboardingRoute from './routes/OnboardingRoute.jsx'
-import AdminUsersRoute from './routes/AdminUsersRoute.jsx'
-import AuthGate from './components/auth/AuthGate.jsx'
 import AppHeader from './components/layout/AppHeader.jsx'
 import PageContextBanner from './components/layout/PageContextBanner.jsx'
 import ManualTradeModal from './components/trade/ManualTradeModal.jsx'
@@ -16,7 +12,6 @@ import { useTradingWorkspace } from './hooks/useTradingWorkspace.js'
 import {
   ADMIN_USERS_ROUTE,
   DASHBOARD_ROUTE,
-  ONBOARDING_ROUTE,
   SETTINGS_ROUTE,
 } from './constants/tradingUi.js'
 import {
@@ -34,6 +29,24 @@ import {
 } from './utils/tradingUi.js'
 import { requestJson } from './utils/apiClient.js'
 
+const SettingsRoute = lazy(() => import('./routes/SettingsRoute.jsx'))
+const AdminUsersRoute = lazy(() => import('./routes/AdminUsersRoute.jsx'))
+const DASHBOARD_FORMATTERS = {
+  formatKRW,
+  formatCoin,
+  formatPercent,
+  formatDateTime,
+  formatOrderStatus,
+  formatFixed,
+  truncateText,
+  pnlClass,
+}
+const MANUAL_TRADE_FORMATTERS = {
+  formatCoin,
+  formatKRW,
+  toInputValue,
+}
+
 function App() {
   const {
     authChecking,
@@ -49,9 +62,7 @@ function App() {
   const [bootstrapLoading, setBootstrapLoading] = useState(false)
   const [bootstrapLoaded, setBootstrapLoaded] = useState(false)
   const [featureFlags, setFeatureFlags] = useState({})
-  const [onboardingState, setOnboardingState] = useState(null)
-  const [onboardingBusy, setOnboardingBusy] = useState(false)
-  const [onboardingError, setOnboardingError] = useState(null)
+  const [bootstrapError, setBootstrapError] = useState(null)
   const {
     settingsLoading,
     settingsSaving,
@@ -94,6 +105,7 @@ function App() {
     setAdminStatusFilter,
     fetchAdminUsers,
     updateApprovalStatus,
+    deleteAdminUser,
     resetAdminState,
   } = useAdminUsers(authUser)
   const [activeRoute, setActiveRoute] = useState(() => resolveAppRoute(window.location.pathname))
@@ -104,12 +116,11 @@ function App() {
     }
     setBootstrapLoading(true)
     setBootstrapLoaded(false)
-    setOnboardingError(null)
+    setBootstrapError(null)
     try {
       const data = await requestJson('/api/me/bootstrap', {}, '초기화 정보 조회 실패')
       const settings = data?.settings ?? null
       setFeatureFlags(data?.features && typeof data.features === 'object' ? data.features : {})
-      setOnboardingState(data?.onboarding ?? null)
       setAuthUser((prev) => ({
         ...(prev ?? {}),
         ...(data?.user ?? {}),
@@ -122,27 +133,13 @@ function App() {
       }
       return data
     } catch (err) {
-      setOnboardingError(err?.message ?? '초기화 정보 조회 실패')
+      setBootstrapError(err?.message ?? '초기화 정보 조회 실패')
       return null
     } finally {
       setBootstrapLoading(false)
       setBootstrapLoaded(true)
     }
   }, [applyBootstrapExchangeCredentials, applyBootstrapSettings, authUser?.id, setAuthUser])
-
-  const patchOnboardingState = useCallback(async (payload) => {
-    const data = await requestJson(
-      '/api/me/onboarding',
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      },
-      '온보딩 상태 저장 실패'
-    )
-    setOnboardingState(data)
-    return data
-  }, [])
 
   const handleLogout = useCallback(async () => {
     try {
@@ -156,61 +153,12 @@ function App() {
     setBootstrapLoading(false)
     setBootstrapLoaded(false)
     setFeatureFlags({})
-    setOnboardingState(null)
-    setOnboardingError(null)
+    setBootstrapError(null)
     resetUserAccountState()
     resetAdminState()
     fetchAuthProviders()
     checkAuthSession()
   }, [checkAuthSession, fetchAuthProviders, resetAdminState, resetUserAccountState, setAuthError, setAuthUser])
-
-  const handleCompleteOnboardingProfile = useCallback(async () => {
-    setOnboardingBusy(true)
-    setOnboardingError(null)
-    try {
-      const saved = await handleSaveMySettings()
-      if (!saved) {
-        throw new Error('프로필 저장에 실패했습니다.')
-      }
-      await patchOnboardingState({ profileCompleted: true })
-    } catch (err) {
-      setOnboardingError(err?.message ?? '온보딩 1단계 저장 실패')
-    } finally {
-      setOnboardingBusy(false)
-    }
-  }, [handleSaveMySettings, patchOnboardingState])
-
-  const handleCompleteOnboardingCredentials = useCallback(async () => {
-    setOnboardingBusy(true)
-    setOnboardingError(null)
-    try {
-      const saved = await handleSaveExchangeCredentials()
-      if (!saved) {
-        throw new Error('거래소 키 저장에 실패했습니다.')
-      }
-      const verified = await handleVerifyExchangeCredentials()
-      if (!verified) {
-        throw new Error('거래소 키 검증에 실패했습니다.')
-      }
-      await patchOnboardingState({ credentialsCompleted: true })
-    } catch (err) {
-      setOnboardingError(err?.message ?? '온보딩 2단계 저장 실패')
-    } finally {
-      setOnboardingBusy(false)
-    }
-  }, [handleSaveExchangeCredentials, handleVerifyExchangeCredentials, patchOnboardingState])
-
-  const handleCompleteOnboardingStrategy = useCallback(async () => {
-    setOnboardingBusy(true)
-    setOnboardingError(null)
-    try {
-      await patchOnboardingState({ strategyCompleted: true })
-    } catch (err) {
-      setOnboardingError(err?.message ?? '온보딩 3단계 저장 실패')
-    } finally {
-      setOnboardingBusy(false)
-    }
-  }, [patchOnboardingState])
 
   const navigateRoute = useCallback((route) => {
     const nextPath = resolveAppPath(route)
@@ -254,7 +202,6 @@ function App() {
   useEffect(() => {
     if (!authUser?.id) {
       resetUserAccountState()
-      setOnboardingState(null)
       setFeatureFlags({})
       setBootstrapLoading(false)
       setBootstrapLoaded(false)
@@ -263,14 +210,9 @@ function App() {
     fetchBootstrap()
   }, [authUser?.id, fetchBootstrap, resetUserAccountState])
 
-  const onboardingFeatureEnabled = Boolean(
-    featureFlags?.['feature.onboarding.enabled'] ?? featureFlags?.onboardingEnabled ?? false
-  )
   const adminApprovalFeatureEnabled = Boolean(
     featureFlags?.['feature.admin-approval.enabled'] ?? featureFlags?.adminApprovalEnabled ?? false
   )
-  const onboardingCompleted = Boolean(onboardingState?.completed)
-  const onboardingRequired = onboardingFeatureEnabled && !onboardingCompleted
   const canAccessAdmin = Boolean(authUser?.owner) && adminApprovalFeatureEnabled
   const approvalStatus = authUser?.approvalStatus ?? '-'
 
@@ -351,9 +293,9 @@ function App() {
     handleEngineStop,
   } = useTradingWorkspace({
     authUser,
+    activeRoute,
     bootstrapLoading,
     bootstrapLoaded,
-    onboardingRequired,
     pollingIntervalMs,
   })
 
@@ -366,18 +308,16 @@ function App() {
   }, [engineStatus, handleEngineStart, handleEngineStop])
 
   useEffect(() => {
-    if (!authUser || bootstrapLoading || !bootstrapLoaded) {
+    if (!authUser) {
+      if (activeRoute !== DASHBOARD_ROUTE) {
+        navigateRoute(DASHBOARD_ROUTE)
+      }
       return
     }
-    if (onboardingRequired && activeRoute !== ONBOARDING_ROUTE) {
-      navigateRoute(ONBOARDING_ROUTE)
+    if (bootstrapLoading || !bootstrapLoaded) {
       return
     }
     if (activeRoute === ADMIN_USERS_ROUTE && !canAccessAdmin) {
-      navigateRoute(DASHBOARD_ROUTE)
-      return
-    }
-    if (!onboardingRequired && activeRoute === ONBOARDING_ROUTE) {
       navigateRoute(DASHBOARD_ROUTE)
     }
   }, [
@@ -387,7 +327,6 @@ function App() {
     bootstrapLoading,
     canAccessAdmin,
     navigateRoute,
-    onboardingRequired,
   ])
 
   useEffect(() => {
@@ -400,7 +339,7 @@ function App() {
     }
   }, [activeRoute, authUser?.owner, fetchAdminUsers, resetAdminState])
 
-  const userPreferencesProps = {
+  const userPreferencesProps = useMemo(() => ({
     settingsLoading,
     settingsSaving,
     userSettings,
@@ -422,9 +361,31 @@ function App() {
     effectiveRouteLabel,
     effectiveDensityLabel,
     pollingIntervalMs,
-  }
+  }), [
+    commonUiPrefs,
+    desktopUiPrefs,
+    deviceLabel,
+    effectiveDensityLabel,
+    effectiveRouteLabel,
+    fetchMySettings,
+    handleDefaultRouteChange,
+    handleRefreshSecChange,
+    handleSaveMySettings,
+    handleTableDensityChange,
+    mobileUiPrefs,
+    pollingIntervalMs,
+    setUserMarketsInput,
+    setUserRiskProfile,
+    settingsLoading,
+    settingsSaving,
+    userMarketsInput,
+    userRiskProfile,
+    userSettings,
+    userSettingsError,
+    userSettingsNotice,
+  ])
 
-  const exchangeCredentialsProps = {
+  const exchangeCredentialsProps = useMemo(() => ({
     exchangeCredentialStatus,
     exchangeCredentialLoading,
     exchangeCredentialSaving,
@@ -438,9 +399,23 @@ function App() {
     handleSaveExchangeCredentials,
     handleVerifyExchangeCredentials,
     handleDeleteExchangeCredentials,
-  }
+  }), [
+    exchangeAccessKeyInput,
+    exchangeCredentialError,
+    exchangeCredentialLoading,
+    exchangeCredentialNotice,
+    exchangeCredentialSaving,
+    exchangeCredentialStatus,
+    exchangeCredentialVerifying,
+    exchangeSecretKeyInput,
+    handleDeleteExchangeCredentials,
+    handleSaveExchangeCredentials,
+    handleVerifyExchangeCredentials,
+    setExchangeAccessKeyInput,
+    setExchangeSecretKeyInput,
+  ])
 
-  const marketOverridesProps = {
+  const marketOverridesProps = useMemo(() => ({
     strategyError,
     ratioError,
     presetError,
@@ -471,9 +446,40 @@ function App() {
     handleAddMarket,
     handleMarketReload,
     onSaveMarketOverrides: handleSaveMarketOverrides,
-  }
+  }), [
+    expandedMarket,
+    handleAddMarket,
+    handleMarketReload,
+    handleSaveMarketOverrides,
+    handleSelectMarketSuggestion,
+    marketConfigError,
+    marketConfigLoading,
+    marketConfigNotice,
+    marketConfigSaving,
+    marketRows,
+    marketRowsDirty,
+    marketSuggestIndex,
+    marketSuggestOpen,
+    marketSuggestions,
+    newMarketInput,
+    presetError,
+    ratioError,
+    ratioPresets,
+    setExpandedMarket,
+    setMarketConfigError,
+    setMarketConfigNotice,
+    setMarketRows,
+    setMarketSuggestIndex,
+    setMarketSuggestOpen,
+    setNewMarketInput,
+    setRatioError,
+    setSelectedRatioPresetByMarket,
+    selectedRatioPresetByMarket,
+    strategy,
+    strategyError,
+  ])
 
-  const performanceProps = {
+  const performanceProps = useMemo(() => ({
     fetchPerformance,
     performanceMode,
     setPerformanceMode,
@@ -483,31 +489,34 @@ function App() {
     performanceError,
     performance,
     performanceTotal,
-  }
+  }), [
+    fetchPerformance,
+    performance,
+    performanceError,
+    performanceInputs,
+    performanceLoading,
+    performanceMode,
+    performanceTotal,
+    setPerformanceInputs,
+    setPerformanceMode,
+  ])
 
-  if (authChecking) {
-    return <AuthGate checking authError={null} authProviders={[]} onProviderLogin={handleProviderLogin} />
-  }
+  const authenticated = Boolean(authUser?.id)
+  const effectiveRoute = authenticated ? activeRoute : DASHBOARD_ROUTE
+  const routeLoadingFallback = (
+    <section className="table-card">
+      <div className="empty-state">화면을 불러오는 중입니다…</div>
+    </section>
+  )
 
-  if (!authUser) {
-    return (
-      <AuthGate
-        checking={false}
-        authError={authError}
-        authProviders={authProviders}
-        onProviderLogin={handleProviderLogin}
-      />
-    )
-  }
-
-  if (bootstrapLoading || !bootstrapLoaded) {
+  if (authenticated && (bootstrapLoading || !bootstrapLoaded)) {
     return (
       <div className={`app ${tableDensityClass}`}>
         <section className="page-context">
           <div>
             <h2>초기화 중</h2>
-            <p className="sub">사용자 설정과 온보딩 상태를 확인하고 있습니다.</p>
-            {onboardingError && <p className="status-error">{onboardingError}</p>}
+            <p className="sub">사용자 설정을 확인하고 있습니다.</p>
+            {bootstrapError && <p className="status-error">{bootstrapError}</p>}
           </div>
           <span className="pill">LOADING</span>
         </section>
@@ -518,8 +527,12 @@ function App() {
   return (
     <div className={`app ${tableDensityClass}`}>
       <AppHeader
-        activeRoute={activeRoute}
+        activeRoute={effectiveRoute}
         onNavigateRoute={navigateRoute}
+        authChecking={authChecking}
+        authProviders={authProviders}
+        authError={authError}
+        onProviderLogin={handleProviderLogin}
         engineClass={engineClass}
         engineError={engineError}
         engineBusy={engineBusy}
@@ -530,53 +543,41 @@ function App() {
         connectionClass={connectionClass}
         connectionLabel={connectionLabel}
         approvalStatus={approvalStatus}
-        canAccessAdmin={canAccessAdmin}
+        canAccessAdmin={authenticated && canAccessAdmin}
         onLogout={handleLogout}
       />
 
-      <PageContextBanner activeRoute={activeRoute} />
+      <PageContextBanner activeRoute={effectiveRoute} />
 
-      {onboardingRequired ? (
-        <OnboardingRoute
-          onboarding={onboardingState}
-          userRiskProfile={userRiskProfile}
-          userMarketsInput={userMarketsInput}
-          setUserRiskProfile={setUserRiskProfile}
-          setUserMarketsInput={setUserMarketsInput}
-          onCompleteProfile={handleCompleteOnboardingProfile}
-          exchangeAccessKeyInput={exchangeAccessKeyInput}
-          exchangeSecretKeyInput={exchangeSecretKeyInput}
-          setExchangeAccessKeyInput={setExchangeAccessKeyInput}
-          setExchangeSecretKeyInput={setExchangeSecretKeyInput}
-          onCompleteCredentials={handleCompleteOnboardingCredentials}
-          onCompleteStrategy={handleCompleteOnboardingStrategy}
-          onFinish={() => navigateRoute(DASHBOARD_ROUTE)}
-          busy={onboardingBusy}
-          error={onboardingError}
-        />
-      ) : activeRoute === ADMIN_USERS_ROUTE && canAccessAdmin ? (
-        <AdminUsersRoute
-          loading={adminLoading}
-          error={adminError}
-          notice={adminNotice}
-          query={adminQuery}
-          setQuery={setAdminQuery}
-          statusFilter={adminStatusFilter}
-          setStatusFilter={setAdminStatusFilter}
-          users={adminUsers}
-          onRefresh={fetchAdminUsers}
-          onApprove={(userId) => updateApprovalStatus(userId, 'APPROVED')}
-          onSuspend={(userId) => updateApprovalStatus(userId, 'SUSPENDED')}
-        />
-      ) : activeRoute === SETTINGS_ROUTE ? (
-        <SettingsRoute
-          userPreferences={userPreferencesProps}
-          exchangeCredentials={exchangeCredentialsProps}
-          marketOverrides={marketOverridesProps}
-          performance={performanceProps}
-        />
+      {effectiveRoute === ADMIN_USERS_ROUTE && authenticated && canAccessAdmin ? (
+        <Suspense fallback={routeLoadingFallback}>
+          <AdminUsersRoute
+            loading={adminLoading}
+            error={adminError}
+            notice={adminNotice}
+            query={adminQuery}
+            setQuery={setAdminQuery}
+            statusFilter={adminStatusFilter}
+            setStatusFilter={setAdminStatusFilter}
+            users={adminUsers}
+            onRefresh={fetchAdminUsers}
+            onApprove={(userId) => updateApprovalStatus(userId, 'APPROVED')}
+            onSuspend={(userId) => updateApprovalStatus(userId, 'SUSPENDED')}
+            onDelete={deleteAdminUser}
+          />
+        </Suspense>
+      ) : effectiveRoute === SETTINGS_ROUTE && authenticated ? (
+        <Suspense fallback={routeLoadingFallback}>
+          <SettingsRoute
+            userPreferences={userPreferencesProps}
+            exchangeCredentials={exchangeCredentialsProps}
+            marketOverrides={marketOverridesProps}
+            performance={performanceProps}
+          />
+        </Suspense>
       ) : (
         <DashboardRoute
+          authRequired={!authenticated}
           cash={cash}
           totals={totals}
           loading={loading}
@@ -585,21 +586,12 @@ function App() {
           mergedOrderHistory={mergedOrderHistory}
           feedError={feedError}
           onOpenManualTrade={openManualTrade}
-          formatters={{
-            formatKRW,
-            formatCoin,
-            formatPercent,
-            formatDateTime,
-            formatOrderStatus,
-            formatFixed,
-            truncateText,
-            pnlClass,
-          }}
+          formatters={DASHBOARD_FORMATTERS}
         />
       )}
 
       <ManualTradeModal
-        open={manualTradeOpen}
+        open={authenticated && manualTradeOpen}
         busy={manualTradeBusy}
         market={manualTradeMarket}
         side={manualTradeSide}
@@ -617,7 +609,7 @@ function App() {
         setPrice={setManualTradePrice}
         setVolume={setManualTradeVolume}
         setFunds={setManualTradeFunds}
-        formatters={{ formatCoin, formatKRW, toInputValue }}
+        formatters={MANUAL_TRADE_FORMATTERS}
       />
     </div>
   )

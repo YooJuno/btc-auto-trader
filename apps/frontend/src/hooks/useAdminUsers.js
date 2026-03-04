@@ -66,6 +66,36 @@ export function useAdminUsers(authUser) {
     }
   }, [fetchAdminUsers])
 
+  const deleteAdminUser = useCallback(async (userId, email) => {
+    if (!userId) {
+      return
+    }
+    const label = email || `ID ${userId}`
+    const confirmed = window.confirm(
+      `${label} 사용자를 삭제합니다.\n연결된 사용자 설정/키/온보딩 데이터와 전용 테넌트 DB까지 함께 삭제됩니다.\n계속할까요?`
+    )
+    if (!confirmed) {
+      return
+    }
+
+    setAdminError(null)
+    setAdminNotice(null)
+    try {
+      const payload = await requestJson(
+        `/api/admin/users/${userId}`,
+        { method: 'DELETE' },
+        '사용자 삭제 실패'
+      )
+      const tenantInfo = payload?.tenantDatabaseDropped && payload?.tenantDatabase
+        ? ` (테넌트 DB ${payload.tenantDatabase} 삭제 완료)`
+        : ''
+      setAdminNotice(`사용자 ${label}를 삭제했습니다.${tenantInfo}`)
+      fetchAdminUsers()
+    } catch (err) {
+      setAdminError(err?.message ?? '사용자 삭제 실패')
+    }
+  }, [fetchAdminUsers])
+
   return {
     adminLoading,
     adminError,
@@ -77,6 +107,7 @@ export function useAdminUsers(authUser) {
     setAdminStatusFilter,
     fetchAdminUsers,
     updateApprovalStatus,
+    deleteAdminUser,
     resetAdminState,
   }
 }

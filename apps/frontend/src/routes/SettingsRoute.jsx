@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import ExchangeCredentialsCard from '../components/settings/ExchangeCredentialsCard.jsx'
 import MarketOverridesCard from '../components/settings/MarketOverridesCard.jsx'
 import PerformanceCard from '../components/settings/PerformanceCard.jsx'
@@ -16,4 +17,4 @@ function SettingsRoute({ userPreferences, exchangeCredentials, marketOverrides, 
   )
 }
 
-export default SettingsRoute
+export default memo(SettingsRoute)

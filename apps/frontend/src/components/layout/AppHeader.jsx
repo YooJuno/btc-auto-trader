@@ -7,6 +7,10 @@ import {
 function AppHeader({
   activeRoute,
   onNavigateRoute,
+  authChecking,
+  authProviders,
+  authError,
+  onProviderLogin,
   engineClass,
   engineError,
   engineBusy,
@@ -20,15 +24,24 @@ function AppHeader({
   approvalStatus,
   canAccessAdmin,
 }) {
-  const userLabel =
-    authUser?.email || authUser?.displayName || `${authUser?.provider}:${authUser?.providerUserId}`
+  const authenticated = Boolean(authUser?.id)
+  const userLabel = authenticated
+    ? (authUser?.email || authUser?.displayName || `${authUser?.provider}:${authUser?.providerUserId}`)
+    : '게스트'
+  const approvalStatusLabel = approvalStatus || '-'
+  const approvalStatusClass = approvalStatusLabel === 'ADMIN' ? 'approval-status--admin' : ''
+  const primaryProvider = Array.isArray(authProviders) && authProviders.length > 0 ? authProviders[0] : null
+  const loginDisabled = authChecking || !primaryProvider
+  const loginLabel = authChecking ? '로그인 확인 중...' : primaryProvider ? '로그인' : '로그인 설정 필요'
 
   return (
     <header className="app__header">
       <div className="brand-block">
         <p className="eyebrow">BTC AUTO TRADER</p>
         <h1>Trading Control Center</h1>
-        <p className="sub">실시간 상태는 메인에서 확인하고, 전략/거래 설정은 설정 페이지에서 관리합니다.</p>
+        <p className="sub">
+          실시간 상태는 메인에서 확인하고, 전략/거래 설정은 로그인 후 사용할 수 있습니다.
+        </p>
         <div className="route-tabs" role="tablist" aria-label="페이지 이동">
           <button
             type="button"
@@ -37,14 +50,16 @@ function AppHeader({
           >
             실시간 현황
           </button>
-          <button
-            type="button"
-            className={`route-tab ${activeRoute === SETTINGS_ROUTE ? 'is-active' : ''}`}
-            onClick={() => onNavigateRoute(SETTINGS_ROUTE)}
-          >
-            매매 세팅
-          </button>
-          {canAccessAdmin && (
+          {authenticated && (
+            <button
+              type="button"
+              className={`route-tab ${activeRoute === SETTINGS_ROUTE ? 'is-active' : ''}`}
+              onClick={() => onNavigateRoute(SETTINGS_ROUTE)}
+            >
+              매매 세팅
+            </button>
+          )}
+          {authenticated && canAccessAdmin && (
             <button
               type="button"
               className={`route-tab ${activeRoute === ADMIN_USERS_ROUTE ? 'is-active' : ''}`}
@@ -53,19 +68,37 @@ function AppHeader({
               관리자
             </button>
           )}
-          <div className="route-tabs-tools">
-            <span className={`status ${engineClass}`}>ENGINE {engineStatus ? 'ON' : 'OFF'}</span>
-            <button
-              type="button"
-              className={`engine-toggle-btn ${engineStatus ? 'is-on' : 'is-off'}`}
-              onClick={onEngineToggle}
-              disabled={engineBusy}
-            >
-              {engineBusy ? (engineStatus ? '중지 중...' : '시작 중...') : engineStatus ? '엔진 중지' : '엔진 시작'}
-            </button>
-          </div>
+          {authenticated ? (
+            <div className="route-tabs-tools">
+              <span className={`status ${engineClass}`}>ENGINE {engineStatus ? 'ON' : 'OFF'}</span>
+              <button
+                type="button"
+                className={`engine-toggle-btn ${engineStatus ? 'is-on' : 'is-off'}`}
+                onClick={onEngineToggle}
+                disabled={engineBusy}
+              >
+                {engineBusy ? (engineStatus ? '중지 중...' : '시작 중...') : engineStatus ? '엔진 중지' : '엔진 시작'}
+              </button>
+            </div>
+          ) : (
+            <div className="route-tabs-tools">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  if (!loginDisabled) {
+                    onProviderLogin(primaryProvider.authorizationUrl)
+                  }
+                }}
+                disabled={loginDisabled}
+              >
+                {loginLabel}
+              </button>
+            </div>
+          )}
         </div>
-        {engineError && <p className="status-error">{engineError}</p>}
+        {authenticated && engineError && <p className="status-error">{engineError}</p>}
+        {!authenticated && authError && <p className="status-error">{authError}</p>}
       </div>
       <div className="status-card">
         <div className="status-row">
@@ -78,16 +111,20 @@ function AppHeader({
         </div>
         <div className="status-row">
           <span>승인 상태</span>
-          <strong className="mono">{approvalStatus || '-'}</strong>
+          <strong className={`mono approval-status ${approvalStatusClass}`}>{approvalStatusLabel}</strong>
         </div>
         <div className="status-connection-row">
           <span>서버 연결</span>
           <span className={`connection-badge ${connectionClass}`}>{connectionLabel}</span>
         </div>
         <div className="status-actions">
-          <button className="ghost-button" type="button" onClick={onLogout}>
-            로그아웃
-          </button>
+          {authenticated ? (
+            <button className="ghost-button" type="button" onClick={onLogout}>
+              로그아웃
+            </button>
+          ) : (
+            <p className="sub compact">로그인 후 세팅/매매 기능이 활성화됩니다.</p>
+          )}
         </div>
       </div>
     </header>

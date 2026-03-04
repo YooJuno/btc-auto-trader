@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  DASHBOARD_ROUTE,
+  SETTINGS_ROUTE,
+} from '../constants/tradingUi.js'
 import {
   addMarketRow,
   buildApiErrorMessage,
@@ -21,11 +25,14 @@ import {
 
 export function useTradingWorkspace({
   authUser,
+  activeRoute,
   bootstrapLoading,
   bootstrapLoaded,
-  onboardingRequired,
   pollingIntervalMs,
 }) {
+  const [pageVisible, setPageVisible] = useState(() => (
+    typeof document === 'undefined' ? true : document.visibilityState !== 'hidden'
+  ))
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [serverConnected, setServerConnected] = useState(null)
@@ -71,6 +78,43 @@ export function useTradingWorkspace({
   const [performanceInputs, setPerformanceInputs] = useState(buildDefaultPerformanceInputs)
   const [performanceLoading, setPerformanceLoading] = useState(false)
   const [performanceError, setPerformanceError] = useState(null)
+  const performanceModeRef = useRef(performanceMode)
+  const performanceInputsRef = useRef(performanceInputs)
+  const isDashboardRoute = activeRoute === DASHBOARD_ROUTE
+  const isSettingsRoute = activeRoute === SETTINGS_ROUTE
+
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return undefined
+    }
+    const handleVisibilityChange = () => {
+      setPageVisible(document.visibilityState !== 'hidden')
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (authUser) {
+      return
+    }
+    setLoading(false)
+    setSummary(null)
+    setEngineStatus(null)
+    setEngineError(null)
+    setFeedError(null)
+    setManualTradeOpen(false)
+  }, [authUser])
+
+  useEffect(() => {
+    performanceModeRef.current = performanceMode
+  }, [performanceMode])
+
+  useEffect(() => {
+    performanceInputsRef.current = performanceInputs
+  }, [performanceInputs])
 
   const fetchSummary = useCallback(async (isRefresh = false) => {
     if (!isRefresh) {
@@ -220,7 +264,10 @@ export function useTradingWorkspace({
     }
   }, [])
 
-  const fetchPerformance = useCallback(async (mode = performanceMode, inputs = performanceInputs) => {
+  const fetchPerformance = useCallback(async (
+    mode = performanceModeRef.current,
+    inputs = performanceInputsRef.current
+  ) => {
     setPerformanceLoading(true)
     setPerformanceError(null)
     try {
@@ -238,48 +285,64 @@ export function useTradingWorkspace({
     } finally {
       setPerformanceLoading(false)
     }
-  }, [performanceInputs, performanceMode])
+  }, [])
 
   useEffect(() => {
-    if (!authUser || bootstrapLoading || !bootstrapLoaded || onboardingRequired) {
+    if (!authUser || bootstrapLoading || !bootstrapLoaded) {
       return undefined
     }
+    if (!pageVisible) {
+      return undefined
+    }
+
     fetchSummary(false)
     fetchEngineStatus()
-    fetchStrategy()
-    fetchRatioPresets()
-    fetchMarketOverrides()
-    fetchMarketCatalog()
-    fetchOrderHistory()
-    fetchDecisionHistory()
-    fetchPerformance()
+
+    if (isDashboardRoute) {
+      fetchOrderHistory()
+      fetchDecisionHistory()
+    }
+    if (isSettingsRoute) {
+      fetchStrategy()
+      fetchRatioPresets()
+      fetchMarketOverrides()
+      fetchMarketCatalog()
+      fetchPerformance()
+    }
 
     const summaryTimer = setInterval(() => fetchSummary(true), pollingIntervalMs)
     const engineTimer = setInterval(() => fetchEngineStatus(), pollingIntervalMs)
-    const feedTimer = setInterval(() => {
-      fetchOrderHistory()
-      fetchDecisionHistory()
-    }, pollingIntervalMs)
+    const feedTimer = isDashboardRoute
+      ? setInterval(() => {
+        fetchOrderHistory()
+        fetchDecisionHistory()
+      }, pollingIntervalMs)
+      : null
 
     return () => {
       clearInterval(summaryTimer)
       clearInterval(engineTimer)
-      clearInterval(feedTimer)
+      if (feedTimer) {
+        clearInterval(feedTimer)
+      }
     }
   }, [
+    activeRoute,
     authUser,
     bootstrapLoaded,
     bootstrapLoading,
-    fetchSummary,
-    fetchEngineStatus,
-    fetchStrategy,
-    fetchRatioPresets,
-    fetchMarketOverrides,
-    fetchMarketCatalog,
-    fetchOrderHistory,
     fetchDecisionHistory,
+    fetchEngineStatus,
+    fetchMarketCatalog,
+    fetchMarketOverrides,
+    fetchOrderHistory,
     fetchPerformance,
-    onboardingRequired,
+    fetchRatioPresets,
+    fetchSummary,
+    fetchStrategy,
+    isDashboardRoute,
+    isSettingsRoute,
+    pageVisible,
     pollingIntervalMs,
   ])
 
@@ -298,7 +361,6 @@ export function useTradingWorkspace({
 
   const connectionClass = serverConnected === null ? 'checking' : serverConnected ? 'connected' : 'disconnected'
   const connectionLabel = serverConnected === null ? '확인중' : serverConnected ? '연결됨' : '끊김'
-  const engineLabel = engineStatus ? 'ON' : 'OFF'
   const engineClass = engineStatus ? 'ok' : 'error'
   const marketRowsDirty = useMemo(
     () => buildMarketOverrideSignature(marketRows) !== marketRowsBaseline,
@@ -523,7 +585,6 @@ export function useTradingWorkspace({
   }, [])
 
   return {
-    summary,
     loading,
     engineStatus,
     engineBusy,
@@ -566,7 +627,6 @@ export function useTradingWorkspace({
     updatedAt,
     connectionClass,
     connectionLabel,
-    engineLabel,
     engineClass,
     marketRowsDirty,
     marketSuggestions,

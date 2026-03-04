@@ -7,29 +7,6 @@
   gap: 16px;
 }
 
-.auth-gate {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.auth-gate__card {
-  width: min(520px, 100%);
-  display: grid;
-  gap: 12px;
-  padding: 20px;
-  border-radius: 18px;
-  border: 1px solid var(--border);
-  background: linear-gradient(165deg, var(--surface), var(--surface-soft));
-  box-shadow: var(--shadow-soft);
-}
-
-.auth-provider-row .primary-button {
-  min-width: 160px;
-}
-
 .app > * {
   opacity: 0;
   animation: rise-in 0.45s ease forwards;
@@ -388,6 +365,23 @@ h3 {
   font-size: 0.95rem;
 }
 
+.approval-status {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.approval-status--admin {
+  color: var(--gold-bright);
+  border-color: rgba(201, 168, 116, 0.58);
+  background: rgba(201, 168, 116, 0.14);
+}
+
 .status-connection-row {
   display: flex;
   align-items: center;
@@ -734,6 +728,11 @@ h3 {
 .table-action-button:hover {
   border-color: rgba(34, 186, 166, 0.74);
   background: rgba(34, 186, 166, 0.22);
+}
+
+.table-action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .modal-backdrop {
@@ -1467,5 +1466,327 @@ tbody tr:hover {
 
   table {
     min-width: 560px;
+  }
+}
+
+/* Clean black premium reskin */
+
+.brand-block,
+.status-card,
+.summary-card,
+.table-card,
+.control-card,
+.engine-inline-card,
+.page-context,
+.trade-modal {
+  background: var(--surface);
+  background-image: none;
+  border-color: var(--border);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.38);
+  backdrop-filter: none;
+}
+
+.brand-block::before,
+.brand-block::after,
+.summary-card::before,
+.engine-inline-card::before,
+.positions-card::before,
+.strategy-card::before,
+.performance-card::before,
+.market-card::before,
+.order-card::before {
+  content: none;
+}
+
+.eyebrow {
+  color: var(--gold);
+}
+
+.route-tab {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: var(--surface-strong);
+  color: var(--muted);
+}
+
+.route-tab:hover {
+  border-color: rgba(255, 255, 255, 0.32);
+  color: var(--text);
+}
+
+.route-tab.is-active {
+  color: var(--gold-bright);
+  border-color: rgba(201, 168, 116, 0.72);
+  background: rgba(201, 168, 116, 0.14);
+}
+
+.engine-toggle-btn {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--surface-elevated);
+  color: var(--text);
+}
+
+.engine-toggle-btn.is-on {
+  border-color: rgba(255, 127, 127, 0.5);
+  background: rgba(255, 127, 127, 0.14);
+  color: #ffc7c7;
+}
+
+.engine-toggle-btn.is-off {
+  border-color: rgba(76, 212, 152, 0.5);
+  background: rgba(76, 212, 152, 0.14);
+  color: #baf2d9;
+}
+
+.engine-toggle-btn:hover {
+  filter: none;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.engine-inline-card {
+  background: var(--surface-strong);
+}
+
+.engine-action-btn {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: var(--surface-elevated);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.engine-action-btn::after {
+  display: none;
+}
+
+.engine-action-btn__icon {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.engine-action-btn--start {
+  color: #baf2d9;
+  border-color: rgba(76, 212, 152, 0.48);
+  background: rgba(76, 212, 152, 0.14);
+  box-shadow: none;
+}
+
+.engine-action-btn--start.is-active {
+  border-color: rgba(76, 212, 152, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(76, 212, 152, 0.24);
+}
+
+.engine-action-btn--stop {
+  color: #ffc7c7;
+  border-color: rgba(255, 127, 127, 0.48);
+  background: rgba(255, 127, 127, 0.14);
+  box-shadow: none;
+}
+
+.engine-action-btn--stop.is-active {
+  border-color: rgba(255, 127, 127, 0.74);
+  box-shadow: inset 0 0 0 1px rgba(255, 127, 127, 0.24);
+}
+
+.status-connection-row {
+  border-top-color: rgba(255, 255, 255, 0.16);
+}
+
+.connection-badge.connected,
+.status.ok {
+  border-color: rgba(76, 212, 152, 0.38);
+  background: rgba(76, 212, 152, 0.12);
+}
+
+.connection-badge.disconnected,
+.status.error {
+  border-color: rgba(255, 127, 127, 0.4);
+  background: rgba(255, 127, 127, 0.12);
+}
+
+.connection-badge.checking,
+.status.loading {
+  border-color: rgba(255, 198, 128, 0.38);
+  background: rgba(255, 198, 128, 0.12);
+}
+
+.status-error,
+.status-success {
+  border: 1px solid transparent;
+}
+
+.status-error {
+  border-color: rgba(255, 127, 127, 0.3);
+  background: rgba(255, 127, 127, 0.12);
+}
+
+.status-success {
+  border-color: rgba(76, 212, 152, 0.3);
+  background: rgba(76, 212, 152, 0.12);
+}
+
+.summary-card,
+.performance-mini,
+.trade-meta-row span {
+  background: var(--surface-soft);
+}
+
+.table-card,
+.control-card {
+  background: var(--surface);
+}
+
+.pill {
+  border-color: rgba(201, 168, 116, 0.52);
+  background: rgba(201, 168, 116, 0.12);
+  color: var(--gold-bright);
+}
+
+.pill-warning {
+  border-color: rgba(255, 198, 128, 0.42);
+  background: rgba(255, 198, 128, 0.12);
+  color: #ffd6a6;
+}
+
+.ghost-button {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: var(--surface-strong);
+  color: var(--text);
+}
+
+.ghost-button:hover {
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow: none;
+}
+
+.ghost-button.active {
+  border-color: rgba(201, 168, 116, 0.72);
+  color: var(--gold-bright);
+  background: rgba(201, 168, 116, 0.12);
+}
+
+.primary-button {
+  border-color: rgba(201, 168, 116, 0.82);
+  color: #18140e;
+  background: var(--gold);
+  box-shadow: none;
+}
+
+.primary-button:hover {
+  border-color: rgba(244, 227, 198, 0.86);
+  background: #d6b683;
+}
+
+.danger-button {
+  border-color: rgba(255, 127, 127, 0.4);
+  color: #ffc4c4;
+  background: rgba(255, 127, 127, 0.14);
+}
+
+.table-action-button {
+  border-color: rgba(201, 168, 116, 0.48);
+  background: rgba(201, 168, 116, 0.1);
+  color: var(--gold-bright);
+}
+
+.table-action-button:hover {
+  border-color: rgba(201, 168, 116, 0.72);
+  background: rgba(201, 168, 116, 0.16);
+}
+
+.market-add-row input,
+.form-field input,
+.form-field select,
+.market-inline-field input,
+.market-inline-field select {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: #090a0d;
+}
+
+.market-add-row input:focus,
+.form-field input:focus,
+.form-field select:focus,
+.market-inline-field input:focus,
+.market-inline-field select:focus {
+  border-color: rgba(201, 168, 116, 0.58);
+  box-shadow: 0 0 0 2px rgba(201, 168, 116, 0.18);
+  background: #08090b;
+}
+
+.market-suggest-list {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: #0a0b0d;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
+}
+
+.market-suggest-item {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.market-suggest-item:hover,
+.market-suggest-item.active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.market-override-row {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: #111319;
+}
+
+.market-override-row.expanded {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: #161922;
+}
+
+.market-expand-button,
+.market-toggle-button,
+.market-remove-button {
+  background: #0b0d11;
+}
+
+.market-expand-button:hover {
+  border-color: rgba(255, 255, 255, 0.36);
+  background: #12151c;
+}
+
+.market-ratio-panel-inner {
+  border-top-color: rgba(255, 255, 255, 0.14);
+}
+
+thead th {
+  border-bottom-color: rgba(255, 255, 255, 0.14);
+  background: #0b0d11;
+}
+
+tbody td {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+tbody tr:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.table-wrapper::-webkit-scrollbar-thumb,
+.market-override-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.table-wrapper::-webkit-scrollbar-track,
+.market-override-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@media (hover: hover) {
+  .brand-block:hover,
+  .engine-inline-card:hover,
+  .status-card:hover,
+  .summary-card:hover,
+  .table-card:hover,
+  .control-card:hover {
+    transform: translateY(-1px);
+    border-color: var(--border-strong);
+    box-shadow: 0 18px 34px rgba(0, 0, 0, 0.44);
   }
 }

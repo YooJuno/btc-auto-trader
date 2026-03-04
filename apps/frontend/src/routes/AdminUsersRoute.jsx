@@ -10,6 +10,7 @@ function AdminUsersRoute({
   onRefresh,
   onApprove,
   onSuspend,
+  onDelete,
 }) {
   return (
     <section className="workspace-grid workspace-grid--settings">
@@ -90,6 +91,9 @@ function AdminUsersRoute({
                           </button>
                           <button className="ghost-button" type="button" onClick={() => onSuspend(item.userId)}>
                             중지
+                          </button>
+                          <button className="danger-button" type="button" onClick={() => onDelete(item.userId, item.email)}>
+                            삭제
                           </button>
                         </div>
                       </td>

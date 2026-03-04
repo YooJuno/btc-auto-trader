@@ -5,8 +5,6 @@ import {
   DEFAULT_MARKET_MAX_ORDER_KRW,
   DEFAULT_MARKET_PROFILE,
   MARKET_CODE_PATTERN,
-  ONBOARDING_PATH,
-  ONBOARDING_ROUTE,
   PROFILE_VALUES,
   RATIO_FIELDS,
   RATIO_FIELD_LABELS,
@@ -23,9 +21,6 @@ import {
 
 export const resolveAppRoute = (pathname) => {
   const normalizedPath = normalizePathname(pathname)
-  if (normalizedPath === ONBOARDING_PATH) {
-    return ONBOARDING_ROUTE
-  }
   if (normalizedPath === ADMIN_USERS_PATH) {
     return ADMIN_USERS_ROUTE
   }
@@ -36,9 +31,6 @@ export const resolveAppRoute = (pathname) => {
 }
 
 export const resolveAppPath = (route) => {
-  if (route === ONBOARDING_ROUTE) {
-    return ONBOARDING_PATH
-  }
   if (route === ADMIN_USERS_ROUTE) {
     return ADMIN_USERS_PATH
   }

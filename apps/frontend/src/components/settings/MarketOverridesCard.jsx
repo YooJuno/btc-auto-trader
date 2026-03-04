@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import {
   DEFAULT_MARKET_MAX_ORDER_KRW,
   DEFAULT_MARKET_PROFILE,
@@ -196,8 +197,8 @@ function MarketOverridesCard({
                     <button
                       type="button"
                       className={`market-toggle-button ${row.tradePaused ? 'is-resume' : 'is-pause'}`}
-                      onClick={() => updateMarketOverrideInput(setMarketRows, row.market, 'tradePaused', !Boolean(row.tradePaused))}
-                      aria-pressed={Boolean(row.tradePaused)}
+                      onClick={() => updateMarketOverrideInput(setMarketRows, row.market, 'tradePaused', !row.tradePaused)}
+                      aria-pressed={row.tradePaused}
                     >
                       {row.tradePaused ? '재개' : '일시정지'}
                     </button>
@@ -364,4 +365,4 @@ function MarketOverridesCard({
   )
 }
 
-export default MarketOverridesCard
+export default memo(MarketOverridesCard)
