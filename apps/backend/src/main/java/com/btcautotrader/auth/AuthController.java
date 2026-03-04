@@ -8,6 +8,7 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -38,6 +39,7 @@ public class AuthController {
     private final UserOnboardingService userOnboardingService;
     private final FeatureFlagService featureFlagService;
     private final UpbitService upbitService;
+    private final boolean sessionCookieSecure;
 
     public AuthController(
             ObjectProvider<ClientRegistrationRepository> clientRegistrationRepositoryProvider,
@@ -46,7 +48,8 @@ public class AuthController {
             UserExchangeCredentialService userExchangeCredentialService,
             UserOnboardingService userOnboardingService,
             FeatureFlagService featureFlagService,
-            UpbitService upbitService
+            UpbitService upbitService,
+            @Value("${server.servlet.session.cookie.secure:false}") boolean sessionCookieSecure
     ) {
         this.clientRegistrationRepositoryProvider = clientRegistrationRepositoryProvider;
         this.currentUserService = currentUserService;
@@ -55,6 +58,7 @@ public class AuthController {
         this.userOnboardingService = userOnboardingService;
         this.featureFlagService = featureFlagService;
         this.upbitService = upbitService;
+        this.sessionCookieSecure = sessionCookieSecure;
     }
 
     @GetMapping("/auth/providers")
@@ -95,6 +99,8 @@ public class AuthController {
         Cookie cookie = new Cookie("JSESSIONID", "");
         cookie.setPath("/");
         cookie.setMaxAge(0);
+        cookie.setHttpOnly(true);
+        cookie.setSecure(sessionCookieSecure);
         response.addCookie(cookie);
 
         Map<String, Object> result = new HashMap<>();
