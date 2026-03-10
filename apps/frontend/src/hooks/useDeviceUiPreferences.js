@@ -29,7 +29,6 @@ export const useDeviceUiPreferences = ({
 }) => {
   const [deviceKind, setDeviceKind] = useState(() => detectDeviceKind())
   const defaultRouteAppliedRef = useRef(false)
-  const authSessionKeyRef = useRef(null)
 
   const authSessionKey = useMemo(() => {
     if (!authUser) {
@@ -90,7 +89,6 @@ export const useDeviceUiPreferences = ({
   }, [])
 
   useEffect(() => {
-    authSessionKeyRef.current = authSessionKey
     defaultRouteAppliedRef.current = false
   }, [authSessionKey])
 

@@ -21,6 +21,13 @@ CREATE TABLE portfolio_snapshot_item (
 CREATE INDEX idx_portfolio_snapshot_occurred_at
   ON portfolio_snapshot(occurred_at);
 
+CREATE INDEX idx_portfolio_snapshot_event_source_occurred_at
+  ON portfolio_snapshot(event_type, source, occurred_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_portfolio_snapshot_performance_seed
+  ON portfolio_snapshot(event_type, source, occurred_at)
+  WHERE event_type = 'PERFORMANCE_SEED' AND source = 'SYSTEM';
+
 CREATE INDEX idx_portfolio_snapshot_item_snapshot
   ON portfolio_snapshot_item(snapshot_id);
 
@@ -181,6 +188,9 @@ CREATE TABLE app_users (
 
 CREATE INDEX idx_app_users_email
   ON app_users(email);
+
+CREATE INDEX idx_app_users_tenant_db
+  ON app_users(tenant_db);
 
 -- 사용자별 거래소 API 키(암호화 저장)
 CREATE TABLE user_exchange_credentials (

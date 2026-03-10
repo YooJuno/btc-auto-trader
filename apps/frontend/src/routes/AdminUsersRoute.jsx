@@ -7,11 +7,20 @@ function AdminUsersRoute({
   statusFilter,
   setStatusFilter,
   users,
+  page,
+  totalPages,
+  totalElements,
+  hasNext,
+  hasPrevious,
   onRefresh,
+  onPreviousPage,
+  onNextPage,
   onApprove,
   onSuspend,
   onDelete,
 }) {
+  const pageLabel = totalElements > 0 ? `${page + 1} / ${Math.max(totalPages, 1)}` : '0 / 0'
+
   return (
     <section className="workspace-grid workspace-grid--settings">
       <aside className="workspace-side">
@@ -102,6 +111,18 @@ function AdminUsersRoute({
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="admin-pagination">
+            <p className="sub">총 {totalElements}명 · 페이지 {pageLabel}</p>
+            <div className="button-row">
+              <button className="ghost-button" type="button" onClick={onPreviousPage} disabled={loading || !hasPrevious}>
+                이전
+              </button>
+              <button className="ghost-button" type="button" onClick={onNextPage} disabled={loading || !hasNext}>
+                다음
+              </button>
+            </div>
           </div>
         </article>
       </aside>

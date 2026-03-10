@@ -62,11 +62,17 @@ public class UserOnboardingService {
     private UserOnboardingStateEntity ensureStateEntity(UserEntity user) {
         UserOnboardingStateEntity entity = onboardingStateRepository.findById(user.getId()).orElse(null);
         if (entity != null) {
+            boolean dirty = false;
             UserExchangeCredentialStatusResponse credentialStatus = userExchangeCredentialService.getStatus(user);
-            if (credentialStatus.configured() || credentialStatus.usingDefaultCredentials()) {
+            if ((credentialStatus.configured() || credentialStatus.usingDefaultCredentials())
+                    && !entity.isCredentialsCompleted()) {
                 entity.setCredentialsCompleted(true);
+                dirty = true;
             }
-            return onboardingStateRepository.save(entity);
+            if (dirty) {
+                return onboardingStateRepository.save(entity);
+            }
+            return entity;
         }
 
         UserOnboardingStateEntity created = new UserOnboardingStateEntity();

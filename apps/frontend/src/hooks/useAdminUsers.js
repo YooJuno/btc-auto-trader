@@ -1,50 +1,129 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { requestJson } from '../utils/apiClient.js'
+
+const DEFAULT_ADMIN_PAGE_SIZE = 20
 
 export function useAdminUsers(authUser) {
   const [adminLoading, setAdminLoading] = useState(false)
   const [adminError, setAdminError] = useState(null)
   const [adminNotice, setAdminNotice] = useState(null)
-  const [adminQuery, setAdminQuery] = useState('')
-  const [adminStatusFilter, setAdminStatusFilter] = useState('')
+  const [adminQueryValue, setAdminQueryValue] = useState('')
+  const [adminStatusFilterValue, setAdminStatusFilterValue] = useState('')
   const [adminUsers, setAdminUsers] = useState([])
+  const [adminPage, setAdminPage] = useState(0)
+  const [adminTotalPages, setAdminTotalPages] = useState(0)
+  const [adminTotalElements, setAdminTotalElements] = useState(0)
+  const [adminHasNext, setAdminHasNext] = useState(false)
+  const requestStateRef = useRef({
+    query: '',
+    status: '',
+    page: 0,
+  })
 
   const resetAdminState = useCallback(() => {
     setAdminUsers([])
     setAdminError(null)
     setAdminNotice(null)
-    setAdminQuery('')
-    setAdminStatusFilter('')
+    setAdminQueryValue('')
+    setAdminStatusFilterValue('')
+    setAdminPage(0)
+    setAdminTotalPages(0)
+    setAdminTotalElements(0)
+    setAdminHasNext(false)
+    requestStateRef.current = {
+      query: '',
+      status: '',
+      page: 0,
+    }
   }, [])
 
-  const fetchAdminUsers = useCallback(async () => {
+  const fetchAdminUsers = useCallback(async (overrides = {}) => {
     if (!authUser?.owner) {
       return
+    }
+    const nextQuery = typeof overrides.query === 'string'
+      ? overrides.query
+      : requestStateRef.current.query
+    const nextStatus = typeof overrides.status === 'string'
+      ? overrides.status
+      : requestStateRef.current.status
+    const nextPage = Number.isFinite(overrides.page)
+      ? Math.max(0, overrides.page)
+      : requestStateRef.current.page
+    requestStateRef.current = {
+      query: nextQuery,
+      status: nextStatus,
+      page: nextPage,
     }
     setAdminLoading(true)
     setAdminError(null)
     try {
       const params = new URLSearchParams()
-      if (adminQuery.trim()) {
-        params.set('q', adminQuery.trim())
+      if (nextQuery.trim()) {
+        params.set('q', nextQuery.trim())
       }
-      if (adminStatusFilter.trim()) {
-        params.set('status', adminStatusFilter.trim())
+      if (nextStatus.trim()) {
+        params.set('status', nextStatus.trim())
       }
+      params.set('page', String(nextPage))
+      params.set('size', String(DEFAULT_ADMIN_PAGE_SIZE))
       const query = params.toString()
       const data = await requestJson(
-        `/api/admin/users${query ? `?${query}` : ''}`,
+        `/api/admin/users/page${query ? `?${query}` : ''}`,
         {},
         '관리자 사용자 조회 실패'
       )
-      setAdminUsers(Array.isArray(data) ? data : [])
+      const items = Array.isArray(data?.items) ? data.items : []
+      const resolvedPage = Number.isFinite(data?.page)
+        ? Math.max(0, data.page)
+        : nextPage
+      setAdminUsers(items)
+      setAdminPage(resolvedPage)
+      setAdminTotalPages(Number.isFinite(data?.totalPages) ? Math.max(0, data.totalPages) : 0)
+      setAdminTotalElements(Number.isFinite(data?.totalElements) ? Math.max(0, data.totalElements) : items.length)
+      setAdminHasNext(Boolean(data?.hasNext))
+      requestStateRef.current = {
+        query: nextQuery,
+        status: nextStatus,
+        page: resolvedPage,
+      }
     } catch (err) {
       setAdminUsers([])
+      setAdminPage(0)
+      setAdminTotalPages(0)
+      setAdminTotalElements(0)
+      setAdminHasNext(false)
       setAdminError(err?.message ?? '관리자 사용자 조회 실패')
     } finally {
       setAdminLoading(false)
     }
-  }, [adminQuery, adminStatusFilter, authUser?.owner])
+  }, [authUser?.owner])
+
+  const setAdminQuery = useCallback((value) => {
+    const nextValue = typeof value === 'string' ? value : ''
+    setAdminQueryValue(nextValue)
+    setAdminPage(0)
+    requestStateRef.current = {
+      ...requestStateRef.current,
+      query: nextValue,
+      page: 0,
+    }
+  }, [])
+
+  const setAdminStatusFilter = useCallback((value) => {
+    const nextValue = typeof value === 'string' ? value : ''
+    setAdminStatusFilterValue(nextValue)
+    setAdminPage(0)
+    requestStateRef.current = {
+      ...requestStateRef.current,
+      status: nextValue,
+      page: 0,
+    }
+  }, [])
+
+  const goToAdminPage = useCallback((page) => {
+    fetchAdminUsers({ page })
+  }, [fetchAdminUsers])
 
   const updateApprovalStatus = useCallback(async (userId, status) => {
     setAdminError(null)
@@ -60,7 +139,7 @@ export function useAdminUsers(authUser) {
         '승인 상태 변경 실패'
       )
       setAdminNotice(`사용자 승인 상태를 ${status}로 변경했습니다.`)
-      fetchAdminUsers()
+      await fetchAdminUsers()
     } catch (err) {
       setAdminError(err?.message ?? '승인 상태 변경 실패')
     }
@@ -90,7 +169,7 @@ export function useAdminUsers(authUser) {
         ? ` (테넌트 DB ${payload.tenantDatabase} 삭제 완료)`
         : ''
       setAdminNotice(`사용자 ${label}를 삭제했습니다.${tenantInfo}`)
-      fetchAdminUsers()
+      await fetchAdminUsers()
     } catch (err) {
       setAdminError(err?.message ?? '사용자 삭제 실패')
     }
@@ -100,12 +179,18 @@ export function useAdminUsers(authUser) {
     adminLoading,
     adminError,
     adminNotice,
-    adminQuery,
-    adminStatusFilter,
+    adminQuery: adminQueryValue,
+    adminStatusFilter: adminStatusFilterValue,
     adminUsers,
+    adminPage,
+    adminTotalPages,
+    adminTotalElements,
+    adminHasNext,
+    adminHasPrevious: adminPage > 0,
     setAdminQuery,
     setAdminStatusFilter,
     fetchAdminUsers,
+    goToAdminPage,
     updateApprovalStatus,
     deleteAdminUser,
     resetAdminState,

@@ -5,7 +5,9 @@
 - 응답은 JSON 형식이며, 시간은 ISO-8601 문자열입니다.
 - 오류 응답은 보통 아래 형태입니다.
 - `api.auth.enabled=true`인 경우 `X-API-KEY` 헤더(또는 `api.auth.header` 지정값)가 필요합니다.
-- `/api/me`, `/api/me/settings`, `/api/order/**`, `/api/strategy/**`, `/api/portfolio/**`, `/api/engine/**`는 OAuth 로그인 세션이 필요합니다.
+- `/api/me`, `/api/me/settings`, `/api/order/**`, `/api/portfolio/**`, `/api/engine/**`는 OAuth 로그인 세션이 필요합니다.
+- `GET /api/strategy`, `GET /api/strategy/presets`, `GET /api/strategy/markets`, `GET /api/strategy/market-overrides`, `GET /api/strategy/overrides`는 비로그인 조회가 가능합니다.
+- 전략 설정 변경(`PUT`/`PATCH /api/strategy/**`)은 OAuth 로그인 세션이 필요합니다.
 - `/api/order/**`, `/api/strategy/**`, `/api/portfolio/**`, `/api/engine/**`는 로그인 사용자의 tenant DB 기준으로 처리됩니다.
 - `APP_TRADING_OWNER_ONLY_MODE=true`면 `/api/order`와 `/api/engine/start|tick`은 owner 계정만 허용됩니다.
 - `APP_AUTH_DYNAMIC_REDIRECT_ENABLED=true`면 OAuth 로그인 성공/실패 리다이렉트 호스트는 현재 요청 호스트 기준으로 동적으로 계산됩니다.
@@ -465,6 +467,8 @@ curl "http://localhost:8080/api/portfolio/performance?year=2026&month=2"
 ---
 
 ## 전략 설정
+
+조회(`GET`)는 비로그인으로도 가능하며, 변경(`PUT`/`PATCH`)은 로그인 사용자만 가능합니다.
 
 ### GET /api/strategy
 현재 전략 설정 조회.

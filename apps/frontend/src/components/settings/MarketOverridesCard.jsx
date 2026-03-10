@@ -45,6 +45,7 @@ function MarketOverridesCard({
   handleAddMarket,
   handleMarketReload,
   onSaveMarketOverrides,
+  readOnly = false,
 }) {
   return (
     <article className="control-card card--elevated market-card">
@@ -62,12 +63,14 @@ function MarketOverridesCard({
       {presetError && <p className="status-error">{presetError}</p>}
       {marketConfigError && <p className="status-error">{marketConfigError}</p>}
       {marketConfigNotice && <p className="status-success">{marketConfigNotice}</p>}
+      {readOnly && <p className="sub compact">로그인 전 조회 전용 모드입니다. 변경 사항은 저장되지 않습니다.</p>}
       <div className="market-add-row">
         <div className="market-add-input-wrap">
           <input
             type="text"
             value={newMarketInput}
             placeholder="코인명/심볼/마켓코드 검색 (예: 이더리움, ETH, KRW-ETH)"
+            disabled={readOnly}
             onFocus={() => {
               if (marketSuggestions.length > 0) {
                 setMarketSuggestOpen(true)
@@ -133,7 +136,7 @@ function MarketOverridesCard({
         <button
           className="ghost-button"
           onClick={() => handleAddMarket()}
-          disabled={marketConfigLoading || marketConfigSaving}
+          disabled={readOnly || marketConfigLoading || marketConfigSaving}
         >
           마켓 추가
         </button>
@@ -175,12 +178,14 @@ function MarketOverridesCard({
                       min="0"
                       placeholder={DEFAULT_MARKET_MAX_ORDER_KRW}
                       value={row.maxOrderKrw}
+                      disabled={readOnly}
                       onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'maxOrderKrw', event.target.value)}
                     />
                   </label>
                   <label className="market-inline-field">
                     <select
                       value={normalizeProfileValue(row.profile) || DEFAULT_MARKET_PROFILE}
+                      disabled={readOnly}
                       onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'profile', event.target.value)}
                     >
                       {PROFILE_VALUES.map((profile) => (
@@ -198,6 +203,7 @@ function MarketOverridesCard({
                       type="button"
                       className={`market-toggle-button ${row.tradePaused ? 'is-resume' : 'is-pause'}`}
                       onClick={() => updateMarketOverrideInput(setMarketRows, row.market, 'tradePaused', !row.tradePaused)}
+                      disabled={readOnly}
                       aria-pressed={row.tradePaused}
                     >
                       {row.tradePaused ? '재개' : '일시정지'}
@@ -212,7 +218,7 @@ function MarketOverridesCard({
                       setMarketConfigError,
                       setSelectedRatioPresetByMarket
                     )}
-                    disabled={marketConfigSaving}
+                    disabled={readOnly || marketConfigSaving}
                   >
                     제거
                   </button>
@@ -239,6 +245,7 @@ function MarketOverridesCard({
                             setSelectedRatioPresetByMarket,
                             setRatioError
                           )}
+                          disabled={readOnly}
                           type="button"
                         >
                           {preset.displayName} 비율 적용
@@ -259,6 +266,7 @@ function MarketOverridesCard({
                           step="0.1"
                           placeholder={toInputValue(strategy?.takeProfitPct)}
                           value={row.takeProfitPct}
+                          disabled={readOnly}
                           onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'takeProfitPct', event.target.value)}
                         />
                       </label>
@@ -269,6 +277,7 @@ function MarketOverridesCard({
                           step="0.1"
                           placeholder={toInputValue(strategy?.stopLossPct)}
                           value={row.stopLossPct}
+                          disabled={readOnly}
                           onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'stopLossPct', event.target.value)}
                         />
                       </label>
@@ -279,6 +288,7 @@ function MarketOverridesCard({
                           step="0.1"
                           placeholder={toInputValue(strategy?.trailingStopPct)}
                           value={row.trailingStopPct}
+                          disabled={readOnly}
                           onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'trailingStopPct', event.target.value)}
                         />
                       </label>
@@ -289,6 +299,7 @@ function MarketOverridesCard({
                           step="1"
                           placeholder={toInputValue(strategy?.partialTakeProfitPct)}
                           value={row.partialTakeProfitPct}
+                          disabled={readOnly}
                           onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'partialTakeProfitPct', event.target.value)}
                         />
                       </label>
@@ -299,6 +310,7 @@ function MarketOverridesCard({
                           step="1"
                           placeholder={toInputValue(strategy?.stopExitPct)}
                           value={row.stopExitPct}
+                          disabled={readOnly}
                           onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'stopExitPct', event.target.value)}
                         />
                       </label>
@@ -309,6 +321,7 @@ function MarketOverridesCard({
                           step="1"
                           placeholder={toInputValue(strategy?.trendExitPct)}
                           value={row.trendExitPct}
+                          disabled={readOnly}
                           onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'trendExitPct', event.target.value)}
                         />
                       </label>
@@ -319,6 +332,7 @@ function MarketOverridesCard({
                           step="1"
                           placeholder={toInputValue(strategy?.momentumExitPct)}
                           value={row.momentumExitPct}
+                          disabled={readOnly}
                           onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'momentumExitPct', event.target.value)}
                         />
                       </label>
@@ -332,6 +346,7 @@ function MarketOverridesCard({
                           setSelectedRatioPresetByMarket,
                           setRatioError
                         )}
+                        disabled={readOnly}
                         type="button"
                       >
                         이 마켓 비율 초기화
@@ -349,9 +364,15 @@ function MarketOverridesCard({
         <button
           className="primary-button"
           onClick={onSaveMarketOverrides}
-          disabled={marketConfigLoading || marketConfigSaving || !marketRowsDirty}
+          disabled={readOnly || marketConfigLoading || marketConfigSaving || !marketRowsDirty}
         >
-          {marketConfigSaving ? '저장 중...' : marketRowsDirty ? '마켓 설정 저장' : '변경사항 없음'}
+          {readOnly
+            ? '로그인 후 저장 가능'
+            : marketConfigSaving
+            ? '저장 중...'
+            : marketRowsDirty
+            ? '마켓 설정 저장'
+            : '변경사항 없음'}
         </button>
         <button
           className="ghost-button"

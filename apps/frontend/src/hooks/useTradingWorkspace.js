@@ -22,6 +22,141 @@ import {
   startEngineRequest,
   stopEngineRequest,
 } from '../utils/tradingActions.js'
+import { ApiError, requestJson } from '../utils/apiClient.js'
+
+const INVENTORY_EPSILON = 1e-12
+const isServerReachable = (error) => error instanceof ApiError
+
+const toPositiveNumber = (value) => {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return null
+  }
+  return numeric
+}
+
+const normalizeOrderSide = (value) => {
+  if (value === null || value === undefined) {
+    return null
+  }
+  const normalized = String(value).trim().toUpperCase()
+  return normalized === '' ? null : normalized
+}
+
+const resolveOrderTimestamp = (order, fallbackIndex) => {
+  const requestedAt = Date.parse(order?.requestedAt ?? '')
+  if (Number.isFinite(requestedAt)) {
+    return requestedAt
+  }
+  const createdAt = Date.parse(order?.createdAt ?? '')
+  if (Number.isFinite(createdAt)) {
+    return createdAt
+  }
+  return fallbackIndex
+}
+
+const resolveOrderTradeSnapshot = (order) => {
+  const decision = order?.decision
+  let quantity = toPositiveNumber(order?.volume) ?? toPositiveNumber(decision?.quantity)
+  let funds = toPositiveNumber(order?.funds) ?? toPositiveNumber(decision?.funds)
+  let unitPrice = toPositiveNumber(order?.price) ?? toPositiveNumber(decision?.price)
+
+  if (!quantity && funds && unitPrice) {
+    quantity = funds / unitPrice
+  }
+  if (!funds && quantity && unitPrice) {
+    funds = quantity * unitPrice
+  }
+  if (!unitPrice && quantity && funds) {
+    unitPrice = funds / quantity
+  }
+
+  return { quantity, funds, unitPrice }
+}
+
+const appendTradeProfit = (orders) => {
+  if (!Array.isArray(orders) || orders.length === 0) {
+    return []
+  }
+
+  const inventoryByMarket = new Map()
+  const wrappedOrders = orders.map((order, index) => ({
+    index,
+    order,
+    market: typeof order?.market === 'string' ? order.market : '',
+    side: normalizeOrderSide(order?.side),
+    sortTime: resolveOrderTimestamp(order, index),
+  }))
+
+  wrappedOrders.sort((left, right) => {
+    if (left.sortTime !== right.sortTime) {
+      return left.sortTime - right.sortTime
+    }
+    return left.index - right.index
+  })
+
+  const profitByIndex = new Map()
+
+  wrappedOrders.forEach(({ index, order, market, side }) => {
+    if (side === 'BUY') {
+      const snapshot = resolveOrderTradeSnapshot(order)
+      const state = inventoryByMarket.get(market) ?? { quantity: 0, cost: 0 }
+      if (snapshot.quantity && snapshot.funds) {
+        state.quantity += snapshot.quantity
+        state.cost += snapshot.funds
+      }
+      inventoryByMarket.set(market, state)
+      profitByIndex.set(index, 0)
+      return
+    }
+
+    if (side === 'SELL') {
+      const snapshot = resolveOrderTradeSnapshot(order)
+      const state = inventoryByMarket.get(market) ?? { quantity: 0, cost: 0 }
+      let realizedProfit = null
+
+      if (snapshot.quantity && snapshot.funds && state.quantity > INVENTORY_EPSILON && state.cost > 0) {
+        const matchedQuantity = Math.min(snapshot.quantity, state.quantity)
+        if (matchedQuantity > INVENTORY_EPSILON) {
+          const matchedRatio = matchedQuantity / snapshot.quantity
+          const matchedNotional = snapshot.funds * matchedRatio
+          const averageCost = state.cost / state.quantity
+          const costBasis = averageCost * matchedQuantity
+          realizedProfit = matchedNotional - costBasis
+
+          state.quantity -= matchedQuantity
+          state.cost -= costBasis
+
+          if (state.quantity <= INVENTORY_EPSILON) {
+            state.quantity = 0
+            state.cost = 0
+          } else if (state.cost < 0) {
+            state.cost = 0
+          }
+
+          if (Number.isFinite(realizedProfit)) {
+            profitByIndex.set(index, realizedProfit)
+          } else {
+            profitByIndex.set(index, null)
+          }
+          inventoryByMarket.set(market, state)
+          return
+        }
+      }
+
+      inventoryByMarket.set(market, state)
+      profitByIndex.set(index, null)
+      return
+    }
+
+    profitByIndex.set(index, null)
+  })
+
+  return orders.map((order, index) => ({
+    ...order,
+    tradeProfit: profitByIndex.has(index) ? profitByIndex.get(index) : null,
+  }))
+}
 
 export function useTradingWorkspace({
   authUser,
@@ -72,7 +207,9 @@ export function useTradingWorkspace({
 
   const [orderHistory, setOrderHistory] = useState([])
   const [decisionHistory, setDecisionHistory] = useState([])
-  const [feedError, setFeedError] = useState(null)
+  const [summaryError, setSummaryError] = useState(null)
+  const [orderHistoryError, setOrderHistoryError] = useState(null)
+  const [decisionHistoryError, setDecisionHistoryError] = useState(null)
   const [performance, setPerformance] = useState(null)
   const [performanceMode, setPerformanceMode] = useState('range')
   const [performanceInputs, setPerformanceInputs] = useState(buildDefaultPerformanceInputs)
@@ -101,10 +238,15 @@ export function useTradingWorkspace({
       return
     }
     setLoading(false)
+    setServerConnected(null)
     setSummary(null)
+    setSummaryError(null)
     setEngineStatus(null)
     setEngineError(null)
-    setFeedError(null)
+    setOrderHistoryError(null)
+    setDecisionHistoryError(null)
+    setPerformance(null)
+    setPerformanceError(null)
     setManualTradeOpen(false)
   }, [authUser])
 
@@ -121,15 +263,13 @@ export function useTradingWorkspace({
       setLoading(true)
     }
     try {
-      const response = await fetch('/api/portfolio/summary')
-      if (!response.ok) {
-        throw new Error(`서버 응답 ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await requestJson('/api/portfolio/summary', {}, '자산 요약 조회 실패')
       setSummary(data)
+      setSummaryError(null)
       setServerConnected(true)
-    } catch {
-      setServerConnected(false)
+    } catch (err) {
+      setServerConnected(isServerReachable(err))
+      setSummaryError(err?.message ?? '자산 요약 조회 실패')
     } finally {
       if (!isRefresh) {
         setLoading(false)
@@ -139,12 +279,9 @@ export function useTradingWorkspace({
 
   const fetchEngineStatus = useCallback(async () => {
     try {
-      const response = await fetch('/api/engine/status')
-      if (!response.ok) {
-        throw new Error(`엔진 상태 오류 ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await requestJson('/api/engine/status', {}, '엔진 상태 조회 실패')
       setEngineStatus(Boolean(data?.running))
+      setEngineError(null)
     } catch (err) {
       setEngineError(err?.message ?? '엔진 상태 조회 실패')
     }
@@ -153,11 +290,7 @@ export function useTradingWorkspace({
   const fetchStrategy = useCallback(async () => {
     setStrategyError(null)
     try {
-      const response = await fetch('/api/strategy')
-      if (!response.ok) {
-        throw new Error(`전략 조회 오류 ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await requestJson('/api/strategy', {}, '전략 조회 실패')
       setStrategy(data)
     } catch (err) {
       setStrategyError(err?.message ?? '전략 조회 실패')
@@ -167,11 +300,7 @@ export function useTradingWorkspace({
   const fetchRatioPresets = useCallback(async () => {
     setPresetError(null)
     try {
-      const response = await fetch('/api/strategy/presets')
-      if (!response.ok) {
-        throw new Error(`프리셋 조회 오류 ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await requestJson('/api/strategy/presets', {}, '프리셋 조회 실패')
       setRatioPresets(normalizeRatioPresets(data))
     } catch (err) {
       setRatioPresets([])
@@ -181,34 +310,30 @@ export function useTradingWorkspace({
 
   const fetchOrderHistory = useCallback(async () => {
     try {
-      const response = await fetch('/api/order/history?limit=30')
-      if (!response.ok) {
-        throw new Error(`주문 로그 조회 오류 ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await requestJson('/api/order/history?limit=30', {}, '주문 로그 조회 실패')
       setOrderHistory(Array.isArray(data) ? data : [])
-      setFeedError(null)
+      setOrderHistoryError(null)
     } catch (err) {
-      setFeedError(err?.message ?? '주문 로그 조회 실패')
+      setOrderHistoryError(err?.message ?? '주문 로그 조회 실패')
     }
   }, [])
 
   const fetchDecisionHistory = useCallback(async () => {
     try {
-      const response = await fetch('/api/engine/decisions?limit=30&includeSkips=false')
-      if (!response.ok) {
-        throw new Error(`의사결정 로그 조회 오류 ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await requestJson(
+        '/api/engine/decisions?limit=30&includeSkips=false',
+        {},
+        '의사결정 로그 조회 실패'
+      )
       const allItems = Array.isArray(data) ? data : []
       const tradeOnlyItems = allItems.filter((decision) => {
         const action = String(decision?.action ?? '').toUpperCase()
         return action === 'BUY' || action === 'SELL'
       })
       setDecisionHistory(tradeOnlyItems)
-      setFeedError(null)
+      setDecisionHistoryError(null)
     } catch (err) {
-      setFeedError(err?.message ?? '의사결정 로그 조회 실패')
+      setDecisionHistoryError(err?.message ?? '의사결정 로그 조회 실패')
     }
   }, [])
 
@@ -217,11 +342,7 @@ export function useTradingWorkspace({
     setMarketConfigError(null)
     setMarketConfigNotice(null)
     try {
-      const response = await fetch('/api/strategy/market-overrides')
-      if (!response.ok) {
-        throw new Error(`마켓 설정 조회 오류 ${response.status}`)
-      }
-      const data = await response.json()
+      const data = await requestJson('/api/strategy/market-overrides', {}, '마켓 설정 조회 실패')
       const rows = buildMarketOverrideRows(data)
       setMarketRows(rows)
       setMarketRowsBaseline(buildMarketOverrideSignature(rows))
@@ -272,13 +393,7 @@ export function useTradingWorkspace({
     setPerformanceError(null)
     try {
       const query = buildPerformanceQuery(mode, inputs)
-      const response = await fetch(`/api/portfolio/performance?${query}`)
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null)
-        const message = buildApiErrorMessage(payload, `성과 조회 실패 ${response.status}`)
-        throw new Error(message)
-      }
-      const data = await response.json()
+      const data = await requestJson(`/api/portfolio/performance?${query}`, {}, '성과 조회 실패')
       setPerformance(data)
     } catch (err) {
       setPerformanceError(err?.message ?? '성과 조회 실패')
@@ -288,10 +403,25 @@ export function useTradingWorkspace({
   }, [])
 
   useEffect(() => {
-    if (!authUser || bootstrapLoading || !bootstrapLoaded) {
+    const authenticated = Boolean(authUser)
+    if (bootstrapLoading || (authenticated && !bootstrapLoaded)) {
       return undefined
     }
     if (!pageVisible) {
+      return undefined
+    }
+
+    if (isSettingsRoute) {
+      fetchStrategy()
+      fetchRatioPresets()
+      fetchMarketOverrides()
+      fetchMarketCatalog()
+      if (authenticated) {
+        fetchPerformance()
+      }
+    }
+
+    if (!authenticated) {
       return undefined
     }
 
@@ -301,13 +431,6 @@ export function useTradingWorkspace({
     if (isDashboardRoute) {
       fetchOrderHistory()
       fetchDecisionHistory()
-    }
-    if (isSettingsRoute) {
-      fetchStrategy()
-      fetchRatioPresets()
-      fetchMarketOverrides()
-      fetchMarketCatalog()
-      fetchPerformance()
     }
 
     const summaryTimer = setInterval(() => fetchSummary(true), pollingIntervalMs)
@@ -391,13 +514,21 @@ export function useTradingWorkspace({
     return map
   }, [decisionHistory])
   const mergedOrderHistory = useMemo(
-    () =>
+    () => appendTradeProfit(
       orderHistory.map((order) => ({
         ...order,
         decision: order?.orderId ? decisionByOrderId.get(order.orderId) : null,
-      })),
+      }))
+    ),
     [orderHistory, decisionByOrderId]
   )
+  const feedError = useMemo(() => {
+    const errors = [orderHistoryError, decisionHistoryError].filter(Boolean)
+    if (errors.length === 0) {
+      return null
+    }
+    return [...new Set(errors)].join(' / ')
+  }, [decisionHistoryError, orderHistoryError])
   const performanceTotal = performance?.total
   const manualTradePosition = useMemo(
     () => positions.find((item) => item.market === manualTradeMarket) ?? null,
@@ -615,6 +746,7 @@ export function useTradingWorkspace({
     manualTradeError,
     manualTradeNotice,
     mergedOrderHistory,
+    summaryError,
     feedError,
     performance,
     performanceMode,

@@ -9,6 +9,7 @@ function DashboardRoute({
   totals,
   loading,
   positions,
+  summaryError,
   manualTradeNotice,
   mergedOrderHistory,
   feedError,
@@ -20,9 +21,6 @@ function DashboardRoute({
     formatCoin,
     formatPercent,
     formatDateTime,
-    formatOrderStatus,
-    formatFixed,
-    truncateText,
     pnlClass,
   } = formatters
 
@@ -31,6 +29,7 @@ function DashboardRoute({
       <DashboardSummaryCards
         cash={cash}
         totals={totals}
+        summaryError={summaryError}
         formatKRW={formatKRW}
         formatPercent={formatPercent}
         pnlClass={pnlClass}
@@ -42,6 +41,7 @@ function DashboardRoute({
             authRequired={authRequired}
             loading={loading}
             positions={positions}
+            summaryError={summaryError}
             manualTradeNotice={manualTradeNotice}
             onOpenManualTrade={onOpenManualTrade}
             formatKRW={formatKRW}
@@ -54,11 +54,8 @@ function DashboardRoute({
             feedError={feedError}
             mergedOrderHistory={mergedOrderHistory}
             formatDateTime={formatDateTime}
-            formatOrderStatus={formatOrderStatus}
-            formatCoin={formatCoin}
             formatKRW={formatKRW}
-            formatFixed={formatFixed}
-            truncateText={truncateText}
+            pnlClass={pnlClass}
           />
         </div>
       </section>

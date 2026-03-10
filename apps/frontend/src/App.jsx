@@ -17,15 +17,12 @@ import {
 import {
   formatCoin,
   formatDateTime,
-  formatFixed,
   formatKRW,
-  formatOrderStatus,
   formatPercent,
   pnlClass,
   resolveAppPath,
   resolveAppRoute,
   toInputValue,
-  truncateText,
 } from './utils/tradingUi.js'
 import { requestJson } from './utils/apiClient.js'
 
@@ -36,9 +33,6 @@ const DASHBOARD_FORMATTERS = {
   formatCoin,
   formatPercent,
   formatDateTime,
-  formatOrderStatus,
-  formatFixed,
-  truncateText,
   pnlClass,
 }
 const MANUAL_TRADE_FORMATTERS = {
@@ -101,9 +95,15 @@ function App() {
     adminQuery,
     adminStatusFilter,
     adminUsers,
+    adminPage,
+    adminTotalPages,
+    adminTotalElements,
+    adminHasNext,
+    adminHasPrevious,
     setAdminQuery,
     setAdminStatusFilter,
     fetchAdminUsers,
+    goToAdminPage,
     updateApprovalStatus,
     deleteAdminUser,
     resetAdminState,
@@ -247,6 +247,7 @@ function App() {
     manualTradeError,
     manualTradeNotice,
     mergedOrderHistory,
+    summaryError,
     feedError,
     performance,
     performanceMode,
@@ -309,7 +310,7 @@ function App() {
 
   useEffect(() => {
     if (!authUser) {
-      if (activeRoute !== DASHBOARD_ROUTE) {
+      if (activeRoute === ADMIN_USERS_ROUTE) {
         navigateRoute(DASHBOARD_ROUTE)
       }
       return
@@ -502,7 +503,11 @@ function App() {
   ])
 
   const authenticated = Boolean(authUser?.id)
-  const effectiveRoute = authenticated ? activeRoute : DASHBOARD_ROUTE
+  const effectiveRoute = authenticated
+    ? activeRoute
+    : activeRoute === SETTINGS_ROUTE
+    ? SETTINGS_ROUTE
+    : DASHBOARD_ROUTE
   const routeLoadingFallback = (
     <section className="table-card">
       <div className="empty-state">화면을 불러오는 중입니다…</div>
@@ -560,19 +565,28 @@ function App() {
             statusFilter={adminStatusFilter}
             setStatusFilter={setAdminStatusFilter}
             users={adminUsers}
+            page={adminPage}
+            totalPages={adminTotalPages}
+            totalElements={adminTotalElements}
+            hasNext={adminHasNext}
+            hasPrevious={adminHasPrevious}
             onRefresh={fetchAdminUsers}
+            onPreviousPage={() => goToAdminPage(adminPage - 1)}
+            onNextPage={() => goToAdminPage(adminPage + 1)}
             onApprove={(userId) => updateApprovalStatus(userId, 'APPROVED')}
             onSuspend={(userId) => updateApprovalStatus(userId, 'SUSPENDED')}
             onDelete={deleteAdminUser}
           />
         </Suspense>
-      ) : effectiveRoute === SETTINGS_ROUTE && authenticated ? (
+      ) : effectiveRoute === SETTINGS_ROUTE ? (
         <Suspense fallback={routeLoadingFallback}>
           <SettingsRoute
             userPreferences={userPreferencesProps}
             exchangeCredentials={exchangeCredentialsProps}
             marketOverrides={marketOverridesProps}
             performance={performanceProps}
+            authenticated={authenticated}
+            readOnly={!authenticated}
           />
         </Suspense>
       ) : (
@@ -582,6 +596,7 @@ function App() {
           totals={totals}
           loading={loading}
           positions={positions}
+          summaryError={summaryError}
           manualTradeNotice={manualTradeNotice}
           mergedOrderHistory={mergedOrderHistory}
           feedError={feedError}

@@ -184,16 +184,16 @@ public class AutoTradeService {
             @Value("${signal.ma-short:20}") int maShort,
             @Value("${signal.ma-long:100}") int maLong,
             @Value("${signal.rsi-period:14}") int rsiPeriod,
-            @Value("${signal.rsi-buy-threshold:55}") double rsiBuyThreshold,
+            @Value("${signal.rsi-buy-threshold:53}") double rsiBuyThreshold,
             @Value("${signal.rsi-sell-threshold:45}") double rsiSellThreshold,
             @Value("${signal.rsi-overbought:70}") double rsiOverbought,
             @Value("${signal.macd-fast:12}") int macdFast,
             @Value("${signal.macd-slow:26}") int macdSlow,
             @Value("${signal.macd-signal:9}") int macdSignal,
             @Value("${signal.adx-period:14}") int adxPeriod,
-            @Value("${signal.min-adx:18}") double minAdx,
+            @Value("${signal.min-adx:14}") double minAdx,
             @Value("${signal.volume-lookback:20}") int volumeLookback,
-            @Value("${signal.min-volume-ratio:0.8}") double minVolumeRatio,
+            @Value("${signal.min-volume-ratio:0.75}") double minVolumeRatio,
             @Value("${signal.bollinger.window:20}") int bollingerWindow,
             @Value("${signal.bollinger.stddev:2.0}") double bollingerStdDev,
             @Value("${signal.bollinger.min-bandwidth-pct:0.6}") double bollingerMinBandwidthPct,
@@ -202,7 +202,7 @@ public class AutoTradeService {
             @Value("${signal.breakout-pct:0.3}") double breakoutPct,
             @Value("${signal.max-extension-pct:1.2}") double maxExtensionPct,
             @Value("${signal.ma-long-slope-lookback:5}") int maLongSlopeLookback,
-            @Value("${signal.min-confirmations:2}") int minConfirmations,
+            @Value("${signal.min-confirmations:1}") int minConfirmations,
             @Value("${risk.trailing-window:20}") int trailingWindow,
             @Value("${risk.partial-take-profit-cooldown-minutes:120}") long partialTakeProfitCooldownMinutes,
             @Value("${risk.stop-loss-cooldown-minutes:30}") long stopLossCooldownMinutes,
@@ -216,12 +216,12 @@ public class AutoTradeService {
             @Value("${signal.use-closed-candle:true}") boolean useClosedCandle,
             @Value("${regime.filter.enabled:true}") boolean regimeFilterEnabled,
             @Value("${regime.filter.timeframe-unit:15}") int regimeTimeframeUnit,
-            @Value("${regime.filter.ma-short:40}") int regimeMaShort,
-            @Value("${regime.filter.ma-long:120}") int regimeMaLong,
+            @Value("${regime.filter.ma-short:30}") int regimeMaShort,
+            @Value("${regime.filter.ma-long:90}") int regimeMaLong,
             @Value("${regime.filter.ma-long-slope-lookback:5}") int regimeSlopeLookback,
             @Value("${regime.filter.min-ma-long-slope-pct:0.0}") double regimeMinMaLongSlopePct,
             @Value("${regime.filter.volatility-window:48}") int regimeVolatilityWindow,
-            @Value("${regime.filter.max-volatility-pct:1.2}") BigDecimal regimeMaxVolatilityPct,
+            @Value("${regime.filter.max-volatility-pct:2.2}") BigDecimal regimeMaxVolatilityPct,
             @Value("${regime.switch.enabled:true}") boolean regimeParameterSwitchEnabled,
             @Value("${regime.switch.risk-on-slope-pct:0.12}") double regimeRiskOnSlopePct,
             @Value("${regime.switch.risk-on-max-volatility-pct:0.8}") double regimeRiskOnMaxVolatilityPct,
@@ -235,7 +235,7 @@ public class AutoTradeService {
             @Value("${regime.switch.caution-stop-loss-multiplier:0.9}") double regimeCautionStopLossMultiplier,
             @Value("${regime.switch.caution-trailing-stop-multiplier:0.9}") double regimeCautionTrailingStopMultiplier,
             @Value("${regime.switch.caution-rsi-buy-adjust:1.5}") double regimeCautionRsiBuyAdjust,
-            @Value("${signal.htf-confirm.enabled:true}") boolean htfConfirmEnabled,
+            @Value("${signal.htf-confirm.enabled:false}") boolean htfConfirmEnabled,
             @Value("${signal.htf-confirm.unit:60}") int htfConfirmUnitMinutes,
             @Value("${signal.htf-confirm.ma-short:20}") int htfConfirmMaShort,
             @Value("${signal.htf-confirm.ma-long:50}") int htfConfirmMaLong,
@@ -677,6 +677,7 @@ public class AutoTradeService {
                                 && !tradePaused
                                 && canScaleInAfterSellAction(sellAction)
                                 && remainingCash.compareTo(BigDecimal.ZERO) > 0) {
+                            BigDecimal currentPositionValueKrw = estimatePositionValueKrw(position, indicators.currentPrice());
                             AutoTradeAction buyAction = handleBuy(
                                     market,
                                     remainingCash,
@@ -684,6 +685,7 @@ public class AutoTradeService {
                                     indicators,
                                     tuning,
                                     marketMaxOrderKrw,
+                                    currentPositionValueKrw,
                                     profile,
                                     momentumScorePct,
                                     totalAssetKrw,
@@ -727,6 +729,7 @@ public class AutoTradeService {
                             indicators,
                             tuning,
                             marketMaxOrderKrw,
+                            BigDecimal.ZERO,
                             profile,
                             momentumScorePct,
                             totalAssetKrw,
@@ -1041,6 +1044,7 @@ public class AutoTradeService {
             MarketIndicators indicators,
             SignalTuning tuning,
             BigDecimal marketMaxOrderKrw,
+            BigDecimal currentPositionValueKrw,
             StrategyProfile profile,
             BigDecimal momentumScorePct,
             BigDecimal totalAssetKrw,
@@ -1076,7 +1080,7 @@ public class AutoTradeService {
         boolean useV2Model = isStrategyV2(config);
 
         if (!useV2Model) {
-            if (indicators.maShort().compareTo(indicators.maLong()) <= 0 || indicators.currentPrice().compareTo(indicators.maLong()) <= 0) {
+            if (indicators.maShort().compareTo(indicators.maLong()) <= 0 && indicators.currentPrice().compareTo(indicators.maLong()) <= 0) {
                 return new AutoTradeAction(market, "SKIP", "no trend", indicators.currentPrice(), null, null, null, null);
             }
             if (tuning.minMaLongSlopePct() > 0 && indicators.maLongSlopePct() == null) {
@@ -1141,6 +1145,18 @@ public class AutoTradeService {
                 regimeSizeMultiplier
         );
         orderFunds = applyCostBuffer(orderFunds);
+        if (marketMaxOrderKrw != null
+                && marketMaxOrderKrw.compareTo(BigDecimal.ZERO) > 0
+                && currentPositionValueKrw != null
+                && currentPositionValueKrw.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal remainingBudget = marketMaxOrderKrw.subtract(currentPositionValueKrw);
+            if (remainingBudget.compareTo(BigDecimal.ZERO) <= 0) {
+                return new AutoTradeAction(market, "SKIP", "market_buy_cap_reached", null, null, orderFunds, null, null);
+            }
+            if (orderFunds.compareTo(remainingBudget) > 0) {
+                orderFunds = remainingBudget;
+            }
+        }
         BigDecimal minTotal = resolveMinOrderKrw(market, "BUY");
         if (orderFunds.compareTo(minTotal) < 0) {
             return new AutoTradeAction(market, "SKIP", "insufficient cash", null, null, orderFunds, null, null);
@@ -2576,6 +2592,17 @@ public class AutoTradeService {
             return BigDecimal.ZERO;
         }
         return accounts.getOrDefault(currency, AccountSnapshot.empty()).total();
+    }
+
+    private static BigDecimal estimatePositionValueKrw(AccountSnapshot position, BigDecimal currentPrice) {
+        if (position == null || currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal qty = position.total();
+        if (qty == null || qty.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        return qty.multiply(currentPrice);
     }
 
     private static List<BigDecimal> extractSortedCloses(List<Map<String, Object>> candles) {

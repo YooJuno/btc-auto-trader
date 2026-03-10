@@ -1,7 +1,9 @@
 package com.btcautotrader.portfolio;
 
+import com.btcautotrader.auth.TradingAccessService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -19,22 +21,27 @@ public class PortfolioController {
 
     private final PortfolioService portfolioService;
     private final PortfolioPerformanceService portfolioPerformanceService;
+    private final TradingAccessService tradingAccessService;
 
     public PortfolioController(
             PortfolioService portfolioService,
-            PortfolioPerformanceService portfolioPerformanceService
+            PortfolioPerformanceService portfolioPerformanceService,
+            TradingAccessService tradingAccessService
     ) {
         this.portfolioService = portfolioService;
         this.portfolioPerformanceService = portfolioPerformanceService;
+        this.tradingAccessService = tradingAccessService;
     }
 
     @GetMapping("/summary")
-    public ResponseEntity<PortfolioSummary> getSummary() {
+    public ResponseEntity<PortfolioSummary> getSummary(Authentication authentication) {
+        tradingAccessService.requireTenantReadAllowed(authentication);
         return ResponseEntity.ok(portfolioService.getSummary());
     }
 
     @GetMapping("/performance")
     public ResponseEntity<?> getPerformance(
+            Authentication authentication,
             @RequestParam(name = "from", required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(name = "to", required = false)
@@ -42,6 +49,7 @@ public class PortfolioController {
             @RequestParam(name = "year", required = false) Integer year,
             @RequestParam(name = "month", required = false) Integer month
     ) {
+        tradingAccessService.requireTenantReadAllowed(authentication);
         try {
             DateRange range = resolveRange(from, to, year, month);
             return ResponseEntity.ok(portfolioPerformanceService.getPerformance(range.from(), range.to()));

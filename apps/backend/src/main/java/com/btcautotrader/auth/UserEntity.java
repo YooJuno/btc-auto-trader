@@ -19,7 +19,8 @@ import java.time.OffsetDateTime;
                 @UniqueConstraint(name = "uk_app_users_provider_subject", columnNames = {"provider", "provider_user_id"})
         },
         indexes = {
-                @Index(name = "idx_app_users_email", columnList = "email")
+                @Index(name = "idx_app_users_email", columnList = "email"),
+                @Index(name = "idx_app_users_tenant_db", columnList = "tenant_db")
         }
 )
 public class UserEntity {

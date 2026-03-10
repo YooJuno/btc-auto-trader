@@ -77,6 +77,14 @@
   margin-left: auto;
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.login-provider-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -1168,6 +1176,14 @@ h3 {
 .table-wrapper {
   overflow-x: auto;
   border-radius: 10px;
+}
+
+.admin-pagination {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .performance-summary-grid {

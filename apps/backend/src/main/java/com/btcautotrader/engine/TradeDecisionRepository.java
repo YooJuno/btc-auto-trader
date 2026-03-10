@@ -17,4 +17,10 @@ public interface TradeDecisionRepository extends JpaRepository<TradeDecisionEnti
             Collection<String> actions,
             OffsetDateTime executedAt
     );
+
+    List<TradeDecisionEntity> findByActionInAndExecutedAtGreaterThanEqualAndExecutedAtLessThanOrderByExecutedAtAsc(
+            Collection<String> actions,
+            OffsetDateTime executedAtFromInclusive,
+            OffsetDateTime executedAtToExclusive
+    );
 }

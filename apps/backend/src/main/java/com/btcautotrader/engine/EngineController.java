@@ -50,6 +50,7 @@ public class EngineController {
 
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> status(Authentication authentication) {
+        tradingAccessService.requireTenantReadAllowed(authentication);
         boolean running = callInUserTenant(authentication, engineService::isRunning);
         return ResponseEntity.ok(statusResponse(running));
     }
@@ -60,6 +61,7 @@ public class EngineController {
             @RequestParam(name = "limit", defaultValue = "30") int limit,
             @RequestParam(name = "includeSkips", defaultValue = "true") boolean includeSkips
     ) {
+        tradingAccessService.requireTenantReadAllowed(authentication);
         List<TradeDecisionItem> items = callInUserTenant(
                 authentication,
                 () -> tradeDecisionService.listRecent(limit, includeSkips)
@@ -69,6 +71,7 @@ public class EngineController {
 
     @PostMapping("/stop")
     public ResponseEntity<Map<String, Object>> stop(Authentication authentication) {
+        tradingAccessService.requireEngineExecutionAllowed(authentication);
         boolean running = callInUserTenant(authentication, engineService::stop);
         return ResponseEntity.ok(statusResponse(running));
     }
@@ -103,7 +106,7 @@ public class EngineController {
 
     private <T> T callInUserTenant(Authentication authentication, Supplier<T> supplier) {
         UserEntity user = TenantContext.callWithTenantDatabase(null, () -> currentUserService.requireUser(authentication));
-        String tenantDatabase = user.getTenantDatabase();
+        String tenantDatabase = tradingAccessService.requireTenantDatabase(user);
         return TenantContext.callWithTenantDatabase(tenantDatabase, supplier);
     }
 
