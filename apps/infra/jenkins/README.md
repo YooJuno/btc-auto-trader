@@ -5,7 +5,7 @@
 ## 1) 포함된 파일
 
 - 파이프라인: `Jenkinsfile`
-- 서버 배포 스크립트: `scripts/build.sh` (기존 파일 재사용)
+- 서버 배포 스크립트: `scripts/deploy/deploy_app.sh`
 
 ## 2) Jenkins 준비
 
@@ -44,7 +44,7 @@ Jenkins Tool 설정:
 CD(선택):
 
 - 조건: `main` 브랜치 + `DEPLOY=true`
-- 방식: SSH 원격 접속 후 `./scripts/build.sh` 실행
+- 방식: SSH 원격 접속 후 `./scripts/deploy/deploy_app.sh` 실행
 
 ## 4) 배포 파라미터
 
@@ -64,11 +64,11 @@ CD(선택):
 
 ## 5) 서버 권한 주의
 
-`scripts/build.sh`는 내부에서 `sudo systemctl ...`를 사용합니다.  
+`scripts/deploy/deploy_app.sh`는 내부에서 `sudo systemctl ...`를 사용합니다.  
 Jenkins가 원격에서 실행할 때 아래 둘 중 하나가 필요합니다.
 
 - 배포 사용자에 `NOPASSWD` sudo 허용
-- 또는 `build.sh`를 non-sudo 방식으로 분리
+- 또는 배포 스크립트를 non-sudo 방식으로 분리
 
 ## 6) 트러블슈팅
 

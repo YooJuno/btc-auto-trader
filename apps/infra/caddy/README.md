@@ -65,7 +65,7 @@ SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECT_URI=https://app.your-
 ## 6) 앱 재빌드/재시작
 
 ```bash
-./scripts/build.sh
+./scripts/deploy/deploy_app.sh
 ```
 
 필요 시 상태 확인:

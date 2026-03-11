@@ -93,6 +93,7 @@ class StrategyLab:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.root = Path(args.workdir).resolve()
+        self.backtest_script = self.root / "scripts" / "research" / "backtest.py"
         self.output_dir = Path(args.output_dir).resolve()
         self.cycles_dir = self.output_dir / "cycles"
         self.history_path = self.output_dir / "history.jsonl"
@@ -163,7 +164,7 @@ class StrategyLab:
         report_path = cycle_dir / f"report_{profile.lower()}.json"
         cmd = [
             self.args.python_bin,
-            "scripts/backtest.py",
+            str(self.backtest_script),
             "--market",
             self.args.market,
             "--days",

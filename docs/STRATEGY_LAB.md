@@ -13,17 +13,17 @@
 
 ### 단발 실행(테스트)
 ```bash
-python3 scripts/strategy_lab_daemon.py --single-run
+python3 scripts/research/strategy_lab_daemon.py --single-run
 ```
 
 ### 지속 실행(포그라운드)
 ```bash
-python3 scripts/strategy_lab_daemon.py --interval-minutes 60
+python3 scripts/research/strategy_lab_daemon.py --interval-minutes 60
 ```
 
 ### systemd 설치/시작
 ```bash
-./scripts/strategy_lab_install.sh
+./scripts/systemd/install_services.sh --strategy-only
 ```
 
 상태 확인:
@@ -54,7 +54,7 @@ journalctl -u btc-strategy-lab.service -f
 - `CONSERVATIVE`
 - `AGGRESSIVE`
 
-각 프로필은 `scripts/backtest.py`를 호출해 walk-forward(`train/test`) + optimize를 수행합니다.
+각 프로필은 `scripts/research/backtest.py`를 호출해 walk-forward(`train/test`) + optimize를 수행합니다.
 
 ## 4) 안전 원칙
 
@@ -77,7 +77,7 @@ journalctl -u btc-strategy-lab.service -f
 ## 6) 주요 옵션
 
 ```bash
-python3 scripts/strategy_lab_daemon.py \
+python3 scripts/research/strategy_lab_daemon.py \
   --market KRW-BTC \
   --days 90 \
   --profiles BALANCED,CONSERVATIVE,AGGRESSIVE \
@@ -87,4 +87,3 @@ python3 scripts/strategy_lab_daemon.py \
   --interval-minutes 60 \
   --consensus-lookback 12
 ```
-
