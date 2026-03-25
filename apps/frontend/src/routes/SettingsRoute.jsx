@@ -1,14 +1,10 @@
 import { memo } from 'react'
-import ExchangeCredentialsCard from '../components/settings/ExchangeCredentialsCard.jsx'
 import MarketOverridesCard from '../components/settings/MarketOverridesCard.jsx'
-import PerformanceCard from '../components/settings/PerformanceCard.jsx'
 import UserPreferencesCard from '../components/settings/UserPreferencesCard.jsx'
 
 function SettingsRoute({
   userPreferences,
-  exchangeCredentials,
   marketOverrides,
-  performance,
   authenticated = true,
   readOnly = false,
 }) {
@@ -17,8 +13,8 @@ function SettingsRoute({
       <aside className="workspace-side">
         {authenticated ? (
           <>
+            <MarketOverridesCard {...marketOverrides} readOnly={readOnly} />
             <UserPreferencesCard {...userPreferences} />
-            <ExchangeCredentialsCard {...exchangeCredentials} />
           </>
         ) : (
           <article className="control-card card--elevated">
@@ -31,8 +27,6 @@ function SettingsRoute({
             </div>
           </article>
         )}
-        <MarketOverridesCard {...marketOverrides} readOnly={readOnly} />
-        {authenticated && <PerformanceCard {...performance} />}
       </aside>
     </section>
   )

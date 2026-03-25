@@ -52,7 +52,7 @@ function MarketOverridesCard({
       <div className="card-head">
         <div>
           <h2>마켓별 설정</h2>
-          <p className="sub">마켓별 cap/profile 저장 + 행별 토글에서 비율 override 저장을 관리합니다.</p>
+          <p className="sub">여러 마켓을 동시에 자동매매하고, 마켓별 주문 한도와 개별 전략 값을 따로 저장합니다.</p>
         </div>
         <span className={`pill ${marketRowsDirty ? 'pill-warning' : ''}`}>
           {marketRowsDirty ? '변경 있음' : '저장됨'}
@@ -137,6 +137,7 @@ function MarketOverridesCard({
           className="ghost-button"
           onClick={() => handleAddMarket()}
           disabled={readOnly || marketConfigLoading || marketConfigSaving}
+          type="button"
         >
           마켓 추가
         </button>
@@ -144,7 +145,7 @@ function MarketOverridesCard({
       {marketConfigLoading ? (
         <div className="empty-state">마켓 설정을 불러오는 중입니다…</div>
       ) : marketRows.length === 0 ? (
-        <div className="empty-state">설정 가능한 마켓이 없습니다.</div>
+        <div className="empty-state">등록된 마켓이 없습니다. 비워 두면 자동매매는 실행되지 않습니다.</div>
       ) : (
         <div className="market-override-list">
           <div className="market-grid-header">
@@ -176,7 +177,7 @@ function MarketOverridesCard({
                       type="number"
                       step="1000"
                       min="0"
-                      placeholder={DEFAULT_MARKET_MAX_ORDER_KRW}
+                      placeholder={strategy?.maxOrderKrw ? toInputValue(strategy.maxOrderKrw) : DEFAULT_MARKET_MAX_ORDER_KRW}
                       value={row.maxOrderKrw}
                       disabled={readOnly}
                       onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'maxOrderKrw', event.target.value)}
@@ -219,6 +220,7 @@ function MarketOverridesCard({
                       setSelectedRatioPresetByMarket
                     )}
                     disabled={readOnly || marketConfigSaving}
+                    type="button"
                   >
                     제거
                   </button>
@@ -359,12 +361,13 @@ function MarketOverridesCard({
           })}
         </div>
       )}
-      <p className="sub compact">빈 값은 글로벌 전략 설정값을 사용합니다.</p>
+      <p className="sub compact">이 목록이 비어 있으면 자동매매는 멈추고, 하나 이상 있으면 등록된 마켓들을 동시에 대상으로 사용합니다.</p>
       <div className="button-row">
         <button
           className="primary-button"
           onClick={onSaveMarketOverrides}
           disabled={readOnly || marketConfigLoading || marketConfigSaving || !marketRowsDirty}
+          type="button"
         >
           {readOnly
             ? '로그인 후 저장 가능'
@@ -378,6 +381,7 @@ function MarketOverridesCard({
           className="ghost-button"
           onClick={() => handleMarketReload()}
           disabled={marketConfigSaving}
+          type="button"
         >
           다시 불러오기
         </button>

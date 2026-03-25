@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   DASHBOARD_ROUTE,
   SETTINGS_ROUTE,
@@ -6,16 +6,14 @@ import {
 import {
   addMarketRow,
   buildApiErrorMessage,
-  buildDefaultPerformanceInputs,
   buildManualOrderPayload,
   buildMarketOverrideRows,
   buildMarketOverrideSignature,
   buildMarketSuggestions,
-  buildPerformanceQuery,
   isValidMarketCode,
   normalizeMarket,
-  normalizeRatioPresets,
   normalizeMarketCatalog,
+  normalizeRatioPresets,
 } from '../utils/tradingUi.js'
 import {
   saveMarketOverridesRequest,
@@ -164,6 +162,7 @@ export function useTradingWorkspace({
   bootstrapLoading,
   bootstrapLoaded,
   pollingIntervalMs,
+  syncUserMarkets,
 }) {
   const [pageVisible, setPageVisible] = useState(() => (
     typeof document === 'undefined' ? true : document.visibilityState !== 'hidden'
@@ -210,13 +209,6 @@ export function useTradingWorkspace({
   const [summaryError, setSummaryError] = useState(null)
   const [orderHistoryError, setOrderHistoryError] = useState(null)
   const [decisionHistoryError, setDecisionHistoryError] = useState(null)
-  const [performance, setPerformance] = useState(null)
-  const [performanceMode, setPerformanceMode] = useState('range')
-  const [performanceInputs, setPerformanceInputs] = useState(buildDefaultPerformanceInputs)
-  const [performanceLoading, setPerformanceLoading] = useState(false)
-  const [performanceError, setPerformanceError] = useState(null)
-  const performanceModeRef = useRef(performanceMode)
-  const performanceInputsRef = useRef(performanceInputs)
   const isDashboardRoute = activeRoute === DASHBOARD_ROUTE
   const isSettingsRoute = activeRoute === SETTINGS_ROUTE
 
@@ -243,20 +235,27 @@ export function useTradingWorkspace({
     setSummaryError(null)
     setEngineStatus(null)
     setEngineError(null)
+    setStrategy(null)
+    setStrategyError(null)
+    setRatioError(null)
+    setPresetError(null)
+    setRatioPresets([])
+    setSelectedRatioPresetByMarket({})
+    setMarketRows([])
+    setMarketConfigSaving(false)
+    setMarketConfigLoading(false)
+    setMarketConfigError(null)
+    setMarketConfigNotice(null)
+    setMarketRowsBaseline('')
+    setNewMarketInput('')
+    setMarketCatalog([])
+    setMarketSuggestOpen(false)
+    setMarketSuggestIndex(0)
+    setExpandedMarket(null)
     setOrderHistoryError(null)
     setDecisionHistoryError(null)
-    setPerformance(null)
-    setPerformanceError(null)
     setManualTradeOpen(false)
   }, [authUser])
-
-  useEffect(() => {
-    performanceModeRef.current = performanceMode
-  }, [performanceMode])
-
-  useEffect(() => {
-    performanceInputsRef.current = performanceInputs
-  }, [performanceInputs])
 
   const fetchSummary = useCallback(async (isRefresh = false) => {
     if (!isRefresh) {
@@ -365,12 +364,15 @@ export function useTradingWorkspace({
         }
         return null
       })
+      if (typeof syncUserMarkets === 'function') {
+        syncUserMarkets(data?.markets)
+      }
     } catch (err) {
       setMarketConfigError(err?.message ?? '마켓 설정 조회 실패')
     } finally {
       setMarketConfigLoading(false)
     }
-  }, [])
+  }, [syncUserMarkets])
 
   const fetchMarketCatalog = useCallback(async () => {
     try {
@@ -385,23 +387,6 @@ export function useTradingWorkspace({
     }
   }, [])
 
-  const fetchPerformance = useCallback(async (
-    mode = performanceModeRef.current,
-    inputs = performanceInputsRef.current
-  ) => {
-    setPerformanceLoading(true)
-    setPerformanceError(null)
-    try {
-      const query = buildPerformanceQuery(mode, inputs)
-      const data = await requestJson(`/api/portfolio/performance?${query}`, {}, '성과 조회 실패')
-      setPerformance(data)
-    } catch (err) {
-      setPerformanceError(err?.message ?? '성과 조회 실패')
-    } finally {
-      setPerformanceLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
     const authenticated = Boolean(authUser)
     if (bootstrapLoading || (authenticated && !bootstrapLoaded)) {
@@ -411,14 +396,11 @@ export function useTradingWorkspace({
       return undefined
     }
 
-    if (isSettingsRoute) {
+    if (isSettingsRoute && authenticated) {
       fetchStrategy()
       fetchRatioPresets()
       fetchMarketOverrides()
       fetchMarketCatalog()
-      if (authenticated) {
-        fetchPerformance()
-      }
     }
 
     if (!authenticated) {
@@ -459,7 +441,6 @@ export function useTradingWorkspace({
     fetchMarketCatalog,
     fetchMarketOverrides,
     fetchOrderHistory,
-    fetchPerformance,
     fetchRatioPresets,
     fetchSummary,
     fetchStrategy,
@@ -529,7 +510,6 @@ export function useTradingWorkspace({
     }
     return [...new Set(errors)].join(' / ')
   }, [decisionHistoryError, orderHistoryError])
-  const performanceTotal = performance?.total
   const manualTradePosition = useMemo(
     () => positions.find((item) => item.market === manualTradeMarket) ?? null,
     [manualTradeMarket, positions]
@@ -548,16 +528,20 @@ export function useTradingWorkspace({
     setMarketConfigError(null)
     setMarketConfigNotice(null)
     try {
-      const nextRows = await saveMarketOverridesRequest(marketRows)
+      const data = await saveMarketOverridesRequest(marketRows)
+      const nextRows = buildMarketOverrideRows(data)
       setMarketRows(nextRows)
       setMarketRowsBaseline(buildMarketOverrideSignature(nextRows))
       setMarketConfigNotice('마켓/설정이 저장되었습니다.')
+      if (typeof syncUserMarkets === 'function') {
+        syncUserMarkets(data?.markets)
+      }
     } catch (err) {
       setMarketConfigError(err?.message ?? '마켓 설정 저장 실패')
     } finally {
       setMarketConfigSaving(false)
     }
-  }, [marketRows])
+  }, [marketRows, syncUserMarkets])
 
   const handleAddMarket = useCallback(() => {
     const normalized = normalizeMarket(newMarketInput)
@@ -572,14 +556,18 @@ export function useTradingWorkspace({
       setNewMarketInput,
       setMarketRows,
       setMarketConfigError,
-      setMarketConfigNotice
+      setMarketConfigNotice,
+      {
+        maxOrderKrw: strategy?.maxOrderKrw,
+        profile: strategy?.profile,
+      }
     )
     setMarketSuggestOpen(false)
     setMarketSuggestIndex(0)
     if (canExpand) {
       setExpandedMarket(normalized)
     }
-  }, [marketRows, newMarketInput])
+  }, [marketRows, newMarketInput, strategy])
 
   const handleSelectMarketSuggestion = useCallback((market) => {
     setNewMarketInput(market)
@@ -589,12 +577,16 @@ export function useTradingWorkspace({
       setNewMarketInput,
       setMarketRows,
       setMarketConfigError,
-      setMarketConfigNotice
+      setMarketConfigNotice,
+      {
+        maxOrderKrw: strategy?.maxOrderKrw,
+        profile: strategy?.profile,
+      }
     )
     setMarketSuggestOpen(false)
     setMarketSuggestIndex(0)
     setExpandedMarket(market)
-  }, [marketRows])
+  }, [marketRows, strategy])
 
   useEffect(() => {
     if (!expandedMarket) {
@@ -748,11 +740,6 @@ export function useTradingWorkspace({
     mergedOrderHistory,
     summaryError,
     feedError,
-    performance,
-    performanceMode,
-    performanceInputs,
-    performanceLoading,
-    performanceError,
     positions,
     cash,
     totals,
@@ -762,7 +749,6 @@ export function useTradingWorkspace({
     engineClass,
     marketRowsDirty,
     marketSuggestions,
-    performanceTotal,
     manualTradePosition,
     cashKrw,
     setRatioError,
@@ -774,14 +760,11 @@ export function useTradingWorkspace({
     setMarketSuggestOpen,
     setMarketSuggestIndex,
     setExpandedMarket,
-    setPerformanceMode,
-    setPerformanceInputs,
     setManualTradeSide,
     setManualTradeType,
     setManualTradePrice,
     setManualTradeVolume,
     setManualTradeFunds,
-    fetchPerformance,
     handleSelectMarketSuggestion,
     handleAddMarket,
     handleMarketReload,

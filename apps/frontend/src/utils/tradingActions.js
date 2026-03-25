@@ -1,8 +1,4 @@
-import {
-  buildMarketListPayload,
-  buildMarketOverridePayload,
-  buildMarketOverrideRows,
-} from './tradingUi.js'
+import { buildMarketOverridePayload } from './tradingUi.js'
 import { requestJson } from './apiClient.js'
 
 export async function startEngineRequest() {
@@ -16,18 +12,10 @@ export async function stopEngineRequest() {
 }
 
 export async function saveMarketOverridesRequest(rows) {
-  const marketsPayload = buildMarketListPayload(rows)
-  await requestJson('/api/strategy/markets', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(marketsPayload),
-  }, '마켓 저장 실패')
-
   const payload = buildMarketOverridePayload(rows)
-  const data = await requestJson('/api/strategy/market-overrides', {
+  return requestJson('/api/strategy/market-overrides', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }, '마켓 설정 저장 실패')
-  return buildMarketOverrideRows(data)
 }

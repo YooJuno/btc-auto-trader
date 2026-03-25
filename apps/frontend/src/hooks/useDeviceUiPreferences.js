@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DASHBOARD_ROUTE,
+  PROFILE_ROUTE,
   SETTINGS_ROUTE,
   UI_DENSITY_COMFORTABLE,
   UI_DENSITY_COMPACT,
@@ -107,7 +108,11 @@ export const useDeviceUiPreferences = ({
   const mobileUiPrefs = normalizedUserUiPrefs?.[UI_SCOPE_MOBILE] ?? {}
   const desktopUiPrefs = normalizedUserUiPrefs?.[UI_SCOPE_DESKTOP] ?? {}
   const deviceLabel = deviceKind === UI_SCOPE_MOBILE ? '스마트폰' : 'PC'
-  const effectiveRouteLabel = effectiveUiPrefs.defaultRoute === SETTINGS_ROUTE ? '매매 세팅' : '실시간 현황'
+  const effectiveRouteLabel = effectiveUiPrefs.defaultRoute === SETTINGS_ROUTE
+    ? '매매 세팅'
+    : effectiveUiPrefs.defaultRoute === PROFILE_ROUTE
+      ? '개인 정보'
+      : '실시간 현황'
   const effectiveDensityLabel = effectiveUiPrefs.tableDensity === UI_DENSITY_COMPACT ? '컴팩트' : '컴포터블'
 
   return {

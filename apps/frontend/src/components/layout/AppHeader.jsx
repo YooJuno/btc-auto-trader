@@ -1,6 +1,7 @@
 import {
   ADMIN_USERS_ROUTE,
   DASHBOARD_ROUTE,
+  PROFILE_ROUTE,
   SETTINGS_ROUTE,
 } from '../../constants/tradingUi.js'
 
@@ -26,7 +27,7 @@ function AppHeader({
 }) {
   const authenticated = Boolean(authUser?.id)
   const userLabel = authenticated
-    ? (authUser?.email || authUser?.displayName || `${authUser?.provider}:${authUser?.providerUserId}`)
+    ? (authUser?.displayName || authUser?.email || `${authUser?.provider}:${authUser?.providerUserId}`)
     : '게스트'
   const approvalStatusLabel = approvalStatus || '-'
   const approvalStatusClass = approvalStatusLabel === 'ADMIN' ? 'approval-status--admin' : ''
@@ -39,7 +40,7 @@ function AppHeader({
         <p className="eyebrow">BTC AUTO TRADER</p>
         <h1>Trading Control Center</h1>
         <p className="sub">
-          실시간 상태는 메인에서 확인하고, 매매 세팅은 로그인 없이 조회할 수 있습니다.
+          실시간 현황, 매매 세팅, 개인 정보를 탭별로 나눠서 관리합니다.
         </p>
         <div className="route-tabs" role="tablist" aria-label="페이지 이동">
           <button
@@ -56,6 +57,15 @@ function AppHeader({
           >
             매매 세팅
           </button>
+          {authenticated && (
+            <button
+              type="button"
+              className={`route-tab ${activeRoute === PROFILE_ROUTE ? 'is-active' : ''}`}
+              onClick={() => onNavigateRoute(PROFILE_ROUTE)}
+            >
+              개인 정보
+            </button>
+          )}
           {authenticated && canAccessAdmin && (
             <button
               type="button"

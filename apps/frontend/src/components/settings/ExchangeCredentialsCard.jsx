@@ -21,7 +21,7 @@ function ExchangeCredentialsCard({
       <div className="card-head">
         <div>
           <h2>거래소 API 키</h2>
-          <p className="sub">사용자별 Upbit API 키를 저장/검증합니다.</p>
+          <p className="sub">최초 등록 후 필요할 때만 수정하거나 검증하는 사용자별 Upbit API 키입니다.</p>
         </div>
         <span className="pill">
           {exchangeCredentialStatus?.configured

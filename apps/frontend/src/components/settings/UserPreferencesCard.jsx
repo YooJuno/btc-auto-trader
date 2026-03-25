@@ -2,6 +2,7 @@ import { memo } from 'react'
 import {
   DASHBOARD_ROUTE,
   PROFILE_VALUES,
+  PROFILE_ROUTE,
   SETTINGS_ROUTE,
   UI_DENSITY_COMFORTABLE,
   UI_DENSITY_COMPACT,
@@ -24,9 +25,7 @@ function UserPreferencesCard({
   userSettingsError,
   userSettingsNotice,
   userRiskProfile,
-  userMarketsInput,
   setUserRiskProfile,
-  setUserMarketsInput,
   handleSaveMySettings,
   fetchMySettings,
   commonUiPrefs,
@@ -40,14 +39,16 @@ function UserPreferencesCard({
   effectiveDensityLabel,
   pollingIntervalMs,
 }) {
+  const configuredMarkets = Array.isArray(userSettings?.markets) ? userSettings.markets.filter(Boolean) : []
+
   return (
     <article className="control-card card--elevated auth-settings-card">
       <div className="card-head">
         <div>
-          <h2>내 인터페이스 설정</h2>
-          <p className="sub">로그인 사용자별 기본 리스크 프로필, 관심 마켓, 기기별 화면 옵션을 저장합니다.</p>
+          <h2>개인 화면 옵션</h2>
+          <p className="sub">자주 바꾸지 않는 개인용 기본값과 화면 표시 옵션입니다.</p>
         </div>
-        <span className="pill">USER</span>
+        <span className="pill">OPTION</span>
       </div>
       {userSettingsError && <p className="status-error">{userSettingsError}</p>}
       {userSettingsNotice && <p className="status-success">{userSettingsNotice}</p>}
@@ -66,17 +67,10 @@ function UserPreferencesCard({
             ))}
           </select>
         </label>
-        <label className="form-field">
-          <span>관심 마켓</span>
-          <input
-            type="text"
-            value={userMarketsInput}
-            onChange={(event) => setUserMarketsInput(event.target.value)}
-            placeholder="예: KRW-BTC, KRW-ETH"
-            disabled={settingsLoading || settingsSaving}
-          />
-        </label>
       </div>
+      <p className="sub compact">
+        자동매매 마켓은 위의 마켓별 설정 카드에서 관리합니다. 현재 목록: {configuredMarkets.length > 0 ? configuredMarkets.join(', ') : '미설정'}
+      </p>
       <div className="ui-pref-block">
         <p className="sub compact">기기별 UI 설정</p>
         <div className="form-grid ui-pref-grid">
@@ -100,6 +94,7 @@ function UserPreferencesCard({
             >
               <option value={DASHBOARD_ROUTE}>실시간 현황</option>
               <option value={SETTINGS_ROUTE}>매매 세팅</option>
+              <option value={PROFILE_ROUTE}>개인 정보</option>
             </select>
           </label>
           <label className="form-field">
@@ -122,6 +117,7 @@ function UserPreferencesCard({
             >
               <option value={DASHBOARD_ROUTE}>실시간 현황</option>
               <option value={SETTINGS_ROUTE}>매매 세팅</option>
+              <option value={PROFILE_ROUTE}>개인 정보</option>
             </select>
           </label>
           <label className="form-field">
@@ -140,7 +136,6 @@ function UserPreferencesCard({
           현재 접속: {deviceLabel} / 적용 화면: {effectiveRouteLabel} / 적용 밀도: {effectiveDensityLabel} / 자동 갱신: {Math.round(pollingIntervalMs / 1000)}초
         </p>
       </div>
-      <p className="sub compact">마켓 코드는 쉼표로 구분해 입력하세요. 형식 예: KRW-BTC</p>
       <div className="button-row">
         <button
           className="primary-button"

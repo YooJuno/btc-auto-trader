@@ -151,7 +151,7 @@ export function useAdminUsers(authUser) {
     }
     const label = email || `ID ${userId}`
     const confirmed = window.confirm(
-      `${label} 사용자를 삭제합니다.\n연결된 사용자 설정/키/온보딩 데이터와 전용 테넌트 DB까지 함께 삭제됩니다.\n계속할까요?`
+      `${label} 사용자를 삭제합니다.\n연결된 사용자 설정/키와 전용 테넌트 DB까지 함께 삭제됩니다.\n계속할까요?`
     )
     if (!confirmed) {
       return

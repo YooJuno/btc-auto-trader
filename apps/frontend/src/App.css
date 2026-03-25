@@ -223,7 +223,6 @@ h3 {
 .engine-inline-card::before,
 .positions-card::before,
 .strategy-card::before,
-.performance-card::before,
 .market-card::before,
 .order-card::before {
   content: '';
@@ -236,8 +235,7 @@ h3 {
 
 .engine-inline-card::before,
 .positions-card::before,
-.strategy-card::before,
-.performance-card::before {
+.strategy-card::before {
   background: linear-gradient(90deg, rgba(34, 186, 166, 0.94), rgba(34, 186, 166, 0.12));
 }
 
@@ -507,6 +505,38 @@ h3 {
   margin-top: 5px;
 }
 
+.profile-card__hint {
+  margin-top: -2px;
+}
+
+.profile-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.profile-meta-item {
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(141, 177, 209, 0.22);
+  background: rgba(20, 33, 50, 0.54);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.profile-meta-item span {
+  color: var(--muted);
+  font-size: 0.71rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.profile-meta-item strong {
+  color: var(--text-strong);
+  font-size: 0.92rem;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -558,11 +588,11 @@ h3 {
 }
 
 .workspace-grid--status {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.22fr) minmax(320px, 0.9fr);
 }
 
 .workspace-grid--status .workspace-side {
-  display: none;
+  display: grid;
 }
 
 .workspace-grid--settings {
@@ -595,10 +625,6 @@ h3 {
 
 .strategy-card {
   min-height: 292px;
-}
-
-.performance-card {
-  min-height: 248px;
 }
 
 .market-card {
@@ -1186,38 +1212,6 @@ h3 {
   gap: 12px;
 }
 
-.performance-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.performance-mini {
-  border: 1px solid rgba(129, 172, 209, 0.22);
-  border-radius: 10px;
-  padding: 8px 9px;
-  background: rgba(12, 20, 33, 0.82);
-  display: grid;
-  gap: 4px;
-}
-
-.performance-mini span {
-  font-size: 0.7rem;
-  color: var(--muted);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.performance-mini strong {
-  font-size: 0.86rem;
-}
-
-.performance-table-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
 .empty-cell {
   text-align: center;
   color: var(--muted);
@@ -1396,7 +1390,6 @@ tbody tr:hover {
   }
 
   .strategy-card,
-  .performance-card,
   .market-card,
   .order-card {
     min-height: 0;
@@ -1471,8 +1464,7 @@ tbody tr:hover {
   }
 
   .filter-row,
-  .performance-summary-grid,
-  .performance-table-grid {
+  .profile-meta-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1508,7 +1500,6 @@ tbody tr:hover {
 .engine-inline-card::before,
 .positions-card::before,
 .strategy-card::before,
-.performance-card::before,
 .market-card::before,
 .order-card::before {
   content: none;
@@ -1640,7 +1631,6 @@ tbody tr:hover {
 }
 
 .summary-card,
-.performance-mini,
 .trade-meta-row span {
   background: var(--surface-soft);
 }

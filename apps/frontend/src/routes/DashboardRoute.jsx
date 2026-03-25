@@ -35,8 +35,8 @@ function DashboardRoute({
         pnlClass={pnlClass}
       />
 
-      <section className="workspace-grid workspace-grid--status">
-        <div className="workspace-main">
+      <section className="workspace-grid workspace-grid--settings">
+        <div className="workspace-side">
           <PositionsCard
             authRequired={authRequired}
             loading={loading}

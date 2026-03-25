@@ -7,11 +7,13 @@ import ManualTradeModal from './components/trade/ManualTradeModal.jsx'
 import { useDeviceUiPreferences } from './hooks/useDeviceUiPreferences.js'
 import { useAuthSession } from './hooks/useAuthSession.js'
 import { useUserAccountSettings } from './hooks/useUserAccountSettings.js'
+import { useUserProfile } from './hooks/useUserProfile.js'
 import { useAdminUsers } from './hooks/useAdminUsers.js'
 import { useTradingWorkspace } from './hooks/useTradingWorkspace.js'
 import {
   ADMIN_USERS_ROUTE,
   DASHBOARD_ROUTE,
+  PROFILE_ROUTE,
   SETTINGS_ROUTE,
 } from './constants/tradingUi.js'
 import {
@@ -27,6 +29,7 @@ import {
 import { requestJson } from './utils/apiClient.js'
 
 const SettingsRoute = lazy(() => import('./routes/SettingsRoute.jsx'))
+const ProfileRoute = lazy(() => import('./routes/ProfileRoute.jsx'))
 const AdminUsersRoute = lazy(() => import('./routes/AdminUsersRoute.jsx'))
 const DASHBOARD_FORMATTERS = {
   formatKRW,
@@ -64,10 +67,8 @@ function App() {
     userSettingsError,
     userSettingsNotice,
     userRiskProfile,
-    userMarketsInput,
     userUiPrefs,
     setUserRiskProfile,
-    setUserMarketsInput,
     setUserUiPrefs,
     fetchMySettings,
     handleSaveMySettings,
@@ -86,8 +87,17 @@ function App() {
     handleDeleteExchangeCredentials,
     applyBootstrapSettings,
     applyBootstrapExchangeCredentials,
+    syncUserMarkets,
     resetUserAccountState,
   } = useUserAccountSettings(authUser)
+  const {
+    profileSaving,
+    profileError,
+    profileNotice,
+    displayNameInput,
+    setDisplayNameInput,
+    handleSaveMyProfile,
+  } = useUserProfile(authUser, setAuthUser)
   const {
     adminLoading,
     adminError,
@@ -249,11 +259,6 @@ function App() {
     mergedOrderHistory,
     summaryError,
     feedError,
-    performance,
-    performanceMode,
-    performanceInputs,
-    performanceLoading,
-    performanceError,
     positions,
     cash,
     totals,
@@ -263,7 +268,6 @@ function App() {
     engineClass,
     marketRowsDirty,
     marketSuggestions,
-    performanceTotal,
     manualTradePosition,
     cashKrw,
     setRatioError,
@@ -275,14 +279,11 @@ function App() {
     setMarketSuggestOpen,
     setMarketSuggestIndex,
     setExpandedMarket,
-    setPerformanceMode,
-    setPerformanceInputs,
     setManualTradeSide,
     setManualTradeType,
     setManualTradePrice,
     setManualTradeVolume,
     setManualTradeFunds,
-    fetchPerformance,
     handleSelectMarketSuggestion,
     handleAddMarket,
     handleMarketReload,
@@ -298,6 +299,7 @@ function App() {
     bootstrapLoading,
     bootstrapLoaded,
     pollingIntervalMs,
+    syncUserMarkets,
   })
 
   const handleEngineToggle = useCallback(() => {
@@ -310,7 +312,7 @@ function App() {
 
   useEffect(() => {
     if (!authUser) {
-      if (activeRoute === ADMIN_USERS_ROUTE) {
+      if (activeRoute === ADMIN_USERS_ROUTE || activeRoute === PROFILE_ROUTE) {
         navigateRoute(DASHBOARD_ROUTE)
       }
       return
@@ -347,9 +349,7 @@ function App() {
     userSettingsError,
     userSettingsNotice,
     userRiskProfile,
-    userMarketsInput,
     setUserRiskProfile,
-    setUserMarketsInput,
     handleSaveMySettings,
     fetchMySettings,
     commonUiPrefs,
@@ -375,45 +375,13 @@ function App() {
     handleTableDensityChange,
     mobileUiPrefs,
     pollingIntervalMs,
-    setUserMarketsInput,
     setUserRiskProfile,
     settingsLoading,
     settingsSaving,
-    userMarketsInput,
     userRiskProfile,
     userSettings,
     userSettingsError,
     userSettingsNotice,
-  ])
-
-  const exchangeCredentialsProps = useMemo(() => ({
-    exchangeCredentialStatus,
-    exchangeCredentialLoading,
-    exchangeCredentialSaving,
-    exchangeCredentialVerifying,
-    exchangeCredentialError,
-    exchangeCredentialNotice,
-    exchangeAccessKeyInput,
-    exchangeSecretKeyInput,
-    setExchangeAccessKeyInput,
-    setExchangeSecretKeyInput,
-    handleSaveExchangeCredentials,
-    handleVerifyExchangeCredentials,
-    handleDeleteExchangeCredentials,
-  }), [
-    exchangeAccessKeyInput,
-    exchangeCredentialError,
-    exchangeCredentialLoading,
-    exchangeCredentialNotice,
-    exchangeCredentialSaving,
-    exchangeCredentialStatus,
-    exchangeCredentialVerifying,
-    exchangeSecretKeyInput,
-    handleDeleteExchangeCredentials,
-    handleSaveExchangeCredentials,
-    handleVerifyExchangeCredentials,
-    setExchangeAccessKeyInput,
-    setExchangeSecretKeyInput,
   ])
 
   const marketOverridesProps = useMemo(() => ({
@@ -480,26 +448,54 @@ function App() {
     strategyError,
   ])
 
-  const performanceProps = useMemo(() => ({
-    fetchPerformance,
-    performanceMode,
-    setPerformanceMode,
-    performanceInputs,
-    setPerformanceInputs,
-    performanceLoading,
-    performanceError,
-    performance,
-    performanceTotal,
+  const exchangeCredentialsProps = useMemo(() => ({
+    exchangeCredentialStatus,
+    exchangeCredentialLoading,
+    exchangeCredentialSaving,
+    exchangeCredentialVerifying,
+    exchangeCredentialError,
+    exchangeCredentialNotice,
+    exchangeAccessKeyInput,
+    exchangeSecretKeyInput,
+    setExchangeAccessKeyInput,
+    setExchangeSecretKeyInput,
+    handleSaveExchangeCredentials,
+    handleVerifyExchangeCredentials,
+    handleDeleteExchangeCredentials,
   }), [
-    fetchPerformance,
-    performance,
-    performanceError,
-    performanceInputs,
-    performanceLoading,
-    performanceMode,
-    performanceTotal,
-    setPerformanceInputs,
-    setPerformanceMode,
+    exchangeAccessKeyInput,
+    exchangeCredentialError,
+    exchangeCredentialLoading,
+    exchangeCredentialNotice,
+    exchangeCredentialSaving,
+    exchangeCredentialStatus,
+    exchangeCredentialVerifying,
+    exchangeSecretKeyInput,
+    handleDeleteExchangeCredentials,
+    handleSaveExchangeCredentials,
+    handleVerifyExchangeCredentials,
+    setExchangeAccessKeyInput,
+    setExchangeSecretKeyInput,
+  ])
+
+  const profileProps = useMemo(() => ({
+    authUser,
+    approvalStatus,
+    profileSaving,
+    profileError,
+    profileNotice,
+    displayNameInput,
+    setDisplayNameInput,
+    handleSaveMyProfile,
+  }), [
+    approvalStatus,
+    authUser,
+    displayNameInput,
+    handleSaveMyProfile,
+    profileError,
+    profileNotice,
+    profileSaving,
+    setDisplayNameInput,
   ])
 
   const authenticated = Boolean(authUser?.id)
@@ -582,11 +578,17 @@ function App() {
         <Suspense fallback={routeLoadingFallback}>
           <SettingsRoute
             userPreferences={userPreferencesProps}
-            exchangeCredentials={exchangeCredentialsProps}
             marketOverrides={marketOverridesProps}
-            performance={performanceProps}
             authenticated={authenticated}
             readOnly={!authenticated}
+          />
+        </Suspense>
+      ) : effectiveRoute === PROFILE_ROUTE ? (
+        <Suspense fallback={routeLoadingFallback}>
+          <ProfileRoute
+            profile={profileProps}
+            exchangeCredentials={exchangeCredentialsProps}
+            authenticated={authenticated}
           />
         </Suspense>
       ) : (
