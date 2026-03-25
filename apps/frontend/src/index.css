@@ -1,8 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  font-family: 'Space Grotesk', system-ui, sans-serif;
-  --mono: 'DM Mono', ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco,
+  font-family: 'IBM Plex Sans KR', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco,
     Consolas, 'Liberation Mono', 'Courier New', monospace;
   line-height: 1.5;
   font-weight: 400;
@@ -11,20 +11,24 @@
   -moz-osx-font-smoothing: grayscale;
   color-scheme: dark;
 
-  --bg: #060b11;
-  --surface: rgba(15, 24, 34, 0.84);
-  --surface-soft: rgba(20, 33, 46, 0.78);
-  --surface-strong: rgba(10, 18, 28, 0.94);
-  --border: rgba(146, 171, 196, 0.24);
-  --border-strong: rgba(176, 202, 226, 0.34);
-  --text: #d9e7f4;
-  --text-strong: #f3f9ff;
-  --muted: #95abc1;
-  --accent: #22baa6;
-  --accent-2: #f2a85f;
+  --bg: #060607;
+  --surface: #101115;
+  --surface-soft: #15171c;
+  --surface-strong: #0b0c10;
+  --surface-elevated: #191c22;
+  --border: rgba(242, 246, 255, 0.12);
+  --border-strong: rgba(242, 246, 255, 0.24);
+  --text: #d6dae3;
+  --text-strong: #f5f7fb;
+  --muted: #9ca3b1;
+  --accent: #e7ebf2;
+  --accent-2: #c7cedc;
+  --gold: #c9a874;
+  --gold-soft: #8a7148;
+  --gold-bright: #f4e3c6;
   --positive: #4cd498;
-  --negative: #ff8579;
-  --shadow-soft: 0 20px 46px rgba(1, 7, 16, 0.62);
+  --negative: #ff7f7f;
+  --shadow-soft: 0 20px 46px rgba(0, 0, 0, 0.48);
 }
 
 *,
@@ -37,26 +41,7 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  background:
-    radial-gradient(circle at 84% -14%, rgba(34, 186, 166, 0.24), transparent 44%),
-    radial-gradient(circle at 10% 4%, rgba(242, 168, 95, 0.2), transparent 34%),
-    radial-gradient(circle at 50% 116%, rgba(72, 116, 173, 0.18), transparent 46%),
-    linear-gradient(150deg, #04090f 0%, #09111b 46%, #070e18 100%);
-}
-
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image: linear-gradient(
-      rgba(129, 163, 194, 0.09) 1px,
-      transparent 1px
-    ),
-    linear-gradient(90deg, rgba(129, 163, 194, 0.09) 1px, transparent 1px);
-  background-size: 32px 32px;
-  opacity: 0.16;
-  pointer-events: none;
-  z-index: -1;
+  background: var(--bg);
 }
 
 a {

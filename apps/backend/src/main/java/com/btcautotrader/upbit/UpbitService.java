@@ -71,15 +71,21 @@ public class UpbitService {
         headers.set("Authorization", "Bearer " + jwtToken);
 
         HttpEntity<Void> entity = new HttpEntity<>(headers);
-        ResponseEntity<List> response = restTemplate.exchange(
-                UPBIT_ACCOUNTS_URL,
-                HttpMethod.GET,
-                entity,
-                List.class
-        );
+        try {
+            ResponseEntity<List> response = restTemplate.exchange(
+                    UPBIT_ACCOUNTS_URL,
+                    HttpMethod.GET,
+                    entity,
+                    List.class
+            );
 
-        List<Map<String, Object>> body = response.getBody();
-        return body == null ? List.of() : body;
+            List<Map<String, Object>> body = response.getBody();
+            return body == null ? List.of() : body;
+        } catch (HttpStatusCodeException ex) {
+            throw new UpbitApiException(ex.getStatusCode().value(), ex.getResponseBodyAsString());
+        } catch (RestClientException ex) {
+            throw new UpbitApiException(502, ex.getMessage());
+        }
     }
 
     public int verifyCredentials(UpbitAuthCredentials credentials) {

@@ -1,32 +1,3 @@
--- 이벤트 단위 스냅샷 헤더
-CREATE TABLE portfolio_snapshot (
-  id            BIGSERIAL PRIMARY KEY,
-  event_type    VARCHAR(20) NOT NULL, -- BUY, SELL, DEPOSIT, WITHDRAW, MANUAL, etc
-  source        VARCHAR(10) NOT NULL DEFAULT 'UPBIT',
-  occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  note          TEXT
-);
-
--- 자산별 잔고 스냅샷
-CREATE TABLE portfolio_snapshot_item (
-  id              BIGSERIAL PRIMARY KEY,
-  snapshot_id     BIGINT NOT NULL REFERENCES portfolio_snapshot(id) ON DELETE CASCADE,
-  currency        VARCHAR(10) NOT NULL, -- KRW, BTC, ETH ...
-  balance         NUMERIC(38, 18) NOT NULL,
-  locked          NUMERIC(38, 18) NOT NULL DEFAULT 0,
-  avg_buy_price   NUMERIC(38, 18) NOT NULL DEFAULT 0,
-  unit_currency   VARCHAR(10) NOT NULL DEFAULT 'KRW'
-);
-
-CREATE INDEX idx_portfolio_snapshot_occurred_at
-  ON portfolio_snapshot(occurred_at);
-
-CREATE INDEX idx_portfolio_snapshot_item_snapshot
-  ON portfolio_snapshot_item(snapshot_id);
-
-CREATE INDEX idx_portfolio_snapshot_item_currency
-  ON portfolio_snapshot_item(currency);
-
 -- 주문 기록 (Upbit Spot)
 CREATE TABLE orders (
   id              BIGSERIAL PRIMARY KEY,
@@ -76,13 +47,8 @@ CREATE TABLE strategy_config (
   stop_exit_pct           DOUBLE PRECISION,
   trend_exit_pct          DOUBLE PRECISION,
   momentum_exit_pct       DOUBLE PRECISION,
+  risk_per_trade_pct      DOUBLE PRECISION,
   updated_at              TIMESTAMPTZ NOT NULL
-);
-
--- 자동매매 대상 마켓 목록
-CREATE TABLE strategy_markets (
-  market                  VARCHAR(20) PRIMARY KEY,
-  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- 전략 프리셋 (공격형/안정형 등)
@@ -99,11 +65,12 @@ CREATE TABLE strategy_presets (
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 마켓별 전략 override 설정 (cap/profile)
+-- 마켓별 전략 override 설정
 CREATE TABLE strategy_market_overrides (
-  market         VARCHAR(20) PRIMARY KEY,
-  max_order_krw  DOUBLE PRECISION,
-  profile        VARCHAR(20),
+  market                  VARCHAR(20) PRIMARY KEY,
+  max_order_krw           DOUBLE PRECISION,
+  profile                 VARCHAR(20),
+  trade_paused            BOOLEAN DEFAULT false,
   take_profit_pct         DOUBLE PRECISION,
   stop_loss_pct           DOUBLE PRECISION,
   trailing_stop_pct       DOUBLE PRECISION,
@@ -111,7 +78,7 @@ CREATE TABLE strategy_market_overrides (
   stop_exit_pct           DOUBLE PRECISION,
   trend_exit_pct          DOUBLE PRECISION,
   momentum_exit_pct       DOUBLE PRECISION,
-  updated_at     TIMESTAMPTZ NOT NULL
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- 매매 결정 기록 (매수/매도/스킵/에러)
@@ -165,6 +132,9 @@ CREATE TABLE app_users (
   email             VARCHAR(160),
   display_name      VARCHAR(160),
   tenant_db         VARCHAR(63),
+  trading_approval_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  trading_approval_note VARCHAR(500),
+  trading_approval_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_login_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT uk_app_users_provider_subject UNIQUE (provider, provider_user_id)
@@ -172,6 +142,9 @@ CREATE TABLE app_users (
 
 CREATE INDEX idx_app_users_email
   ON app_users(email);
+
+CREATE INDEX idx_app_users_tenant_db
+  ON app_users(tenant_db);
 
 -- 사용자별 거래소 API 키(암호화 저장)
 CREATE TABLE user_exchange_credentials (

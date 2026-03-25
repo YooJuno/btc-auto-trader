@@ -30,8 +30,10 @@ public class OrderController {
 
     @GetMapping("/history")
     public ResponseEntity<List<OrderHistoryItem>> history(
+            Authentication authentication,
             @RequestParam(name = "limit", defaultValue = "30") int limit
     ) {
+        tradingAccessService.requireTenantReadAllowed(authentication);
         return ResponseEntity.ok(orderService.listRecent(limit));
     }
 

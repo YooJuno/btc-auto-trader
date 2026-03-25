@@ -1,12 +1,15 @@
 package com.btcautotrader.auth;
 
+import com.btcautotrader.feature.FeatureFlagService;
 import com.btcautotrader.upbit.UpbitApiException;
+import com.btcautotrader.upbit.UpbitAuthNetworkStatusResolver;
 import com.btcautotrader.upbit.UpbitAuthCredentials;
 import com.btcautotrader.upbit.UpbitService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -33,20 +36,26 @@ public class AuthController {
     private final CurrentUserService currentUserService;
     private final UserSettingsService userSettingsService;
     private final UserExchangeCredentialService userExchangeCredentialService;
+    private final FeatureFlagService featureFlagService;
     private final UpbitService upbitService;
+    private final boolean sessionCookieSecure;
 
     public AuthController(
             ObjectProvider<ClientRegistrationRepository> clientRegistrationRepositoryProvider,
             CurrentUserService currentUserService,
             UserSettingsService userSettingsService,
             UserExchangeCredentialService userExchangeCredentialService,
-            UpbitService upbitService
+            FeatureFlagService featureFlagService,
+            UpbitService upbitService,
+            @Value("${server.servlet.session.cookie.secure:false}") boolean sessionCookieSecure
     ) {
         this.clientRegistrationRepositoryProvider = clientRegistrationRepositoryProvider;
         this.currentUserService = currentUserService;
         this.userSettingsService = userSettingsService;
         this.userExchangeCredentialService = userExchangeCredentialService;
+        this.featureFlagService = featureFlagService;
         this.upbitService = upbitService;
+        this.sessionCookieSecure = sessionCookieSecure;
     }
 
     @GetMapping("/auth/providers")
@@ -87,6 +96,8 @@ public class AuthController {
         Cookie cookie = new Cookie("JSESSIONID", "");
         cookie.setPath("/");
         cookie.setMaxAge(0);
+        cookie.setHttpOnly(true);
+        cookie.setSecure(sessionCookieSecure);
         response.addCookie(cookie);
 
         Map<String, Object> result = new HashMap<>();
@@ -97,7 +108,37 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<MeResponse> getMe(Authentication authentication) {
         UserEntity user = currentUserService.requireUser(authentication);
-        return ResponseEntity.ok(MeResponse.from(user));
+        return ResponseEntity.ok(MeResponse.from(user, currentUserService.isOwner(user)));
+    }
+
+    @PutMapping("/me/profile")
+    public ResponseEntity<?> updateMyProfile(
+            Authentication authentication,
+            @RequestBody(required = false) UserProfileRequest request
+    ) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        try {
+            UserEntity saved = currentUserService.updateProfile(user, request);
+            return ResponseEntity.ok(MeResponse.from(saved, currentUserService.isOwner(saved)));
+        } catch (IllegalArgumentException ex) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", ex.getMessage());
+            return ResponseEntity.badRequest().body(error);
+        }
+    }
+
+    @GetMapping("/me/bootstrap")
+    public ResponseEntity<MeBootstrapResponse> getBootstrap(Authentication authentication) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        UserSettingsResponse settings = userSettingsService.getSettings(user.getId());
+        UserExchangeCredentialStatusResponse exchangeCredentials = userExchangeCredentialService.getStatus(user);
+        MeBootstrapResponse response = new MeBootstrapResponse(
+                MeBootstrapUserResponse.from(user, currentUserService.isOwner(user)),
+                settings,
+                exchangeCredentials,
+                featureFlagService.toMap()
+        );
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/me/settings")
@@ -172,12 +213,14 @@ public class AuthController {
                     true,
                     accountCount,
                     status.usingDefaultCredentials(),
+                    UpbitAuthNetworkStatusResolver.OK,
                     java.time.OffsetDateTime.now()
             ));
         } catch (UpbitApiException ex) {
             Map<String, Object> error = new HashMap<>();
             error.put("error", "거래소 API 키 검증 실패");
             error.put("status", ex.getStatusCode());
+            error.put("authNetworkStatus", UpbitAuthNetworkStatusResolver.fromError(ex));
             if (ex.getResponseBody() != null && !ex.getResponseBody().isBlank()) {
                 error.put("details", ex.getResponseBody());
             }

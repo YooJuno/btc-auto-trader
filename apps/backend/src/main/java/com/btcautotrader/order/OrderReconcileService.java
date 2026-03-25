@@ -7,6 +7,8 @@ import com.btcautotrader.upbit.UpbitOrderResponse;
 import com.btcautotrader.upbit.UpbitService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -18,6 +20,7 @@ import java.util.Locale;
 
 @Service
 public class OrderReconcileService {
+    private static final Logger log = LoggerFactory.getLogger(OrderReconcileService.class);
     private final TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
     private final TradingAccessService tradingAccessService;
     private final OrderRepository orderRepository;
@@ -55,12 +58,25 @@ public class OrderReconcileService {
         for (String tenantDatabase : tenantDatabaseProvisioningService.listKnownTenantDatabases()) {
             try {
                 TenantContext.runWithTenantDatabase(tenantDatabase, () -> {
-                    if (tradingAccessService.canRunAutomatedTradingForCurrentTenant()) {
-                        reconcilePendingForCurrentTenant();
+                    TradingAccessService.AutomatedTradingAccess access =
+                            tradingAccessService.evaluateAutomatedTradingAccessForCurrentTenant();
+                    if (!access.allowed()) {
+                        log.info(
+                                "Order reconcile skip tenant={} reason={} userId={} candidateUserIds={}",
+                                access.tenantDatabase() == null || access.tenantDatabase().isBlank()
+                                        ? tenantDatabase
+                                        : access.tenantDatabase(),
+                                access.reason(),
+                                access.userId(),
+                                access.candidateUserIds()
+                        );
+                        return;
                     }
+                    reconcilePendingForCurrentTenant();
                 });
-            } catch (RuntimeException ignored) {
+            } catch (RuntimeException ex) {
                 // Keep reconciling remaining tenants even if one tenant fails.
+                log.warn("Order reconcile skipped for tenant {}: {}", tenantDatabase, ex.getMessage());
             }
         }
     }

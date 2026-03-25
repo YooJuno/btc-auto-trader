@@ -1,0 +1,14 @@
+[Unit]
+Description=BTC Strategy Lab (continuous backtest recommender)
+After=network.target
+
+[Service]
+Type=simple
+User=juno
+WorkingDirectory=/home/juno/Workspace/btc-auto-trader
+ExecStart=/usr/bin/env python3 /home/juno/Workspace/btc-auto-trader/scripts/research/strategy_lab_daemon.py --workdir /home/juno/Workspace/btc-auto-trader --market KRW-BTC --days 7 --split-ratio 0.5 --min-sell-trades 1 --interval-minutes 60 --max-combos 60 --output-dir /home/juno/Workspace/btc-auto-trader/data/strategy-lab
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

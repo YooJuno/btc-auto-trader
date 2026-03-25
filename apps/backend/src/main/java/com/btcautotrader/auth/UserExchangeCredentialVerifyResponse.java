@@ -6,6 +6,7 @@ public record UserExchangeCredentialVerifyResponse(
         boolean ok,
         int accountCount,
         boolean usingDefaultCredentials,
+        String authNetworkStatus,
         OffsetDateTime checkedAt
 ) {
 }

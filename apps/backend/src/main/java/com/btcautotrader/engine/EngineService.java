@@ -31,7 +31,6 @@ public class EngineService {
         return stateRepository.save(state).isRunning();
     }
 
-    @Transactional(readOnly = true)
     public boolean isRunning() {
         return stateRepository.findById(STATE_ID)
                 .map(EngineStateEntity::isRunning)

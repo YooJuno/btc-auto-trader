@@ -1,8 +1,12 @@
 import {
+  ADMIN_USERS_PATH,
+  ADMIN_USERS_ROUTE,
   DASHBOARD_ROUTE,
   DEFAULT_MARKET_MAX_ORDER_KRW,
   DEFAULT_MARKET_PROFILE,
   MARKET_CODE_PATTERN,
+  PROFILE_PATH,
+  PROFILE_ROUTE,
   PROFILE_VALUES,
   RATIO_FIELDS,
   RATIO_FIELD_LABELS,
@@ -19,6 +23,12 @@ import {
 
 export const resolveAppRoute = (pathname) => {
   const normalizedPath = normalizePathname(pathname)
+  if (normalizedPath === ADMIN_USERS_PATH) {
+    return ADMIN_USERS_ROUTE
+  }
+  if (normalizedPath === PROFILE_PATH) {
+    return PROFILE_ROUTE
+  }
   if (normalizedPath === SETTINGS_PATH) {
     return SETTINGS_ROUTE
   }
@@ -26,6 +36,12 @@ export const resolveAppRoute = (pathname) => {
 }
 
 export const resolveAppPath = (route) => {
+  if (route === ADMIN_USERS_ROUTE) {
+    return ADMIN_USERS_PATH
+  }
+  if (route === PROFILE_ROUTE) {
+    return PROFILE_PATH
+  }
   if (route === SETTINGS_ROUTE) {
     return SETTINGS_PATH
   }
@@ -147,7 +163,8 @@ export const addMarketRow = (
   setNewMarketInput,
   setMarketRows,
   setMarketConfigError,
-  setMarketConfigNotice
+  setMarketConfigNotice,
+  defaults = {}
 ) => {
   const market = normalizeMarket(input)
   if (!market) {
@@ -163,10 +180,15 @@ export const addMarketRow = (
     return
   }
 
+  const defaultMaxOrderKrw = Number.isFinite(Number(defaults?.maxOrderKrw))
+    ? String(Number(defaults.maxOrderKrw))
+    : DEFAULT_MARKET_MAX_ORDER_KRW
+  const defaultProfile = normalizeProfileValue(defaults?.profile) || DEFAULT_MARKET_PROFILE
+
   setMarketRows((prev) => [...prev, {
     market,
-    maxOrderKrw: DEFAULT_MARKET_MAX_ORDER_KRW,
-    profile: DEFAULT_MARKET_PROFILE,
+    maxOrderKrw: defaultMaxOrderKrw,
+    profile: defaultProfile,
     tradePaused: false,
     ...createEmptyRatioFields(),
   }])
@@ -404,6 +426,7 @@ export const buildMarketOverrideRows = (payload) => {
 
 export const buildMarketOverridePayload = (rows) => {
   const payload = {
+    markets: [],
     maxOrderKrwByMarket: {},
     profileByMarket: {},
     tradePausedByMarket: {},
@@ -413,11 +436,15 @@ export const buildMarketOverridePayload = (rows) => {
     return payload
   }
 
+  const seen = new Set()
   rows.forEach((row) => {
     const market = normalizeMarket(row?.market)
-    if (!market) {
+    if (!market || seen.has(market)) {
       return
     }
+    seen.add(market)
+    payload.markets.push(market)
+
     const maxOrderKrw = `${row?.maxOrderKrw ?? ''}`.trim()
     if (maxOrderKrw !== '') {
       const value = Number(maxOrderKrw)
@@ -426,6 +453,7 @@ export const buildMarketOverridePayload = (rows) => {
       }
       payload.maxOrderKrwByMarket[market] = value
     }
+
     const profile = normalizeProfileValue(row?.profile)
     if (profile !== '') {
       payload.profileByMarket[market] = profile
@@ -444,36 +472,8 @@ export const buildMarketOverridePayload = (rows) => {
       payload.ratiosByMarket[market] = ratioPayload
     }
   })
+
   return payload
-}
-
-export const buildMarketListPayload = (rows) => {
-  if (!Array.isArray(rows)) {
-    throw new Error('마켓 목록이 비어 있습니다.')
-  }
-
-  const markets = []
-  const seen = new Set()
-  rows.forEach((row) => {
-    const market = normalizeMarket(row?.market)
-    if (!market) {
-      return
-    }
-    if (!isValidMarketCode(market)) {
-      throw new Error(`${market} 마켓 코드 형식이 올바르지 않습니다. 예: KRW-BTC`)
-    }
-    if (seen.has(market)) {
-      return
-    }
-    seen.add(market)
-    markets.push(market)
-  })
-
-  if (markets.length === 0) {
-    throw new Error('최소 1개 이상의 마켓이 필요합니다.')
-  }
-
-  return { markets }
 }
 
 export const parseUserMarketsInput = (value) => {
@@ -525,7 +525,6 @@ export const buildMarketOverrideSignature = (rows) => {
       }
     })
     .filter((row) => row !== null)
-    .sort((a, b) => a.market.localeCompare(b.market))
   return JSON.stringify(normalized)
 }
 
@@ -568,52 +567,6 @@ export const formatOrderStatus = (requestStatus, state) => {
   return `${primary} (${secondary})`
 }
 
-export const buildDefaultPerformanceInputs = () => {
-  const now = new Date()
-  const to = formatDateInput(now)
-  const from = formatDateInput(addDays(now, -29))
-  return {
-    from,
-    to,
-    year: String(now.getFullYear()),
-    month: String(now.getMonth() + 1),
-  }
-}
-
-export const buildPerformanceQuery = (mode, inputs) => {
-  const params = new URLSearchParams()
-  if (mode === 'year') {
-    const year = normalizeIntegerInput(inputs?.year)
-    if (!year) {
-      throw new Error('연도 값을 입력해주세요.')
-    }
-    params.set('year', String(year))
-    return params.toString()
-  }
-  if (mode === 'month') {
-    const year = normalizeIntegerInput(inputs?.year)
-    const month = normalizeIntegerInput(inputs?.month)
-    if (!year || !month) {
-      throw new Error('연도/월 값을 입력해주세요.')
-    }
-    params.set('year', String(year))
-    params.set('month', String(month))
-    return params.toString()
-  }
-
-  const from = normalizeDateInput(inputs?.from)
-  const to = normalizeDateInput(inputs?.to)
-  if (!from || !to) {
-    throw new Error('시작일/종료일을 입력해주세요.')
-  }
-  if (from > to) {
-    throw new Error('시작일은 종료일보다 늦을 수 없습니다.')
-  }
-  params.set('from', from)
-  params.set('to', to)
-  return params.toString()
-}
-
 export const detectDeviceKind = () => {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
     return UI_SCOPE_DESKTOP
@@ -634,7 +587,7 @@ export const normalizePathname = (pathname) => {
 }
 
 export const normalizeRouteToken = (value, fallback = DASHBOARD_ROUTE) => {
-  if (value === DASHBOARD_ROUTE || value === SETTINGS_ROUTE) {
+  if (value === DASHBOARD_ROUTE || value === SETTINGS_ROUTE || value === PROFILE_ROUTE) {
     return value
   }
   if (value === null || value === undefined) {
@@ -643,6 +596,9 @@ export const normalizeRouteToken = (value, fallback = DASHBOARD_ROUTE) => {
   const normalized = String(value).trim().toLowerCase()
   if (normalized === SETTINGS_ROUTE) {
     return SETTINGS_ROUTE
+  }
+  if (normalized === PROFILE_ROUTE) {
+    return PROFILE_ROUTE
   }
   if (normalized === DASHBOARD_ROUTE) {
     return DASHBOARD_ROUTE
@@ -898,41 +854,6 @@ const normalizeOrderStatusToken = (value) => {
     return 'CANCELED'
   }
   return token
-}
-
-const formatDateInput = (date) => {
-  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
-    return ''
-  }
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-const addDays = (date, days) => {
-  const next = new Date(date.getTime())
-  next.setDate(next.getDate() + days)
-  return next
-}
-
-const normalizeIntegerInput = (value) => {
-  const num = Number(value)
-  if (!Number.isInteger(num)) {
-    return null
-  }
-  return num
-}
-
-const normalizeDateInput = (value) => {
-  if (typeof value !== 'string') {
-    return null
-  }
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return null
-  }
-  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null
 }
 
 const pickUiPrefScope = (source, scope) => {

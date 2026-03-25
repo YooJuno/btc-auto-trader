@@ -1,6 +1,10 @@
 package com.btcautotrader.strategy;
 
+import com.btcautotrader.auth.CurrentUserService;
+import com.btcautotrader.auth.UserEntity;
+import com.btcautotrader.tenant.TenantContext;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -8,11 +12,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
-import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -24,9 +28,14 @@ public class StrategyController {
     private static final Pattern MARKET_CODE_PATTERN = Pattern.compile("^[A-Z]{2,10}-[A-Z0-9]{2,15}$");
 
     private final StrategyService strategyService;
+    private final CurrentUserService currentUserService;
 
-    public StrategyController(StrategyService strategyService) {
+    public StrategyController(
+            StrategyService strategyService,
+            CurrentUserService currentUserService
+    ) {
         this.strategyService = strategyService;
+        this.currentUserService = currentUserService;
     }
 
     @GetMapping
@@ -35,46 +44,18 @@ public class StrategyController {
     }
 
     @GetMapping("/market-overrides")
-    public ResponseEntity<StrategyMarketOverridesResponse> getMarketOverrides() {
-        return ResponseEntity.ok(strategyService.getMarketOverrides());
+    public ResponseEntity<StrategyMarketOverridesResponse> getMarketOverrides(Authentication authentication) {
+        return ResponseEntity.ok(callWithCurrentUser(authentication, user -> strategyService.getMarketOverrides(user.getId())));
     }
 
     @GetMapping("/overrides")
-    public ResponseEntity<StrategyMarketOverridesResponse> getMarketOverridesAlias() {
-        return getMarketOverrides();
+    public ResponseEntity<StrategyMarketOverridesResponse> getMarketOverridesAlias(Authentication authentication) {
+        return getMarketOverrides(authentication);
     }
 
     @GetMapping("/presets")
     public ResponseEntity<List<StrategyPresetItem>> getPresets() {
         return ResponseEntity.ok(strategyService.getPresets());
-    }
-
-    @GetMapping("/markets")
-    public ResponseEntity<StrategyMarketsResponse> getMarkets() {
-        return ResponseEntity.ok(strategyService.getMarkets());
-    }
-
-    @PutMapping("/markets")
-    public ResponseEntity<?> replaceMarkets(@RequestBody(required = false) StrategyMarketsRequest request) {
-        if (request == null || request.markets() == null) {
-            Map<String, Object> error = new HashMap<>();
-            error.put("error", "request body is required");
-            return ResponseEntity.badRequest().body(error);
-        }
-
-        Map<String, String> errors = new LinkedHashMap<>();
-        List<String> markets = normalizeMarkets(request.markets(), errors);
-        if (markets.isEmpty()) {
-            errors.put("markets", "at least one market is required");
-        }
-        if (!errors.isEmpty()) {
-            Map<String, Object> error = new HashMap<>();
-            error.put("error", "invalid market values");
-            error.put("fields", errors);
-            return ResponseEntity.badRequest().body(error);
-        }
-
-        return ResponseEntity.ok(strategyService.replaceMarkets(markets));
     }
 
     @PutMapping
@@ -94,6 +75,7 @@ public class StrategyController {
         validatePct("stopExitPct", config.stopExitPct(), errors);
         validatePct("trendExitPct", config.trendExitPct(), errors);
         validatePct("momentumExitPct", config.momentumExitPct(), errors);
+        validatePct("riskPerTradePct", config.riskPerTradePct(), errors);
         if (config.profile() != null && !config.profile().isBlank() && parseProfile(config.profile()) == null) {
             errors.put("profile", "must be AGGRESSIVE, BALANCED, or CONSERVATIVE");
         }
@@ -136,6 +118,7 @@ public class StrategyController {
 
     @PutMapping("/market-overrides")
     public ResponseEntity<?> replaceMarketOverrides(
+            Authentication authentication,
             @RequestBody(required = false) StrategyMarketOverridesRequest request
     ) {
         if (request == null) {
@@ -145,7 +128,9 @@ public class StrategyController {
         }
 
         Map<String, String> errors = new LinkedHashMap<>();
-        Set<String> configuredMarkets = new HashSet<>(strategyService.configuredMarkets());
+        List<String> markets = normalizeMarkets(request.markets(), errors);
+
+        Set<String> configuredMarkets = new HashSet<>(markets);
         Map<String, Double> maxOrderKrwByMarket = normalizeMaxOrderKrwMap(
                 request.maxOrderKrwByMarket(),
                 configuredMarkets,
@@ -174,19 +159,65 @@ public class StrategyController {
         }
 
         StrategyMarketOverridesRequest normalized = new StrategyMarketOverridesRequest(
+                markets,
                 maxOrderKrwByMarket,
                 profileByMarket,
                 tradePausedByMarket,
                 ratiosByMarket
         );
-        return ResponseEntity.ok(strategyService.replaceMarketOverrides(normalized));
+        return ResponseEntity.ok(
+                callWithCurrentUser(authentication, user -> strategyService.replaceMarketOverrides(user.getId(), normalized))
+        );
     }
 
     @PutMapping("/overrides")
     public ResponseEntity<?> replaceMarketOverridesAlias(
+            Authentication authentication,
             @RequestBody(required = false) StrategyMarketOverridesRequest request
     ) {
-        return replaceMarketOverrides(request);
+        return replaceMarketOverrides(authentication, request);
+    }
+
+    private static StrategyProfile parseProfile(String value) {
+        try {
+            return StrategyProfile.valueOf(value.trim().toUpperCase());
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private static String normalizeMarket(String market) {
+        if (market == null) {
+            return null;
+        }
+        String normalized = market.trim().toUpperCase();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private static List<String> normalizeMarkets(List<String> source, Map<String, String> errors) {
+        if (source == null) {
+            return List.of();
+        }
+        Set<String> unique = new LinkedHashSet<>();
+        List<String> normalized = new ArrayList<>();
+        for (int i = 0; i < source.size(); i++) {
+            String market = normalizeMarket(source.get(i));
+            if (market == null) {
+                errors.put("markets[" + i + "]", "market is required");
+                continue;
+            }
+            if (!MARKET_CODE_PATTERN.matcher(market).matches()) {
+                errors.put("markets[" + i + "]", "invalid market format (e.g. KRW-BTC)");
+                continue;
+            }
+            if (unique.add(market)) {
+                normalized.add(market);
+            }
+        }
+        return normalized;
     }
 
     private static Map<String, Double> normalizeMaxOrderKrwMap(
@@ -342,48 +373,6 @@ public class StrategyController {
                 || ratios.momentumExitPct() != null;
     }
 
-    private static StrategyProfile parseProfile(String value) {
-        try {
-            return StrategyProfile.valueOf(value.trim().toUpperCase());
-        } catch (RuntimeException ex) {
-            return null;
-        }
-    }
-
-    private static String normalizeMarket(String market) {
-        if (market == null) {
-            return null;
-        }
-        String normalized = market.trim().toUpperCase();
-        if (normalized.isEmpty()) {
-            return null;
-        }
-        return normalized;
-    }
-
-    private static List<String> normalizeMarkets(List<String> source, Map<String, String> errors) {
-        if (source == null) {
-            return List.of();
-        }
-        Set<String> unique = new LinkedHashSet<>();
-        List<String> normalized = new ArrayList<>();
-        for (int i = 0; i < source.size(); i++) {
-            String market = normalizeMarket(source.get(i));
-            if (market == null) {
-                errors.put("markets[" + i + "]", "market is required");
-                continue;
-            }
-            if (!MARKET_CODE_PATTERN.matcher(market).matches()) {
-                errors.put("markets[" + i + "]", "invalid market format (e.g. KRW-BTC)");
-                continue;
-            }
-            if (unique.add(market)) {
-                normalized.add(market);
-            }
-        }
-        return normalized;
-    }
-
     private static void validatePct(String field, Double value, Map<String, String> errors) {
         if (value == null) {
             return;
@@ -397,5 +386,10 @@ public class StrategyController {
         if (Double.isNaN(value) || Double.isInfinite(value) || value <= 0) {
             errors.put(field, "must be greater than 0");
         }
+    }
+
+    private <T> T callWithCurrentUser(Authentication authentication, java.util.function.Function<UserEntity, T> action) {
+        UserEntity user = TenantContext.callWithTenantDatabase(null, () -> currentUserService.requireUser(authentication));
+        return action.apply(user);
     }
 }

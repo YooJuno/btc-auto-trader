@@ -45,6 +45,9 @@ public class StrategyConfigEntity {
     @Column(name = "momentum_exit_pct")
     private double momentumExitPct;
 
+    @Column(name = "risk_per_trade_pct")
+    private double riskPerTradePct;
+
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
@@ -62,7 +65,8 @@ public class StrategyConfigEntity {
             String profile,
             double stopExitPct,
             double trendExitPct,
-            double momentumExitPct
+            double momentumExitPct,
+            double riskPerTradePct
     ) {
         this.id = id;
         this.enabled = enabled;
@@ -75,6 +79,7 @@ public class StrategyConfigEntity {
         this.stopExitPct = stopExitPct;
         this.trendExitPct = trendExitPct;
         this.momentumExitPct = momentumExitPct;
+        this.riskPerTradePct = riskPerTradePct;
     }
 
     public static StrategyConfigEntity from(Long id, StrategyConfig config) {
@@ -89,7 +94,8 @@ public class StrategyConfigEntity {
                 config.profile(),
                 config.stopExitPct(),
                 config.trendExitPct(),
-                config.momentumExitPct()
+                config.momentumExitPct(),
+                config.riskPerTradePct()
         );
     }
 
@@ -104,7 +110,8 @@ public class StrategyConfigEntity {
                 profile,
                 stopExitPct,
                 trendExitPct,
-                momentumExitPct
+                momentumExitPct,
+                riskPerTradePct
         );
     }
 
@@ -121,6 +128,7 @@ public class StrategyConfigEntity {
         this.stopExitPct = config.stopExitPct();
         this.trendExitPct = config.trendExitPct();
         this.momentumExitPct = config.momentumExitPct();
+        this.riskPerTradePct = config.riskPerTradePct();
     }
 
     @PrePersist
@@ -215,6 +223,14 @@ public class StrategyConfigEntity {
 
     public void setMomentumExitPct(double momentumExitPct) {
         this.momentumExitPct = momentumExitPct;
+    }
+
+    public double getRiskPerTradePct() {
+        return riskPerTradePct;
+    }
+
+    public void setRiskPerTradePct(double riskPerTradePct) {
+        this.riskPerTradePct = riskPerTradePct;
     }
 
     public OffsetDateTime getUpdatedAt() {
