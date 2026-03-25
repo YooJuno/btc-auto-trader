@@ -9,7 +9,6 @@ public record AdminUserItemResponse(
         OffsetDateTime lastLoginAt,
         String approvalStatus,
         String approvalNote,
-        boolean credentialConfigured,
-        boolean onboardingCompleted
+        boolean credentialConfigured
 ) {
 }

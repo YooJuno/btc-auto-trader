@@ -30,10 +30,7 @@ public class SecurityConfig {
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/strategy",
-                                "/api/strategy/presets",
-                                "/api/strategy/markets",
-                                "/api/strategy/market-overrides",
-                                "/api/strategy/overrides"
+                                "/api/strategy/presets"
                         ).permitAll()
                         .requestMatchers("/api/me/**").authenticated()
                         .requestMatchers("/api/admin/**").authenticated()

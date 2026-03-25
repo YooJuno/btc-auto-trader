@@ -21,7 +21,6 @@ public class AdminUserService {
 
     private final UserRepository userRepository;
     private final UserExchangeCredentialService userExchangeCredentialService;
-    private final UserOnboardingService userOnboardingService;
     private final CurrentUserService currentUserService;
     private final TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
     private final String ownerEmail;
@@ -29,14 +28,12 @@ public class AdminUserService {
     public AdminUserService(
             UserRepository userRepository,
             UserExchangeCredentialService userExchangeCredentialService,
-            UserOnboardingService userOnboardingService,
             CurrentUserService currentUserService,
             TenantDatabaseProvisioningService tenantDatabaseProvisioningService,
             @Value("${app.multi-tenant.owner-email:juno980220@gmail.com}") String ownerEmail
     ) {
         this.userRepository = userRepository;
         this.userExchangeCredentialService = userExchangeCredentialService;
-        this.userOnboardingService = userOnboardingService;
         this.currentUserService = currentUserService;
         this.tenantDatabaseProvisioningService = tenantDatabaseProvisioningService;
         this.ownerEmail = ownerEmail == null ? "" : ownerEmail.trim().toLowerCase(Locale.ROOT);
@@ -155,7 +152,6 @@ public class AdminUserService {
 
     private AdminUserItemResponse toItem(UserEntity user) {
         UserExchangeCredentialStatusResponse credentialStatus = userExchangeCredentialService.getStatus(user);
-        UserOnboardingStateResponse onboardingState = userOnboardingService.getState(user);
         return new AdminUserItemResponse(
                 user.getId(),
                 user.getEmail(),
@@ -163,8 +159,7 @@ public class AdminUserService {
                 user.getLastLoginAt(),
                 TradingApprovalStatus.from(user.getTradingApprovalStatus()).name(),
                 user.getTradingApprovalNote(),
-                credentialStatus.configured() || credentialStatus.usingDefaultCredentials(),
-                onboardingState.completed()
+                credentialStatus.configured() || credentialStatus.usingDefaultCredentials()
         );
     }
 

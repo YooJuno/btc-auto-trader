@@ -59,7 +59,6 @@ class AuthControllerTest {
                 mock(CurrentUserService.class),
                 mock(UserSettingsService.class),
                 mock(UserExchangeCredentialService.class),
-                mock(UserOnboardingService.class),
                 mock(FeatureFlagService.class),
                 mock(UpbitService.class),
                 secureCookie

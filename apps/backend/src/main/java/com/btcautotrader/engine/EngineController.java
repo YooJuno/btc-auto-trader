@@ -82,7 +82,9 @@ public class EngineController {
             @RequestParam(name = "force", defaultValue = "false") boolean force
     ) {
         tradingAccessService.requireEngineExecutionAllowed(authentication);
-        AutoTradeResult result = callInUserTenant(authentication, () -> {
+        UserEntity user = TenantContext.callWithTenantDatabase(null, () -> currentUserService.requireUser(authentication));
+        String tenantDatabase = tradingAccessService.requireTenantDatabase(user);
+        AutoTradeResult result = TenantContext.callWithTenantDatabase(tenantDatabase, () -> {
             if (!force && !engineService.isRunning()) {
                 AutoTradeAction action = new AutoTradeAction(
                         "SYSTEM",
@@ -96,7 +98,7 @@ public class EngineController {
                 );
                 return new AutoTradeResult(OffsetDateTime.now().toString(), List.of(action));
             }
-            return autoTradeService.runOnce();
+            return autoTradeService.runOnce(user.getId());
         });
         if (!force && result.actions().size() == 1 && "engine_stopped".equals(result.actions().get(0).reason())) {
             return ResponseEntity.status(409).body(result);

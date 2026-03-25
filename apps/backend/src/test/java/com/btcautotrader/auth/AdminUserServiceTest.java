@@ -29,8 +29,6 @@ class AdminUserServiceTest {
     @Mock
     private UserExchangeCredentialService userExchangeCredentialService;
     @Mock
-    private UserOnboardingService userOnboardingService;
-    @Mock
     private CurrentUserService currentUserService;
     @Mock
     private TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
@@ -39,7 +37,6 @@ class AdminUserServiceTest {
         return new AdminUserService(
                 userRepository,
                 userExchangeCredentialService,
-                userOnboardingService,
                 currentUserService,
                 tenantDatabaseProvisioningService,
                 "owner@example.com"
@@ -170,8 +167,6 @@ class AdminUserServiceTest {
                 .thenReturn(List.of(user));
         when(userExchangeCredentialService.getStatus(user))
                 .thenReturn(new UserExchangeCredentialStatusResponse(false, false, null));
-        when(userOnboardingService.getState(user))
-                .thenReturn(new UserOnboardingStateResponse(false, false, false, false, null, null));
 
         List<AdminUserItemResponse> items = service.listUsers("user51", TradingApprovalStatus.APPROVED.name());
 
@@ -196,8 +191,6 @@ class AdminUserServiceTest {
         )).thenReturn(new PageImpl<>(List.of(user), PageRequest.of(0, 20), 1));
         when(userExchangeCredentialService.getStatus(user))
                 .thenReturn(new UserExchangeCredentialStatusResponse(false, false, null));
-        when(userOnboardingService.getState(user))
-                .thenReturn(new UserOnboardingStateResponse(false, false, false, false, null, null));
 
         AdminUserPageResponse response = service.listUsersPage(
                 "user52",
