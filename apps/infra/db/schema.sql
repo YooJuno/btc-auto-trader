@@ -1,32 +1,3 @@
--- 이벤트 단위 스냅샷 헤더
-CREATE TABLE portfolio_snapshot (
-  id            BIGSERIAL PRIMARY KEY,
-  event_type    VARCHAR(20) NOT NULL, -- BUY, SELL, DEPOSIT, WITHDRAW, MANUAL, etc
-  source        VARCHAR(10) NOT NULL DEFAULT 'UPBIT',
-  occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  note          TEXT
-);
-
--- 자산별 잔고 스냅샷
-CREATE TABLE portfolio_snapshot_item (
-  id              BIGSERIAL PRIMARY KEY,
-  snapshot_id     BIGINT NOT NULL REFERENCES portfolio_snapshot(id) ON DELETE CASCADE,
-  currency        VARCHAR(10) NOT NULL, -- KRW, BTC, ETH ...
-  balance         NUMERIC(38, 18) NOT NULL,
-  locked          NUMERIC(38, 18) NOT NULL DEFAULT 0,
-  avg_buy_price   NUMERIC(38, 18) NOT NULL DEFAULT 0,
-  unit_currency   VARCHAR(10) NOT NULL DEFAULT 'KRW'
-);
-
-CREATE INDEX idx_portfolio_snapshot_occurred_at
-  ON portfolio_snapshot(occurred_at);
-
-CREATE INDEX idx_portfolio_snapshot_item_snapshot
-  ON portfolio_snapshot_item(snapshot_id);
-
-CREATE INDEX idx_portfolio_snapshot_item_currency
-  ON portfolio_snapshot_item(currency);
-
 -- 주문 기록 (Upbit Spot)
 CREATE TABLE orders (
   id              BIGSERIAL PRIMARY KEY,
@@ -76,18 +47,8 @@ CREATE TABLE strategy_config (
   stop_exit_pct           DOUBLE PRECISION,
   trend_exit_pct          DOUBLE PRECISION,
   momentum_exit_pct       DOUBLE PRECISION,
-  signal_model            VARCHAR(10),
-  entry_score_threshold   DOUBLE PRECISION,
-  exit_score_threshold    DOUBLE PRECISION,
   risk_per_trade_pct      DOUBLE PRECISION,
-  time_stop_candles       INTEGER,
   updated_at              TIMESTAMPTZ NOT NULL
-);
-
--- 자동매매 대상 마켓 목록
-CREATE TABLE strategy_markets (
-  market                  VARCHAR(20) PRIMARY KEY,
-  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- 전략 프리셋 (공격형/안정형 등)
@@ -102,21 +63,6 @@ CREATE TABLE strategy_presets (
   trend_exit_pct          DOUBLE PRECISION NOT NULL,
   momentum_exit_pct       DOUBLE PRECISION NOT NULL,
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 마켓별 전략 override 설정 (cap/profile)
-CREATE TABLE strategy_market_overrides (
-  market         VARCHAR(20) PRIMARY KEY,
-  max_order_krw  DOUBLE PRECISION,
-  profile        VARCHAR(20),
-  take_profit_pct         DOUBLE PRECISION,
-  stop_loss_pct           DOUBLE PRECISION,
-  trailing_stop_pct       DOUBLE PRECISION,
-  partial_take_profit_pct DOUBLE PRECISION,
-  stop_exit_pct           DOUBLE PRECISION,
-  trend_exit_pct          DOUBLE PRECISION,
-  momentum_exit_pct       DOUBLE PRECISION,
-  updated_at     TIMESTAMPTZ NOT NULL
 );
 
 -- 매매 결정 기록 (매수/매도/스킵/에러)
@@ -198,12 +144,17 @@ CREATE TABLE user_settings (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 사용자 온보딩 상태
-CREATE TABLE user_onboarding_state (
-  user_id               BIGINT PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
-  profile_completed     BOOLEAN NOT NULL DEFAULT false,
-  credentials_completed BOOLEAN NOT NULL DEFAULT false,
-  strategy_completed    BOOLEAN NOT NULL DEFAULT false,
-  completed_at          TIMESTAMPTZ,
-  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE strategy_market_overrides (
+  market                  VARCHAR(20) PRIMARY KEY,
+  max_order_krw           DOUBLE PRECISION,
+  profile                 VARCHAR(20),
+  trade_paused            BOOLEAN DEFAULT false,
+  take_profit_pct         DOUBLE PRECISION,
+  stop_loss_pct           DOUBLE PRECISION,
+  trailing_stop_pct       DOUBLE PRECISION,
+  partial_take_profit_pct DOUBLE PRECISION,
+  stop_exit_pct           DOUBLE PRECISION,
+  trend_exit_pct          DOUBLE PRECISION,
+  momentum_exit_pct       DOUBLE PRECISION,
+  updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );

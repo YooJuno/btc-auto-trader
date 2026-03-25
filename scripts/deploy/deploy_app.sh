@@ -1,9 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/apps/backend"
 FRONTEND_DIR="$ROOT_DIR/apps/frontend"
+UNIT_DIR="$ROOT_DIR/scripts/systemd"
 SYSTEMD_DIR="/etc/systemd/system"
 UNIT_CHANGED=0
 
@@ -20,7 +21,7 @@ npm run build
 
 # 3) Copy systemd unit files only if changed
 for unit in btc-backend.service btc-frontend.service; do
-  src="$ROOT_DIR/scripts/$unit"
+  src="$UNIT_DIR/$unit"
   dst="$SYSTEMD_DIR/$unit"
 
   if ! sudo test -f "$dst" || ! sudo cmp -s "$src" "$dst"; then

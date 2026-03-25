@@ -12,6 +12,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -45,6 +46,19 @@ public class UserSettingsService {
         return toResponse(entity);
     }
 
+    @Transactional(readOnly = true)
+    public Optional<List<String>> findPreferredMarkets(Long userId) {
+        UserSettingsEntity entity = userSettingsRepository.findById(userId).orElse(null);
+        if (entity == null) {
+            return Optional.empty();
+        }
+        String rawJson = entity.getPreferredMarketsJson();
+        if (rawJson == null || rawJson.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.of(parseMarkets(rawJson));
+    }
+
     @Transactional
     public UserSettingsResponse updateSettings(Long userId, UserSettingsRequest request) {
         if (request == null) {
@@ -55,11 +69,7 @@ public class UserSettingsService {
         String riskProfile = normalizeRiskProfile(request.riskProfile());
         Map<String, Object> uiPrefs = normalizeUiPrefs(request.uiPrefs());
 
-        UserSettingsEntity entity = userSettingsRepository.findById(userId).orElseGet(() -> {
-            UserSettingsEntity created = new UserSettingsEntity();
-            created.setUserId(userId);
-            return created;
-        });
+        UserSettingsEntity entity = findOrCreateEntity(userId);
 
         entity.setPreferredMarketsJson(toJson(markets));
         entity.setRiskProfile(riskProfile);
@@ -69,6 +79,19 @@ public class UserSettingsService {
         return toResponse(saved);
     }
 
+    @Transactional
+    public UserSettingsResponse updateMarkets(Long userId, List<String> markets) {
+        UserSettingsEntity entity = findOrCreateEntity(userId);
+        entity.setPreferredMarketsJson(toJson(normalizeMarkets(markets)));
+        if (entity.getRiskProfile() == null || entity.getRiskProfile().isBlank()) {
+            entity.setRiskProfile(DEFAULT_PROFILE);
+        }
+        if (entity.getUiPrefsJson() == null || entity.getUiPrefsJson().isBlank()) {
+            entity.setUiPrefsJson(toJson(Map.of()));
+        }
+        return toResponse(userSettingsRepository.save(entity));
+    }
+
     private UserSettingsResponse toResponse(UserSettingsEntity entity) {
         List<String> markets = parseMarkets(entity.getPreferredMarketsJson());
         String riskProfile = normalizeRiskProfile(entity.getRiskProfile());
@@ -76,6 +99,14 @@ public class UserSettingsService {
         OffsetDateTime updatedAt = entity.getUpdatedAt();
 
         return new UserSettingsResponse(markets, riskProfile, uiPrefs, updatedAt);
+    }
+
+    private UserSettingsEntity findOrCreateEntity(Long userId) {
+        return userSettingsRepository.findById(userId).orElseGet(() -> {
+            UserSettingsEntity created = new UserSettingsEntity();
+            created.setUserId(userId);
+            return created;
+        });
     }
 
     private List<String> normalizeMarkets(List<String> markets) {

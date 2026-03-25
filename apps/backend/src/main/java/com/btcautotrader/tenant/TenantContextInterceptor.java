@@ -1,5 +1,6 @@
 package com.btcautotrader.tenant;
 
+import com.btcautotrader.auth.TradingApprovalStatus;
 import com.btcautotrader.auth.CurrentUserService;
 import com.btcautotrader.auth.UserEntity;
 import jakarta.servlet.http.HttpServletRequest;
@@ -51,19 +52,22 @@ public class TenantContextInterceptor implements HandlerInterceptor {
         try {
             UserEntity user = currentUserService.requireUser(authentication);
             user = tenantDatabaseProvisioningService.ensureTenant(user);
-            if (user.getTenantDatabase() != null && !user.getTenantDatabase().isBlank()) {
-                TenantContext.setTenantDatabase(user.getTenantDatabase().trim());
+            String tenantDatabase = trimToNull(user.getTenantDatabase());
+            if (tenantDatabase == null) {
+                TradingApprovalStatus approvalStatus = TradingApprovalStatus.from(user.getTradingApprovalStatus());
+                int status = approvalStatus == TradingApprovalStatus.APPROVED
+                        ? HttpServletResponse.SC_SERVICE_UNAVAILABLE
+                        : HttpServletResponse.SC_FORBIDDEN;
+                response.sendError(status, tenantUnavailableMessage(approvalStatus));
+                return false;
             }
+            TenantContext.setTenantDatabase(tenantDatabase);
             return true;
         } catch (RuntimeException ex) {
-            // Fall back to system DB so tenant provisioning glitches don't block strategy/order APIs.
             TenantContext.clear();
-            log.warn(
-                    "Tenant resolution failed for path {}. Falling back to system tenant: {}",
-                    path,
-                    ex.getMessage()
-            );
-            return true;
+            log.warn("Tenant resolution failed for path {}: {}", path, ex.getMessage());
+            response.sendError(HttpServletResponse.SC_SERVICE_UNAVAILABLE, "전용 거래 공간 조회에 실패했습니다. 잠시 후 다시 시도해주세요.");
+            return false;
         }
     }
 
@@ -85,5 +89,23 @@ public class TenantContextInterceptor implements HandlerInterceptor {
             }
         }
         return false;
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String tenantUnavailableMessage(TradingApprovalStatus approvalStatus) {
+        if (approvalStatus == TradingApprovalStatus.SUSPENDED) {
+            return "관리자에 의해 거래가 중지되었습니다.";
+        }
+        if (approvalStatus == TradingApprovalStatus.APPROVED) {
+            return "전용 거래 공간이 준비되지 않았습니다.";
+        }
+        return "거래 승인 대기 상태입니다.";
     }
 }

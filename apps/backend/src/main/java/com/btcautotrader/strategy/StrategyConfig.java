@@ -11,10 +11,6 @@ public record StrategyConfig(
         double stopExitPct,
         double trendExitPct,
         double momentumExitPct,
-        String signalModel,
-        double entryScoreThreshold,
-        double exitScoreThreshold,
-        double riskPerTradePct,
-        int timeStopCandles
+        double riskPerTradePct
 ) {
 }

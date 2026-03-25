@@ -17,6 +17,7 @@ import java.util.Optional;
 
 @Service
 public class CurrentUserService {
+    private static final int DISPLAY_NAME_MAX_LENGTH = 160;
     private static final List<String> SUBJECT_KEYS = List.of("sub", "id", "user_id", "uid");
     private static final List<String> NAME_KEYS = List.of("name", "nickname", "login", "preferred_username");
 
@@ -47,7 +48,9 @@ public class CurrentUserService {
                 });
 
         entity.setEmail(identity.email());
-        entity.setDisplayName(identity.displayName());
+        if (entity.getDisplayName() == null || entity.getDisplayName().isBlank()) {
+            entity.setDisplayName(normalizeImportedDisplayName(identity.displayName()));
+        }
         entity.setLastLoginAt(OffsetDateTime.now());
         applyApprovalDefaults(entity);
         UserEntity saved = userRepository.save(entity);
@@ -64,7 +67,7 @@ public class CurrentUserService {
                     created.setProvider(identity.provider());
                     created.setProviderUserId(identity.providerUserId());
                     created.setEmail(identity.email());
-                    created.setDisplayName(identity.displayName());
+                    created.setDisplayName(normalizeImportedDisplayName(identity.displayName()));
                     created.setLastLoginAt(OffsetDateTime.now());
                     applyApprovalDefaults(created);
                     return userRepository.save(created);
@@ -79,6 +82,15 @@ public class CurrentUserService {
             resolved = userRepository.save(resolved);
         }
         return tenantDatabaseProvisioningService.ensureTenant(resolved);
+    }
+
+    @Transactional
+    public UserEntity updateProfile(UserEntity user, UserProfileRequest request) {
+        if (user == null) {
+            throw new IllegalArgumentException("사용자 정보가 없습니다.");
+        }
+        user.setDisplayName(validateProfileDisplayName(request == null ? null : request.displayName()));
+        return userRepository.save(user);
     }
 
     @Transactional(readOnly = true)
@@ -155,6 +167,39 @@ public class CurrentUserService {
             throw new IllegalStateException("oauth2 provider is missing");
         }
         return provider.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeImportedDisplayName(String value) {
+        String normalized = normalizeDisplayName(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (normalized.length() <= DISPLAY_NAME_MAX_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, DISPLAY_NAME_MAX_LENGTH);
+    }
+
+    private static String validateProfileDisplayName(String value) {
+        String normalized = normalizeDisplayName(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (normalized.length() > DISPLAY_NAME_MAX_LENGTH) {
+            throw new IllegalArgumentException("닉네임은 160자 이하로 입력해주세요.");
+        }
+        return normalized;
+    }
+
+    private static String normalizeDisplayName(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        return trimmed;
     }
 
     private static String extractAttributeAsString(Map<String, Object> attributes, List<String> keys) {

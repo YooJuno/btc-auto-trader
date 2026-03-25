@@ -1,11 +1,11 @@
 # Backtest Guide
 
-`./scripts/backtest.py`는 현재 자동매매 로직과 동일한 핵심 규칙(진입/청산/쿨다운/가드/비용)을 기준으로 전략을 검증하는 도구입니다.
+`./scripts/research/backtest.py`는 현재 자동매매 로직과 동일한 핵심 규칙(진입/청산/쿨다운/가드/비용)을 기준으로 전략을 검증하는 도구입니다.
 
 ## 1) 빠른 실행
 
 ```bash
-python3 scripts/backtest.py --days 30
+python3 scripts/research/backtest.py --days 30
 ```
 
 기본 동작:
@@ -16,7 +16,7 @@ python3 scripts/backtest.py --days 30
 ## 2) 파라미터 탐색 포함 검증
 
 ```bash
-python3 scripts/backtest.py --days 30 --optimize --max-combos 120
+python3 scripts/research/backtest.py --days 30 --optimize --max-combos 120
 ```
 
 - 탐색은 기본 파라미터 주변만 제한적으로 수행합니다.
@@ -26,7 +26,7 @@ python3 scripts/backtest.py --days 30 --optimize --max-combos 120
 ## 3) 결과 저장
 
 ```bash
-python3 scripts/backtest.py --days 30 --optimize --export data/backtest/report_30d.json
+python3 scripts/research/backtest.py --days 30 --optimize --export data/backtest/report_30d.json
 ```
 
 ## 4) 주요 옵션

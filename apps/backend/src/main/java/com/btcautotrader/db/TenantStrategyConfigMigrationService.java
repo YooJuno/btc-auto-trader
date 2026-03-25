@@ -48,8 +48,56 @@ public class TenantStrategyConfigMigrationService {
 
     private void migrateCurrentTenantSchema() {
         jdbcTemplate.execute("""
+                create table if not exists strategy_market_overrides (
+                    market varchar(20) primary key,
+                    max_order_krw double precision,
+                    profile varchar(20),
+                    trade_paused boolean default false,
+                    take_profit_pct double precision,
+                    stop_loss_pct double precision,
+                    trailing_stop_pct double precision,
+                    partial_take_profit_pct double precision,
+                    stop_exit_pct double precision,
+                    trend_exit_pct double precision,
+                    momentum_exit_pct double precision,
+                    updated_at timestamptz not null default now()
+                )
+                """);
+        jdbcTemplate.execute("""
                 alter table if exists strategy_market_overrides
                 add column if not exists trade_paused boolean
+                """);
+        jdbcTemplate.execute("""
+                alter table if exists strategy_market_overrides
+                add column if not exists take_profit_pct double precision
+                """);
+        jdbcTemplate.execute("""
+                alter table if exists strategy_market_overrides
+                add column if not exists stop_loss_pct double precision
+                """);
+        jdbcTemplate.execute("""
+                alter table if exists strategy_market_overrides
+                add column if not exists trailing_stop_pct double precision
+                """);
+        jdbcTemplate.execute("""
+                alter table if exists strategy_market_overrides
+                add column if not exists partial_take_profit_pct double precision
+                """);
+        jdbcTemplate.execute("""
+                alter table if exists strategy_market_overrides
+                add column if not exists stop_exit_pct double precision
+                """);
+        jdbcTemplate.execute("""
+                alter table if exists strategy_market_overrides
+                add column if not exists trend_exit_pct double precision
+                """);
+        jdbcTemplate.execute("""
+                alter table if exists strategy_market_overrides
+                add column if not exists momentum_exit_pct double precision
+                """);
+        jdbcTemplate.execute("""
+                alter table if exists strategy_config
+                add column if not exists risk_per_trade_pct double precision
                 """);
         jdbcTemplate.execute("""
                 update strategy_market_overrides
@@ -59,66 +107,13 @@ public class TenantStrategyConfigMigrationService {
                 alter table if exists strategy_market_overrides
                 alter column trade_paused set default false
                 """);
-
-        jdbcTemplate.execute("""
-                alter table if exists strategy_config
-                add column if not exists signal_model varchar(10)
-                """);
-        jdbcTemplate.execute("""
-                alter table if exists strategy_config
-                add column if not exists entry_score_threshold double precision
-                """);
-        jdbcTemplate.execute("""
-                alter table if exists strategy_config
-                add column if not exists exit_score_threshold double precision
-                """);
-        jdbcTemplate.execute("""
-                alter table if exists strategy_config
-                add column if not exists risk_per_trade_pct double precision
-                """);
-        jdbcTemplate.execute("""
-                alter table if exists strategy_config
-                add column if not exists time_stop_candles integer
-                """);
-        jdbcTemplate.execute("""
-                update strategy_config
-                set signal_model = coalesce(nullif(signal_model, ''), 'V1')
-                """);
-        jdbcTemplate.execute("""
-                update strategy_config
-                set entry_score_threshold = coalesce(entry_score_threshold, 65)
-                """);
-        jdbcTemplate.execute("""
-                update strategy_config
-                set exit_score_threshold = coalesce(exit_score_threshold, 60)
-                """);
         jdbcTemplate.execute("""
                 update strategy_config
                 set risk_per_trade_pct = coalesce(risk_per_trade_pct, 0.7)
                 """);
         jdbcTemplate.execute("""
-                update strategy_config
-                set time_stop_candles = coalesce(time_stop_candles, 180)
-                """);
-        jdbcTemplate.execute("""
-                alter table if exists strategy_config
-                alter column signal_model set default 'V1'
-                """);
-        jdbcTemplate.execute("""
-                alter table if exists strategy_config
-                alter column entry_score_threshold set default 65
-                """);
-        jdbcTemplate.execute("""
-                alter table if exists strategy_config
-                alter column exit_score_threshold set default 60
-                """);
-        jdbcTemplate.execute("""
                 alter table if exists strategy_config
                 alter column risk_per_trade_pct set default 0.7
-                """);
-        jdbcTemplate.execute("""
-                alter table if exists strategy_config
-                alter column time_stop_candles set default 180
                 """);
     }
 }

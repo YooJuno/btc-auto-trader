@@ -39,6 +39,18 @@ public class AdminController {
         return ResponseEntity.ok(adminUserService.listUsers(query, status));
     }
 
+    @GetMapping("/users/page")
+    public ResponseEntity<AdminUserPageResponse> listUsersPage(
+            Authentication authentication,
+            @RequestParam(name = "q", required = false) String query,
+            @RequestParam(name = "status", required = false) String status,
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size
+    ) {
+        adminAccessService.requireOwner(authentication);
+        return ResponseEntity.ok(adminUserService.listUsersPage(query, status, page, size));
+    }
+
     @PatchMapping("/users/{userId}/approval")
     public ResponseEntity<?> updateApproval(
             Authentication authentication,

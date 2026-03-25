@@ -5,6 +5,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.OffsetDateTime;
@@ -24,8 +29,6 @@ class AdminUserServiceTest {
     @Mock
     private UserExchangeCredentialService userExchangeCredentialService;
     @Mock
-    private UserOnboardingService userOnboardingService;
-    @Mock
     private CurrentUserService currentUserService;
     @Mock
     private TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
@@ -34,9 +37,9 @@ class AdminUserServiceTest {
         return new AdminUserService(
                 userRepository,
                 userExchangeCredentialService,
-                userOnboardingService,
                 currentUserService,
-                tenantDatabaseProvisioningService
+                tenantDatabaseProvisioningService,
+                "owner@example.com"
         );
     }
 
@@ -147,5 +150,62 @@ class AdminUserServiceTest {
 
         verify(userRepository, never()).delete(target);
         verify(tenantDatabaseProvisioningService, never()).dropDedicatedTenantDatabase("btc_user_42");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void listUsers_queriesRepositoryWithSpecification() {
+        AdminUserService service = service();
+
+        UserEntity user = new UserEntity();
+        ReflectionTestUtils.setField(user, "id", 51L);
+        user.setEmail("user51@example.com");
+        user.setDisplayName("User 51");
+        user.setTradingApprovalStatus(TradingApprovalStatus.APPROVED.name());
+
+        when(userRepository.findAll(org.mockito.ArgumentMatchers.any(Specification.class), org.mockito.ArgumentMatchers.any(Sort.class)))
+                .thenReturn(List.of(user));
+        when(userExchangeCredentialService.getStatus(user))
+                .thenReturn(new UserExchangeCredentialStatusResponse(false, false, null));
+
+        List<AdminUserItemResponse> items = service.listUsers("user51", TradingApprovalStatus.APPROVED.name());
+
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).email()).isEqualTo("user51@example.com");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void listUsersPage_queriesRepositoryWithPageableAndReturnsMetadata() {
+        AdminUserService service = service();
+
+        UserEntity user = new UserEntity();
+        ReflectionTestUtils.setField(user, "id", 52L);
+        user.setEmail("user52@example.com");
+        user.setDisplayName("User 52");
+        user.setTradingApprovalStatus(TradingApprovalStatus.APPROVED.name());
+
+        when(userRepository.findAll(
+                org.mockito.ArgumentMatchers.any(Specification.class),
+                org.mockito.ArgumentMatchers.any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(user), PageRequest.of(0, 20), 1));
+        when(userExchangeCredentialService.getStatus(user))
+                .thenReturn(new UserExchangeCredentialStatusResponse(false, false, null));
+
+        AdminUserPageResponse response = service.listUsersPage(
+                "user52",
+                TradingApprovalStatus.APPROVED.name(),
+                0,
+                20
+        );
+
+        assertThat(response.items()).hasSize(1);
+        assertThat(response.items().get(0).email()).isEqualTo("user52@example.com");
+        assertThat(response.page()).isZero();
+        assertThat(response.size()).isEqualTo(20);
+        assertThat(response.totalElements()).isEqualTo(1);
+        assertThat(response.totalPages()).isEqualTo(1);
+        assertThat(response.hasNext()).isFalse();
+        assertThat(response.hasPrevious()).isFalse();
     }
 }

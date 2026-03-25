@@ -4,6 +4,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -26,6 +27,11 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/auth/providers", "/api/auth/logout").permitAll()
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/strategy",
+                                "/api/strategy/presets"
+                        ).permitAll()
                         .requestMatchers("/api/me/**").authenticated()
                         .requestMatchers("/api/admin/**").authenticated()
                         .requestMatchers("/api/order/**", "/api/strategy/**", "/api/portfolio/**", "/api/engine/**").authenticated()

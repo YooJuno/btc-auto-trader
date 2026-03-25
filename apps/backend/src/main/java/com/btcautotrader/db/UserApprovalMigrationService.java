@@ -8,12 +8,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
-public class UserApprovalOnboardingMigrationService {
-    private static final Logger log = LoggerFactory.getLogger(UserApprovalOnboardingMigrationService.class);
+public class UserApprovalMigrationService {
+    private static final Logger log = LoggerFactory.getLogger(UserApprovalMigrationService.class);
 
     private final JdbcTemplate jdbcTemplate;
 
-    public UserApprovalOnboardingMigrationService(JdbcTemplate jdbcTemplate) {
+    public UserApprovalMigrationService(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -44,18 +44,8 @@ public class UserApprovalOnboardingMigrationService {
                     alter table app_users
                     alter column trading_approval_status set default 'PENDING'
                     """);
-            jdbcTemplate.execute("""
-                    create table if not exists user_onboarding_state (
-                      user_id bigint primary key references app_users(id) on delete cascade,
-                      profile_completed boolean not null default false,
-                      credentials_completed boolean not null default false,
-                      strategy_completed boolean not null default false,
-                      completed_at timestamptz,
-                      updated_at timestamptz not null default now()
-                    )
-                    """);
         } catch (RuntimeException ex) {
-            log.warn("User approval/onboarding migration skipped: {}", ex.getMessage());
+            log.warn("User approval migration skipped: {}", ex.getMessage());
         }
     }
 }

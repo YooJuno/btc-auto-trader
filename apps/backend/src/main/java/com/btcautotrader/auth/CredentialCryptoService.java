@@ -1,7 +1,5 @@
 package com.btcautotrader.auth;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -16,8 +14,6 @@ import java.util.Base64;
 
 @Service
 public class CredentialCryptoService {
-    private static final Logger log = LoggerFactory.getLogger(CredentialCryptoService.class);
-    private static final String FALLBACK_KEY = "btc-auto-trader-default-credential-key";
     private static final int GCM_TAG_BITS = 128;
     private static final int GCM_IV_BYTES = 12;
 
@@ -29,8 +25,7 @@ public class CredentialCryptoService {
     ) {
         String material = keyMaterial == null ? "" : keyMaterial.trim();
         if (material.isEmpty()) {
-            material = FALLBACK_KEY;
-            log.warn("APP_EXCHANGE_KEY_ENCRYPTION_KEY is not set. Using fallback key for credential encryption.");
+            throw new IllegalStateException("APP_EXCHANGE_KEY_ENCRYPTION_KEY must be set for credential encryption.");
         }
         this.secretKeySpec = new SecretKeySpec(sha256(material), "AES");
     }

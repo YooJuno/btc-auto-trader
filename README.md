@@ -81,14 +81,14 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
 - 실행 문서: `apps/infra/jenkins/README.md`
 - 파이프라인 파일: `Jenkinsfile`
 - 기본 CI: backend test + frontend lint/build + artifact 보관
-- 선택 CD: `main` 브랜치에서 `DEPLOY=true`일 때 원격 `./scripts/build.sh` 실행
+- 선택 CD: `main` 브랜치에서 `DEPLOY=true`일 때 원격 `./scripts/deploy/deploy_app.sh` 실행
 
 ### 백테스트 가이드
 - 실행/검증 문서: `docs/BACKTEST_GUIDE.md`
 - 기본 실행:
-  - `python3 scripts/backtest.py --days 30`
+  - `python3 scripts/research/backtest.py --days 30`
 - 파라미터 탐색 포함:
-  - `python3 scripts/backtest.py --days 30 --optimize --max-combos 120`
+  - `python3 scripts/research/backtest.py --days 30 --optimize --max-combos 120`
 
 ### Strategy Lab (지속 테스트 루프)
 - 실행 문서: `docs/STRATEGY_LAB.md`
@@ -97,7 +97,7 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
   - 결과를 `data/strategy-lab/`에 누적 저장
   - 다음 Codex 요청 시 누적 데이터 기반으로 전략 코드/설정 반영
 - 설치/시작:
-  - `./scripts/strategy_lab_install.sh`
+  - `./scripts/systemd/install_services.sh --strategy-only`
 
 ### Tenant 분리 확인 체크리스트
 1. 계정 A/B 각각 로그인 후 `/api/me`의 `tenantDatabase`가 다른지 확인

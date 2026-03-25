@@ -1,6 +1,5 @@
 package com.btcautotrader.auth;
 
-import com.btcautotrader.tenant.TenantDataSourceProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -21,7 +20,6 @@ public class TradingAccessService {
     public TradingAccessService(
             CurrentUserService currentUserService,
             UserExchangeCredentialService userExchangeCredentialService,
-            TenantDataSourceProvider tenantDataSourceProvider,
             @Value("${app.trading.owner-only-mode:${APP_TRADING_OWNER_ONLY_MODE:true}}") boolean ownerOnlyMode,
             @Value("${feature.admin-approval.enabled:true}") boolean adminApprovalEnabled,
             @Value("${app.multi-tenant.owner-email:juno980220@gmail.com}") String ownerEmail
@@ -33,14 +31,33 @@ public class TradingAccessService {
         this.ownerEmail = ownerEmail == null ? "" : ownerEmail.trim().toLowerCase(Locale.ROOT);
     }
 
-    public void requireOrderSubmissionAllowed(Authentication authentication) {
+    public UserEntity requireOrderSubmissionAllowed(Authentication authentication) {
         UserEntity user = currentUserService.requireUser(authentication);
         requireTradingAllowed(user, "주문 실행 권한이 없습니다.");
+        return user;
     }
 
-    public void requireEngineExecutionAllowed(Authentication authentication) {
+    public UserEntity requireEngineExecutionAllowed(Authentication authentication) {
         UserEntity user = currentUserService.requireUser(authentication);
         requireTradingAllowed(user, "엔진 실행 권한이 없습니다.");
+        return user;
+    }
+
+    public UserEntity requireTenantReadAllowed(Authentication authentication) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        requireTenantReadAllowed(user);
+        return user;
+    }
+
+    public String requireTenantDatabase(UserEntity user) {
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다.");
+        }
+        String tenantDatabase = trimToNull(user.getTenantDatabase());
+        if (tenantDatabase == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "전용 거래 공간이 준비되지 않았습니다.");
+        }
+        return tenantDatabase;
     }
 
     public boolean canRunAutomatedTradingForCurrentTenant() {
@@ -110,6 +127,23 @@ public class TradingAccessService {
         if (!userExchangeCredentialService.hasCredentialsForUser(user)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "거래소 API 키를 먼저 등록해주세요.");
         }
+        requireTenantDatabase(user);
+    }
+
+    private void requireTenantReadAllowed(UserEntity user) {
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다.");
+        }
+        if (adminApprovalEnabled && !isOwner(user)) {
+            TradingApprovalStatus status = TradingApprovalStatus.from(user.getTradingApprovalStatus());
+            if (status == TradingApprovalStatus.SUSPENDED) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "관리자에 의해 거래가 중지되었습니다.");
+            }
+            if (status != TradingApprovalStatus.APPROVED) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "거래 승인 대기 상태입니다.");
+            }
+        }
+        requireTenantDatabase(user);
     }
 
     private boolean isOwner(UserEntity user) {
@@ -121,6 +155,14 @@ public class TradingAccessService {
             return false;
         }
         return ownerEmail.equals(email.trim().toLowerCase(Locale.ROOT));
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     public record AutomatedTradingAccess(

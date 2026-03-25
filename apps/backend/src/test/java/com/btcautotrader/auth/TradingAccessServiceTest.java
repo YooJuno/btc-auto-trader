@@ -1,6 +1,5 @@
 package com.btcautotrader.auth;
 
-import com.btcautotrader.tenant.TenantDataSourceProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,8 +24,6 @@ class TradingAccessServiceTest {
     @Mock
     private UserExchangeCredentialService userExchangeCredentialService;
     @Mock
-    private TenantDataSourceProvider tenantDataSourceProvider;
-    @Mock
     private Authentication authentication;
 
     private UserEntity user;
@@ -45,14 +42,7 @@ class TradingAccessServiceTest {
     void pendingUser_isRejectedWhenAdminApprovalEnabled() {
         user.setTradingApprovalStatus(TradingApprovalStatus.PENDING.name());
 
-        TradingAccessService service = new TradingAccessService(
-                currentUserService,
-                userExchangeCredentialService,
-                tenantDataSourceProvider,
-                false,
-                true,
-                "owner@example.com"
-        );
+        TradingAccessService service = newService(false, true);
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
@@ -67,14 +57,7 @@ class TradingAccessServiceTest {
     void suspendedUser_isRejectedImmediately() {
         user.setTradingApprovalStatus(TradingApprovalStatus.SUSPENDED.name());
 
-        TradingAccessService service = new TradingAccessService(
-                currentUserService,
-                userExchangeCredentialService,
-                tenantDataSourceProvider,
-                false,
-                true,
-                "owner@example.com"
-        );
+        TradingAccessService service = newService(false, true);
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
@@ -88,16 +71,10 @@ class TradingAccessServiceTest {
     @Test
     void approvedUserWithoutCredentials_isRejected() {
         user.setTradingApprovalStatus(TradingApprovalStatus.APPROVED.name());
+        user.setTenantDatabase("btc_user_7");
         when(userExchangeCredentialService.hasCredentialsForUser(user)).thenReturn(false);
 
-        TradingAccessService service = new TradingAccessService(
-                currentUserService,
-                userExchangeCredentialService,
-                tenantDataSourceProvider,
-                false,
-                true,
-                "owner@example.com"
-        );
+        TradingAccessService service = newService(false, true);
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
@@ -111,16 +88,10 @@ class TradingAccessServiceTest {
     @Test
     void approvedUserWithCredentials_isAllowed() {
         user.setTradingApprovalStatus(TradingApprovalStatus.APPROVED.name());
+        user.setTenantDatabase("btc_user_7");
         when(userExchangeCredentialService.hasCredentialsForUser(user)).thenReturn(true);
 
-        TradingAccessService service = new TradingAccessService(
-                currentUserService,
-                userExchangeCredentialService,
-                tenantDataSourceProvider,
-                false,
-                true,
-                "owner@example.com"
-        );
+        TradingAccessService service = newService(false, true);
 
         assertDoesNotThrow(() -> service.requireOrderSubmissionAllowed(authentication));
         assertDoesNotThrow(() -> service.requireEngineExecutionAllowed(authentication));
@@ -129,14 +100,7 @@ class TradingAccessServiceTest {
     @Test
     void systemTenant_readyCandidate_isAllowedForAutomatedTrading() {
         user.setTradingApprovalStatus(TradingApprovalStatus.APPROVED.name());
-        TradingAccessService service = new TradingAccessService(
-                currentUserService,
-                userExchangeCredentialService,
-                tenantDataSourceProvider,
-                false,
-                true,
-                "owner@example.com"
-        );
+        TradingAccessService service = newService(false, true);
         UserExchangeCredentialService.TenantTradingPrincipalResolution resolution =
                 UserExchangeCredentialService.TenantTradingPrincipalResolution.ready(
                         "btc-auto-trader",
@@ -150,5 +114,45 @@ class TradingAccessServiceTest {
 
         assertThat(access.allowed()).isTrue();
         assertThat(access.reason()).isEqualTo("allowed");
+    }
+
+    @Test
+    void tenantRead_rejectsPendingUser() {
+        user.setTradingApprovalStatus(TradingApprovalStatus.PENDING.name());
+
+        TradingAccessService service = newService(false, true);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.requireTenantReadAllowed(authentication)
+        );
+
+        assertThat(exception.getStatusCode().value()).isEqualTo(403);
+        assertThat(exception.getReason()).contains("거래 승인 대기");
+    }
+
+    @Test
+    void tenantRead_rejectsApprovedUserWithoutTenantDatabase() {
+        user.setTradingApprovalStatus(TradingApprovalStatus.APPROVED.name());
+
+        TradingAccessService service = newService(false, true);
+
+        ResponseStatusException exception = assertThrows(
+                ResponseStatusException.class,
+                () -> service.requireTenantReadAllowed(authentication)
+        );
+
+        assertThat(exception.getStatusCode().value()).isEqualTo(503);
+        assertThat(exception.getReason()).contains("전용 거래 공간");
+    }
+
+    private TradingAccessService newService(boolean ownerOnlyMode, boolean adminApprovalEnabled) {
+        return new TradingAccessService(
+                currentUserService,
+                userExchangeCredentialService,
+                ownerOnlyMode,
+                adminApprovalEnabled,
+                "owner@example.com"
+        );
     }
 }

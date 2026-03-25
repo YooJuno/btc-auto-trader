@@ -115,10 +115,8 @@ Limit orders do not guarantee execution, while market orders do.
 Ref: https://global-docs.upbit.com/reference/order
 
 ## 5) Operational Protections (Implemented)
-- **Per-market cap:** `trading.market-max-order-krw`로 종목별 최대 매수금액 제한.
-- **Per-market profile override:** `trading.market-profile`로 종목별 공격/균형/보수 분리.
+- **Single-market runtime:** `trading.markets`의 첫 번째 마켓만 자동매매 대상으로 사용.
 - **Per-market backoff:** 특정 종목 실패가 다른 종목 거래를 멈추지 않도록 분리 백오프 적용.
-- **Tick budget:** `engine.max-markets-per-tick`로 1회 tick 처리 종목 수 제한(라운드로빈 순환).
 - **API rate-limit guard:** Upbit 호출 간격 및 초/분당 요청량 제어.
 
 ## 6) Config Keys (Implemented)
@@ -148,18 +146,8 @@ signal.breakout-pct=0.3
 signal.max-extension-pct=1.2
 signal.ma-long-slope-lookback=5
 signal.min-confirmations=2
-signal.relative-momentum.enabled=true
-signal.relative-momentum.timeframe-unit=15
-signal.relative-momentum.short-lookback=24
-signal.relative-momentum.long-lookback=96
-signal.relative-momentum.top-n=3
-signal.relative-momentum.min-score-pct=0.0
-signal.relative-momentum.cache-minutes=5
-trading.market-max-order-krw=
-trading.market-profile=
 trading.fee-rate=0.0005
 trading.slippage-pct=0.001
-engine.max-markets-per-tick=0
 engine.state-restore-limit=500
 risk.trailing-window=20
 risk.partial-take-profit-cooldown-minutes=120
@@ -185,10 +173,6 @@ Risk parameters `takeProfitPct` / `stopLossPct` / `trailingStopPct`
 / `stopExitPct` / `trendExitPct` / `momentumExitPct` are managed via the Strategy API:
 - `GET /api/strategy`
 - `PUT /api/strategy`
-
-Per-market cap/profile overrides are managed via:
-- `GET /api/strategy/market-overrides`
-- `PUT /api/strategy/market-overrides`
 
 ## 7) Next Implementation Steps (If You Approve)
 1. Add optional limit-entry with timeout + fallback to market.

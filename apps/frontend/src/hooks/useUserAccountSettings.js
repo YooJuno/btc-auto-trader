@@ -59,6 +59,15 @@ export function useUserAccountSettings(authUser) {
     setExchangeCredentialStatus(exchangeCredentials)
   }, [])
 
+  const syncUserMarkets = useCallback((markets) => {
+    const normalized = Array.isArray(markets) ? markets.map(normalizeMarket).filter(Boolean) : []
+    setUserSettings((prev) => ({
+      ...(prev ?? {}),
+      markets: normalized,
+    }))
+    setUserMarketsInput(normalized.join(', '))
+  }, [])
+
   const fetchMySettings = useCallback(async () => {
     if (!authUser) {
       return
@@ -249,6 +258,7 @@ export function useUserAccountSettings(authUser) {
     handleDeleteExchangeCredentials,
     applyBootstrapSettings,
     applyBootstrapExchangeCredentials,
+    syncUserMarkets,
     resetUserAccountState,
   }
 }

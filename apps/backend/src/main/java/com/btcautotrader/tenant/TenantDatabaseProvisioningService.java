@@ -35,15 +35,18 @@ public class TenantDatabaseProvisioningService {
     private final TenantDataSourceProvider tenantDataSourceProvider;
     private final Resource tenantSchemaScript = new ClassPathResource("db/tenant-schema.sql");
     private final String ownerEmail;
+    private final boolean adminApprovalEnabled;
 
     public TenantDatabaseProvisioningService(
             UserRepository userRepository,
             TenantDataSourceProvider tenantDataSourceProvider,
-            @Value("${app.multi-tenant.owner-email:juno980220@gmail.com}") String ownerEmail
+            @Value("${app.multi-tenant.owner-email:juno980220@gmail.com}") String ownerEmail,
+            @Value("${feature.admin-approval.enabled:true}") boolean adminApprovalEnabled
     ) {
         this.userRepository = userRepository;
         this.tenantDataSourceProvider = tenantDataSourceProvider;
         this.ownerEmail = ownerEmail == null ? "" : ownerEmail.trim().toLowerCase(Locale.ROOT);
+        this.adminApprovalEnabled = adminApprovalEnabled;
     }
 
     @Transactional
@@ -57,15 +60,16 @@ public class TenantDatabaseProvisioningService {
         boolean owner = isOwner(user);
         TradingApprovalStatus approvalStatus = TradingApprovalStatus.from(user.getTradingApprovalStatus());
         boolean approved = approvalStatus == TradingApprovalStatus.APPROVED;
+        boolean hasDedicatedTenant = existingTenant != null && !systemTenant.equals(existingTenant);
+        boolean dedicatedTenantEligible = !adminApprovalEnabled || approved || hasDedicatedTenant;
         String resolvedTenant = existingTenant;
         String dedicatedTenant = null;
 
         if (owner) {
             resolvedTenant = systemTenant;
         } else {
-            // 승인 전 사용자(PENDING/SUSPENDED)는 시스템 DB를 사용하고,
-            // 승인 시점에만 전용 DB를 할당/생성한다.
-            if (approved) {
+            // 승인 전 사용자는 tenant를 바인딩하지 않고, 전용 tenant가 필요한 경우에만 할당한다.
+            if (dedicatedTenantEligible) {
                 if (user.getId() == null) {
                     throw new IllegalStateException("user id is required to provision tenant database");
                 }
@@ -74,7 +78,7 @@ public class TenantDatabaseProvisioningService {
                     resolvedTenant = dedicatedTenant;
                 }
             } else {
-                resolvedTenant = systemTenant;
+                resolvedTenant = null;
             }
         }
 
@@ -84,7 +88,7 @@ public class TenantDatabaseProvisioningService {
             if (shouldProvisionDedicatedTenant) {
                 boolean provisioned = provisionDedicatedTenantBestEffort(user, dedicatedTenant);
                 if (!provisioned && !systemTenant.equals(resolvedTenant)) {
-                    user.setTenantDatabase(systemTenant);
+                    user.setTenantDatabase(null);
                     return userRepository.save(user);
                 }
             }
@@ -114,7 +118,7 @@ public class TenantDatabaseProvisioningService {
         if (shouldProvisionDedicatedTenant) {
             boolean provisioned = provisionDedicatedTenantBestEffort(saved, dedicatedTenant);
             if (!provisioned && !systemTenant.equals(resolvedTenant)) {
-                saved.setTenantDatabase(systemTenant);
+                saved.setTenantDatabase(null);
                 saved = userRepository.save(saved);
             }
         }
@@ -143,14 +147,12 @@ public class TenantDatabaseProvisioningService {
         Set<String> databases = new LinkedHashSet<>();
         databases.add(tenantDataSourceProvider.getSystemDatabaseName());
 
-        List<String> assigned = TenantContext.callWithTenantDatabase(null, () -> userRepository.findAll()
-                .stream()
-                .map(UserEntity::getTenantDatabase)
-                .map(TenantDatabaseProvisioningService::trimToNull)
-                .filter(name -> name != null)
-                .toList());
+        List<String> assigned = TenantContext.callWithTenantDatabase(null, userRepository::findDistinctTenantDatabases);
         if (assigned != null && !assigned.isEmpty()) {
-            databases.addAll(assigned);
+            assigned.stream()
+                    .map(TenantDatabaseProvisioningService::trimToNull)
+                    .filter(name -> name != null)
+                    .forEach(databases::add);
         }
         return List.copyOf(databases);
     }

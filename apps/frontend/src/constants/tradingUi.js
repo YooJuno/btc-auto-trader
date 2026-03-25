@@ -25,7 +25,9 @@ export const RATIO_FIELD_LABELS = {
 
 export const DASHBOARD_ROUTE = 'dashboard'
 export const SETTINGS_ROUTE = 'settings'
+export const PROFILE_ROUTE = 'profile'
 export const ADMIN_USERS_ROUTE = 'adminUsers'
+export const PROFILE_PATH = '/profile'
 export const SETTINGS_PATH = '/settings'
 export const ADMIN_USERS_PATH = '/admin/users'
 

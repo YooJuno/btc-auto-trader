@@ -106,7 +106,7 @@ pipeline {
               git fetch --all --prune
               git checkout '${BRANCH_NAME}'
               git pull --ff-only
-              ./scripts/build.sh
+              ./scripts/deploy/deploy_app.sh
             "
           '''
         }

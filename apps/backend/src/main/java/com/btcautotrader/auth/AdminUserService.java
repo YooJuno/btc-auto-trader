@@ -1,5 +1,10 @@
 package com.btcautotrader.auth;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import com.btcautotrader.tenant.TenantDatabaseProvisioningService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,40 +16,74 @@ import java.util.Objects;
 
 @Service
 public class AdminUserService {
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final UserRepository userRepository;
     private final UserExchangeCredentialService userExchangeCredentialService;
-    private final UserOnboardingService userOnboardingService;
     private final CurrentUserService currentUserService;
     private final TenantDatabaseProvisioningService tenantDatabaseProvisioningService;
+    private final String ownerEmail;
 
     public AdminUserService(
             UserRepository userRepository,
             UserExchangeCredentialService userExchangeCredentialService,
-            UserOnboardingService userOnboardingService,
             CurrentUserService currentUserService,
-            TenantDatabaseProvisioningService tenantDatabaseProvisioningService
+            TenantDatabaseProvisioningService tenantDatabaseProvisioningService,
+            @Value("${app.multi-tenant.owner-email:juno980220@gmail.com}") String ownerEmail
     ) {
         this.userRepository = userRepository;
         this.userExchangeCredentialService = userExchangeCredentialService;
-        this.userOnboardingService = userOnboardingService;
         this.currentUserService = currentUserService;
         this.tenantDatabaseProvisioningService = tenantDatabaseProvisioningService;
+        this.ownerEmail = ownerEmail == null ? "" : ownerEmail.trim().toLowerCase(Locale.ROOT);
     }
 
     @Transactional
     public List<AdminUserItemResponse> listUsers(String query, String statusFilter) {
-        String normalizedQuery = normalize(query);
-        TradingApprovalStatus normalizedStatus = statusFilter == null || statusFilter.isBlank()
-                ? null
-                : TradingApprovalStatus.from(statusFilter);
-
-        return userRepository.findAllByOrderByLastLoginAtDesc()
+        return userRepository.findAll(buildUserListSpecification(query, statusFilter), adminUserSort())
                 .stream()
-                .filter(user -> !currentUserService.isOwner(user))
-                .filter(user -> matchesQuery(user, normalizedQuery))
-                .filter(user -> matchesStatus(user, normalizedStatus))
                 .map(this::toItem)
                 .toList();
+    }
+
+    @Transactional
+    public AdminUserPageResponse listUsersPage(
+            String query,
+            String statusFilter,
+            Integer page,
+            Integer size
+    ) {
+        Specification<UserEntity> specification = buildUserListSpecification(query, statusFilter);
+        int safeSize = sanitizePageSize(size);
+        int safePage = sanitizePage(page);
+
+        Page<UserEntity> userPage = userRepository.findAll(
+                specification,
+                PageRequest.of(safePage, safeSize, adminUserSort())
+        );
+
+        if (userPage.getTotalPages() > 0 && safePage >= userPage.getTotalPages()) {
+            safePage = userPage.getTotalPages() - 1;
+            userPage = userRepository.findAll(
+                    specification,
+                    PageRequest.of(safePage, safeSize, adminUserSort())
+            );
+        }
+
+        List<AdminUserItemResponse> items = userPage.getContent().stream()
+                .map(this::toItem)
+                .toList();
+
+        return new AdminUserPageResponse(
+                items,
+                userPage.getTotalElements(),
+                userPage.getTotalPages(),
+                userPage.getNumber(),
+                userPage.getSize(),
+                userPage.hasNext(),
+                userPage.hasPrevious()
+        );
     }
 
     @Transactional
@@ -113,7 +152,6 @@ public class AdminUserService {
 
     private AdminUserItemResponse toItem(UserEntity user) {
         UserExchangeCredentialStatusResponse credentialStatus = userExchangeCredentialService.getStatus(user);
-        UserOnboardingStateResponse onboardingState = userOnboardingService.getState(user);
         return new AdminUserItemResponse(
                 user.getId(),
                 user.getEmail(),
@@ -121,34 +159,53 @@ public class AdminUserService {
                 user.getLastLoginAt(),
                 TradingApprovalStatus.from(user.getTradingApprovalStatus()).name(),
                 user.getTradingApprovalNote(),
-                credentialStatus.configured() || credentialStatus.usingDefaultCredentials(),
-                onboardingState.completed()
+                credentialStatus.configured() || credentialStatus.usingDefaultCredentials()
         );
     }
 
-    private static boolean matchesQuery(UserEntity user, String query) {
-        if (query == null || query.isBlank()) {
-            return true;
-        }
-        String email = normalize(user.getEmail());
-        String displayName = normalize(user.getDisplayName());
-        String provider = normalize(user.getProvider());
-        String providerUserId = normalize(user.getProviderUserId());
-        return contains(email, query)
-                || contains(displayName, query)
-                || contains(provider, query)
-                || contains(providerUserId, query);
+    private Specification<UserEntity> buildUserListSpecification(String query, String statusFilter) {
+        String normalizedQuery = normalize(query);
+        TradingApprovalStatus normalizedStatus = statusFilter == null || statusFilter.isBlank()
+                ? null
+                : TradingApprovalStatus.from(statusFilter);
+
+        return Specification.where(excludeOwner())
+                .and(matchesQuery(normalizedQuery))
+                .and(matchesStatus(normalizedStatus));
     }
 
-    private static boolean matchesStatus(UserEntity user, TradingApprovalStatus statusFilter) {
+    private static Sort adminUserSort() {
+        return Sort.by(Sort.Direction.DESC, "lastLoginAt");
+    }
+
+    private Specification<UserEntity> excludeOwner() {
+        if (ownerEmail == null || ownerEmail.isBlank()) {
+            return null;
+        }
+        return (root, query, cb) -> cb.or(
+                cb.isNull(root.get("email")),
+                cb.notEqual(cb.lower(root.get("email")), ownerEmail)
+        );
+    }
+
+    private static Specification<UserEntity> matchesQuery(String queryText) {
+        if (queryText == null || queryText.isBlank()) {
+            return null;
+        }
+        String pattern = "%" + queryText + "%";
+        return (root, query, cb) -> cb.or(
+                cb.like(cb.lower(cb.coalesce(root.get("email"), "")), pattern),
+                cb.like(cb.lower(cb.coalesce(root.get("displayName"), "")), pattern),
+                cb.like(cb.lower(cb.coalesce(root.get("provider"), "")), pattern),
+                cb.like(cb.lower(cb.coalesce(root.get("providerUserId"), "")), pattern)
+        );
+    }
+
+    private static Specification<UserEntity> matchesStatus(TradingApprovalStatus statusFilter) {
         if (statusFilter == null) {
-            return true;
+            return null;
         }
-        return TradingApprovalStatus.from(user.getTradingApprovalStatus()) == statusFilter;
-    }
-
-    private static boolean contains(String source, String query) {
-        return source != null && source.contains(query);
+        return (root, query, cb) -> cb.equal(root.get("tradingApprovalStatus"), statusFilter.name());
     }
 
     private static String normalize(String value) {
@@ -179,5 +236,19 @@ public class AdminUserService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static int sanitizePage(Integer page) {
+        if (page == null || page < 0) {
+            return 0;
+        }
+        return page;
+    }
+
+    private static int sanitizePageSize(Integer size) {
+        if (size == null || size < 1) {
+            return DEFAULT_PAGE_SIZE;
+        }
+        return Math.min(size, MAX_PAGE_SIZE);
     }
 }

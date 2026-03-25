@@ -17,7 +17,6 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -37,7 +36,6 @@ public class AuthController {
     private final CurrentUserService currentUserService;
     private final UserSettingsService userSettingsService;
     private final UserExchangeCredentialService userExchangeCredentialService;
-    private final UserOnboardingService userOnboardingService;
     private final FeatureFlagService featureFlagService;
     private final UpbitService upbitService;
     private final boolean sessionCookieSecure;
@@ -47,7 +45,6 @@ public class AuthController {
             CurrentUserService currentUserService,
             UserSettingsService userSettingsService,
             UserExchangeCredentialService userExchangeCredentialService,
-            UserOnboardingService userOnboardingService,
             FeatureFlagService featureFlagService,
             UpbitService upbitService,
             @Value("${server.servlet.session.cookie.secure:false}") boolean sessionCookieSecure
@@ -56,7 +53,6 @@ public class AuthController {
         this.currentUserService = currentUserService;
         this.userSettingsService = userSettingsService;
         this.userExchangeCredentialService = userExchangeCredentialService;
-        this.userOnboardingService = userOnboardingService;
         this.featureFlagService = featureFlagService;
         this.upbitService = upbitService;
         this.sessionCookieSecure = sessionCookieSecure;
@@ -115,41 +111,34 @@ public class AuthController {
         return ResponseEntity.ok(MeResponse.from(user, currentUserService.isOwner(user)));
     }
 
-    @GetMapping("/me/bootstrap")
-    public ResponseEntity<MeBootstrapResponse> getBootstrap(Authentication authentication) {
-        UserEntity user = currentUserService.requireUser(authentication);
-        UserSettingsResponse settings = userSettingsService.getSettings(user.getId());
-        UserExchangeCredentialStatusResponse exchangeCredentials = userExchangeCredentialService.getStatus(user);
-        UserOnboardingStateResponse onboarding = userOnboardingService.getState(user);
-        MeBootstrapResponse response = new MeBootstrapResponse(
-                MeBootstrapUserResponse.from(user, currentUserService.isOwner(user)),
-                settings,
-                exchangeCredentials,
-                onboarding,
-                featureFlagService.toMap()
-        );
-        return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/me/onboarding")
-    public ResponseEntity<UserOnboardingStateResponse> getOnboardingState(Authentication authentication) {
-        UserEntity user = currentUserService.requireUser(authentication);
-        return ResponseEntity.ok(userOnboardingService.getState(user));
-    }
-
-    @PatchMapping("/me/onboarding")
-    public ResponseEntity<?> patchOnboardingState(
+    @PutMapping("/me/profile")
+    public ResponseEntity<?> updateMyProfile(
             Authentication authentication,
-            @RequestBody(required = false) UserOnboardingStatePatchRequest request
+            @RequestBody(required = false) UserProfileRequest request
     ) {
         UserEntity user = currentUserService.requireUser(authentication);
         try {
-            return ResponseEntity.ok(userOnboardingService.patchState(user, request));
+            UserEntity saved = currentUserService.updateProfile(user, request);
+            return ResponseEntity.ok(MeResponse.from(saved, currentUserService.isOwner(saved)));
         } catch (IllegalArgumentException ex) {
             Map<String, Object> error = new HashMap<>();
             error.put("error", ex.getMessage());
             return ResponseEntity.badRequest().body(error);
         }
+    }
+
+    @GetMapping("/me/bootstrap")
+    public ResponseEntity<MeBootstrapResponse> getBootstrap(Authentication authentication) {
+        UserEntity user = currentUserService.requireUser(authentication);
+        UserSettingsResponse settings = userSettingsService.getSettings(user.getId());
+        UserExchangeCredentialStatusResponse exchangeCredentials = userExchangeCredentialService.getStatus(user);
+        MeBootstrapResponse response = new MeBootstrapResponse(
+                MeBootstrapUserResponse.from(user, currentUserService.isOwner(user)),
+                settings,
+                exchangeCredentials,
+                featureFlagService.toMap()
+        );
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/me/settings")

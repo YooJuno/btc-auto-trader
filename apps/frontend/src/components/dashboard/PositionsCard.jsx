@@ -41,6 +41,7 @@ function PositionsCard({
   authRequired,
   loading,
   positions,
+  summaryError,
   manualTradeNotice,
   onOpenManualTrade,
   formatKRW,
@@ -60,6 +61,8 @@ function PositionsCard({
       {manualTradeNotice && <p className="status-success">{manualTradeNotice}</p>}
       {loading ? (
         <div className="empty-state">데이터를 불러오는 중입니다…</div>
+      ) : summaryError && positions.length === 0 ? (
+        <div className="empty-state">보유 코인 정보를 가져오지 못했습니다.</div>
       ) : positions.length === 0 ? (
         <div className="empty-state">보유 중인 코인이 없습니다.</div>
       ) : (
