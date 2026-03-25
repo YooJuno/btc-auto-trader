@@ -260,9 +260,11 @@ class StrategyLab:
         }
 
         signal_patch = {
+            "signal.timeframe-unit": recommended.get("unit"),
             "signal.min-adx": params.get("min_adx"),
             "signal.min-volume-ratio": params.get("min_volume_ratio"),
             "signal.breakout-pct": params.get("breakout_pct"),
+            "signal.htf-confirm.unit": params.get("htf_confirm_unit"),
             "risk.target-vol-pct": params.get("target_vol_pct"),
         }
 
@@ -427,18 +429,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workdir", default=".")
     parser.add_argument("--python-bin", default=sys.executable)
     parser.add_argument("--market", default="KRW-BTC")
-    parser.add_argument("--days", type=int, default=90)
+    parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--profiles", default="BALANCED,CONSERVATIVE,AGGRESSIVE")
     parser.add_argument("--short-unit", type=int, default=3)
     parser.add_argument("--mid-unit", type=int, default=15)
-    parser.add_argument("--split-ratio", type=float, default=0.7)
+    parser.add_argument("--split-ratio", type=float, default=0.5)
     parser.add_argument("--max-combos", type=int, default=60)
     parser.add_argument("--cache-dir", default="data/backtest")
     parser.add_argument("--output-dir", default="data/strategy-lab")
     parser.add_argument("--interval-minutes", type=int, default=60)
     parser.add_argument("--history-limit", type=int, default=300)
     parser.add_argument("--consensus-lookback", type=int, default=12)
-    parser.add_argument("--min-sell-trades", type=int, default=8)
+    parser.add_argument("--min-sell-trades", type=int, default=1)
     parser.add_argument("--min-trades-per-day", type=float, default=0.15)
     parser.add_argument("--max-trades-per-day", type=float, default=4.5)
     parser.add_argument("--refresh-cache", action="store_true")

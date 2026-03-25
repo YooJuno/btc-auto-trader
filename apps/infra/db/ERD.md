@@ -52,11 +52,6 @@ erDiagram
     TIMESTAMPTZ updated_at
   }
 
-  strategy_markets {
-    VARCHAR market PK
-    TIMESTAMPTZ updated_at
-  }
-
   strategy_presets {
     VARCHAR code PK
     VARCHAR display_name
@@ -67,13 +62,6 @@ erDiagram
     DOUBLE stop_exit_pct
     DOUBLE trend_exit_pct
     DOUBLE momentum_exit_pct
-    TIMESTAMPTZ updated_at
-  }
-
-  strategy_market_overrides {
-    VARCHAR market PK
-    DOUBLE max_order_krw
-    VARCHAR profile
     TIMESTAMPTZ updated_at
   }
 
@@ -107,7 +95,6 @@ erDiagram
   }
 
   portfolio_snapshot ||--o{ portfolio_snapshot_item : snapshot_id
-  strategy_markets ||--o| strategy_market_overrides : market_logical
   orders ||--o{ trade_decisions : order_id_logical
 ```
 
@@ -115,5 +102,4 @@ erDiagram
 
 - The only physical FK in `schema.sql` is:
   - `portfolio_snapshot_item.snapshot_id -> portfolio_snapshot.id`
-- `strategy_markets -> strategy_market_overrides` and `orders -> trade_decisions` are logical relationships, not DB-level FK constraints.
-
+- `orders -> trade_decisions` is a logical relationship, not a DB-level FK constraint.
