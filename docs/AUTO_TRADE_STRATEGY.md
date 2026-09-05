@@ -35,8 +35,14 @@ For stability, consider 5m or 15m as your production default.
 also requiring it to stay close to `MA_LONG` are contradictory demands: strong breakouts get rejected
 and only weak ones near the MA are taken. Enable it only if you want that behaviour deliberately.
 
-RSI, MACD and Bollinger values are computed and written to the decision log for auditing, but the
-entry model does not gate on them.
+RSI and MACD are computed and written to the decision log for auditing. `trend_breakout` does not gate
+on them; `squeeze_breakout` uses `rsi-overbought`, and `rsi-sell-threshold` drives the momentum exit.
+
+Two settings are carried for auditing only and gate nothing in any current model:
+`signal.rsi-buy-threshold` and `signal.min-confirmations`. They are annotated as such in
+`application.properties` so they are not tuned in the expectation of an effect. The Bollinger gate
+settings that were equally inert (`min-bandwidth-pct`, `max-percent-b`) have been removed outright;
+`window`/`stddev` remain because they produce the bandwidth `squeeze_breakout` gates on.
 
 **Exit (evaluated in this order)**
 1. **Stop-loss** — price below `avg_buy_price * (1 - STOP_LOSS%)`. Full exit.

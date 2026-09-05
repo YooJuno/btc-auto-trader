@@ -1761,8 +1761,6 @@ def make_params(timeframe_unit, profile="BALANCED"):
         "min_volume_ratio": 1.2,
         "boll_window": 20,
         "boll_stddev": 2.0,
-        "boll_min_bandwidth_pct": 0.8,
-        "boll_max_percent_b": 1.05,
         "breakout_lookback": 20,
         "breakdown_lookback": 10,
         "breakout_pct": 0.05,

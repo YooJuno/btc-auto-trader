@@ -94,8 +94,6 @@ public class AutoTradeService {
     private final double minVolumeRatio;
     private final int bollingerWindow;
     private final double bollingerStdDev;
-    private final double bollingerMinBandwidthPct;
-    private final double bollingerMaxPercentB;
     private final double squeezeMaxBandwidthPct;
     private final String defaultSignalModel;
     private final int breakoutLookback;
@@ -200,8 +198,6 @@ public class AutoTradeService {
             @Value("${signal.min-volume-ratio:0.4}") double minVolumeRatio,
             @Value("${signal.bollinger.window:20}") int bollingerWindow,
             @Value("${signal.bollinger.stddev:2.0}") double bollingerStdDev,
-            @Value("${signal.bollinger.min-bandwidth-pct:0.8}") double bollingerMinBandwidthPct,
-            @Value("${signal.bollinger.max-percent-b:1.05}") double bollingerMaxPercentB,
             @Value("${signal.squeeze.max-bandwidth-pct:2.5}") double squeezeMaxBandwidthPct,
             @Value("${signal.model:trend_breakout}") String defaultSignalModel,
             @Value("${signal.breakout-lookback:20}") int breakoutLookback,
@@ -292,8 +288,6 @@ public class AutoTradeService {
         this.minVolumeRatio = minVolumeRatio;
         this.bollingerWindow = Math.max(0, Math.min(bollingerWindow, 200));
         this.bollingerStdDev = Math.max(0.1, Math.min(bollingerStdDev, 6.0));
-        this.bollingerMinBandwidthPct = Math.max(0.0, bollingerMinBandwidthPct);
-        this.bollingerMaxPercentB = bollingerMaxPercentB;
         this.squeezeMaxBandwidthPct = squeezeMaxBandwidthPct;
         this.defaultSignalModel = defaultSignalModel == null || defaultSignalModel.isBlank()
                 ? UnifiedTrendSignalModel.NAME
@@ -1291,8 +1285,6 @@ public class AutoTradeService {
         BuySignalDecision buySignalDecision = resolveSignalModel(config).evaluateBuy(new BuySignalContext(
                 indicators,
                 tuning,
-                bollingerWindow > 1 ? bollingerMinBandwidthPct : 0.0,
-                bollingerWindow > 1 ? bollingerMaxPercentB : 0.0,
                 bollingerWindow > 1 ? squeezeMaxBandwidthPct : 0.0
         ));
         if (!buySignalDecision.proceed()) {
@@ -3128,8 +3120,6 @@ public class AutoTradeService {
             details.put("minVolumeRatio", minVolumeRatio);
             details.put("bollingerWindow", bollingerWindow);
             details.put("bollingerStdDev", bollingerStdDev);
-            details.put("bollingerMinBandwidthPct", bollingerMinBandwidthPct);
-            details.put("bollingerMaxPercentB", bollingerMaxPercentB);
             details.put("breakoutLookback", breakoutLookback);
             details.put("breakdownLookback", breakdownLookback);
             details.put("trailingWindow", trailingWindow);

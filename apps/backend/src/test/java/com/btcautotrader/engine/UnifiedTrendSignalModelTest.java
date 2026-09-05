@@ -25,8 +25,6 @@ class UnifiedTrendSignalModelTest {
                         "0.1"
                 ),
                 tuning(),
-                0.0,
-                0.0,
                 0.0
         ));
 
@@ -50,8 +48,6 @@ class UnifiedTrendSignalModelTest {
                         "0.1"
                 ),
                 tuning(),
-                0.0,
-                0.0,
                 0.0
         ));
 
@@ -75,8 +71,6 @@ class UnifiedTrendSignalModelTest {
                         "0.1"
                 ),
                 tuning(),
-                0.0,
-                0.0,
                 0.0
         ));
 
@@ -100,8 +94,6 @@ class UnifiedTrendSignalModelTest {
                         "0.2"
                 ),
                 tuning(),
-                0.0,
-                0.0,
                 0.0
         ));
 

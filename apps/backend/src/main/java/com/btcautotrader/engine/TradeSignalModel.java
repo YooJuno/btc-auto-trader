@@ -10,8 +10,6 @@ interface TradeSignalModel {
 record BuySignalContext(
         MarketIndicators indicators,
         SignalTuning tuning,
-        double bollingerMinBandwidthPct,
-        double bollingerMaxPercentB,
         double squeezeMaxBandwidthPct
 ) {
 }

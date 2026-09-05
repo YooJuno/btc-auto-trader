@@ -82,7 +82,7 @@ class VolatilityContractionBreakoutModelTest {
     }
 
     private static BuySignalContext context(MarketIndicators indicators) {
-        return new BuySignalContext(indicators, tuning(), 0.0, 0.0, SQUEEZE_MAX);
+        return new BuySignalContext(indicators, tuning(), SQUEEZE_MAX);
     }
 
     private static SignalTuning tuning() {
