@@ -120,10 +120,32 @@ the frontend, and mirror it in `backtest.py`'s `SIGNAL_MODELS` so backtest/live 
 `signal.universe.enabled=false` by default. When enabled, the engine no longer trades a fixed
 hand-typed market list; it ranks the KRW universe and opens new positions only in the leaders.
 
-**Why this exists.** Cross-sectional momentum — hold the strongest names, drop the rest — is the
-best-documented edge available to a long-only spot account, and it was entirely missing. It is also
-orthogonal to the per-market signal: selection decides *which* markets are eligible, the
-trend/breakout model still decides *when* to enter.
+> ⚠️ **측정 결과: 이 전략은 업비트 KRW 시장에서 손실입니다. 켜지 마세요.**
+>
+> `scripts/research/backtest_cross_sectional.py` 로 287개 KRW 종목 / 663일 측정:
+>
+> | | 값 |
+> |---|---|
+> | 수익률 | **−75.3%** |
+> | CAGR | −53.7% |
+> | 최대낙폭 | 84.2% |
+> | Sharpe | −0.96 |
+> | KRW-BTC 보유 | −12.8% |
+> | 알파 | **−62.5%p** |
+>
+> 리밸런싱 95회 중 45회를 리스크오프로 현금 보유했는데도 이 결과이고, **상장폐지 종목이 빠진
+> 생존 편향으로 실제보다 좋게 나온 숫자**입니다.
+>
+> 원인: 30일 상승률 상위 종목 매수는 국내 알트 시장에서 사실상 **펌프 꼭지 매수**입니다. 미국 주식에서
+> 검증된 횡단면 모멘텀이 이 시장에 그대로 이식되지 않습니다. 7일 스킵으로 단기 반전을 피하려 했지만
+> 충분하지 않았습니다.
+>
+> 코드는 재현·재측정을 위해 남겨두되 `signal.universe.enabled=false` 가 기본값입니다.
+
+**Why this exists.** Cross-sectional momentum — hold the strongest names, drop the rest — is
+well-documented in equities, and this codebase had no way to evaluate it at all. It is orthogonal to
+the per-market signal: selection decides *which* markets are eligible, the trend/breakout model still
+decides *when* to enter. It was built to be measured, and the measurement above is the answer.
 
 **Pipeline**
 1. **Risk-off gate.** If `signal.universe.risk-off-market` closes below its
