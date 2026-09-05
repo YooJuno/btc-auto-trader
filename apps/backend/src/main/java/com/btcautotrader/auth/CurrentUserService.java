@@ -2,11 +2,13 @@ package com.btcautotrader.auth;
 
 import com.btcautotrader.tenant.TenantDatabaseProvisioningService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.OffsetDateTime;
 import java.util.Arrays;
@@ -61,17 +63,11 @@ public class CurrentUserService {
     public UserEntity requireUser(Authentication authentication) {
         Identity identity = resolveIdentity(authentication);
 
+        // Identity rows are created once at login (upsertFromAuthentication). Never create one here:
+        // a "require" that silently inserts would resurrect admin-deleted accounts, and if this ever runs
+        // with a tenant DataSource bound it would write a phantom row into the tenant database.
         UserEntity resolved = userRepository.findByProviderAndProviderUserId(identity.provider(), identity.providerUserId())
-                .orElseGet(() -> {
-                    UserEntity created = new UserEntity();
-                    created.setProvider(identity.provider());
-                    created.setProviderUserId(identity.providerUserId());
-                    created.setEmail(identity.email());
-                    created.setDisplayName(normalizeImportedDisplayName(identity.displayName()));
-                    created.setLastLoginAt(OffsetDateTime.now());
-                    applyApprovalDefaults(created);
-                    return userRepository.save(created);
-                });
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."));
         boolean approvalNeedsSave = resolved.getTradingApprovalStatus() == null
                 || resolved.getTradingApprovalStatus().isBlank()
                 || resolved.getTradingApprovalUpdatedAt() == null
