@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import {
   DASHBOARD_ROUTE,
   PROFILE_VALUES,
@@ -41,6 +41,12 @@ function UserPreferencesCard({
 }) {
   const configuredMarkets = Array.isArray(userSettings?.markets) ? userSettings.markets.filter(Boolean) : []
 
+  // normalizeRefreshSeconds clamps to [2, 30] on every keystroke, so the committed value can never hold
+  // an intermediate one: typing "15" clamps "1" to "2" and leaves you with "25". Hold the raw text while
+  // the field has focus and commit the normalised value on blur; polling keeps using the last good value.
+  const [refreshDraft, setRefreshDraft] = useState(null)
+  const refreshValue = refreshDraft ?? toInputValue(commonUiPrefs.refreshSec)
+
   return (
     <article className="control-card">
       <div className="card-head">
@@ -80,8 +86,12 @@ function UserPreferencesCard({
               type="number"
               min={UI_REFRESH_MIN_SEC}
               max={UI_REFRESH_MAX_SEC}
-              value={toInputValue(commonUiPrefs.refreshSec)}
-              onChange={handleRefreshSecChange}
+              value={refreshValue}
+              onChange={(event) => setRefreshDraft(event.target.value)}
+              onBlur={(event) => {
+                setRefreshDraft(null)
+                handleRefreshSecChange(event)
+              }}
               disabled={settingsLoading || settingsSaving}
             />
           </label>

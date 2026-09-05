@@ -340,6 +340,12 @@ function App() {
   }, [engineStatus, handleEngineStart, handleEngineStop])
 
   useEffect(() => {
+    // Do not judge the route until the session check has actually finished. authUser is null while
+    // authChecking is true, so a cold load of /profile or /admin/users used to bounce straight to the
+    // dashboard even for a logged-in user — deep links never worked.
+    if (authChecking) {
+      return
+    }
     if (!authUser) {
       if (activeRoute === ADMIN_USERS_ROUTE || activeRoute === PROFILE_ROUTE) {
         navigateRoute(DASHBOARD_ROUTE)
@@ -354,6 +360,7 @@ function App() {
     }
   }, [
     activeRoute,
+    authChecking,
     authUser,
     bootstrapLoaded,
     bootstrapLoading,
