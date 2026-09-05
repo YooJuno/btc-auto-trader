@@ -1,34 +1,79 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+/*
+ * Design tokens.
+ *
+ * Reference points are Upbit Pro / Binance / TradingView: flat panels separated by hairlines,
+ * one accent, and hue reserved for meaning. Deliberately absent: gradients, glassmorphism,
+ * drop shadows, pill radii, entry animations.
+ *
+ * Colour polarity follows the Korean convention this app's users come from (Upbit):
+ * RED = up / gain / buy, BLUE = down / loss / sell. This is the inverse of the Western default.
+ */
 
 :root {
-  font-family: 'IBM Plex Sans KR', sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco,
-    Consolas, 'Liberation Mono', 'Courier New', monospace;
-  line-height: 1.5;
+  font-family: 'IBM Plex Sans KR', system-ui, -apple-system, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.45;
   font-weight: 400;
+  font-size: 13px;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color-scheme: dark;
 
-  --bg: #060607;
-  --surface: #101115;
-  --surface-soft: #15171c;
-  --surface-strong: #0b0c10;
-  --surface-elevated: #191c22;
-  --border: rgba(242, 246, 255, 0.12);
-  --border-strong: rgba(242, 246, 255, 0.24);
-  --text: #d6dae3;
-  --text-strong: #f5f7fb;
-  --muted: #9ca3b1;
-  --accent: #e7ebf2;
-  --accent-2: #c7cedc;
-  --gold: #c9a874;
-  --gold-soft: #8a7148;
-  --gold-bright: #f4e3c6;
-  --positive: #4cd498;
-  --negative: #ff7f7f;
-  --shadow-soft: 0 20px 46px rgba(0, 0, 0, 0.48);
+  /* Neutral ramp — the only greys in the app. */
+  --n-0: #0b0c0e;
+  --n-1: #111317;
+  --n-2: #161920;
+  --n-3: #1d2129;
+  --n-4: #262b35;
+  --n-5: #363d4a;
+  --n-6: #5b6474;
+  --n-7: #8b94a3;
+  --n-8: #c3c9d4;
+  --n-9: #f0f2f6;
+
+  --bg: var(--n-0);
+  --surface: var(--n-1);
+  --surface-2: var(--n-2);
+  --surface-3: var(--n-3);
+  --border: var(--n-4);
+  --border-strong: var(--n-5);
+  --text: var(--n-8);
+  --text-strong: var(--n-9);
+  --muted: var(--n-7);
+  --faint: var(--n-6);
+
+  /* Semantic — used only where the colour carries meaning. */
+  --up: #f0616d;
+  --up-dim: rgba(240, 97, 109, 0.14);
+  --down: #4d90f0;
+  --down-dim: rgba(77, 144, 240, 0.14);
+  --warn: #d99a3e;
+  --warn-dim: rgba(217, 154, 62, 0.14);
+  --accent: #6ea8fe;
+  --accent-dim: rgba(110, 168, 254, 0.12);
+
+  /* Spacing scale — 4px grid. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+
+  /* Radii — data surfaces stay close to square. */
+  --r1: 2px;
+  --r2: 4px;
+  --r3: 6px;
+
+  /* Type scale. */
+  --t-label: 11px;
+  --t-small: 12px;
+  --t-body: 13px;
+  --t-value: 15px;
+  --t-head: 17px;
 }
 
 *,
@@ -51,4 +96,48 @@ a {
 
 #root {
   min-height: 100vh;
+}
+
+/*
+ * Numeric alignment. Prices and sizes must share a decimal column, so every numeric cell is
+ * monospace, tabular and right-aligned. Previously nothing in the app was right-aligned and
+ * tabular-nums appeared nowhere, so 0.5 and 12,345,678 started at the same x.
+ */
+.num,
+td.num,
+th.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Focus is always visible and always the same. */
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--n-0);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--n-4);
+  border: 2px solid var(--n-0);
+  border-radius: var(--r3);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--n-5);
 }

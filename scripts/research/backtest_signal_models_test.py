@@ -141,9 +141,17 @@ class TradeSignalModelTest(unittest.TestCase):
 
         self.assertIsNone(intent)
 
-    def test_choose_sell_intent_arms_trailing_stop_after_profit_buffer(self):
+    def test_trailing_stop_does_not_arm_without_enough_headroom(self):
+        """Arming must not put the stop below entry.
+
+        trailing_high 101.8 with a 1.8%-of-ATR trail would place the stop at ~99.97 — below the 100.0
+        entry, and further below once the 0.3% round trip is paid. The arm threshold is now
+        trail + round-trip cost, so this must NOT arm; the position leaves via trend_break instead.
+        """
         params = backtest.make_params(3, "BALANCED")
         params["take_profit_pct"] = 1.44
+        params["atr_trailing_stop_multiplier"] = 1.8
+        params["atr_trailing_arm_multiplier"] = 1.5
 
         state = {
             "qty": 1.0,
@@ -164,15 +172,170 @@ class TradeSignalModelTest(unittest.TestCase):
         }
 
         intent = backtest.choose_sell_intent(
-            10,
-            state,
-            indicators,
-            params,
-            backtest.resolve_signal_tuning(params),
+            10, state, indicators, params, backtest.resolve_signal_tuning(params)
+        )
+
+        self.assertIsNotNone(intent)
+        self.assertNotEqual(intent["reason"], "trailing_stop")
+        self.assertEqual(intent["reason"], "trend_break")
+
+    def test_trailing_stop_arms_once_it_can_lock_a_gain(self):
+        """Above trail + cost the trail arms, and firing it exits above the entry price."""
+        params = backtest.make_params(3, "BALANCED")
+        params["take_profit_pct"] = 1.44
+        params["atr_trailing_stop_multiplier"] = 1.8
+        params["atr_trailing_arm_multiplier"] = 1.5
+
+        state = {
+            "qty": 1.0,
+            "avg_buy": 100.0,
+            "trailing_high": 103.0,
+            "entry_atr_pct": 1.0,
+            "last_partial_take_index": None,
+        }
+        indicators = {
+            "current_price": 101.0,
+            "current_high": 101.0,
+            "trailing_window_high": 103.0,
+            "breakdown_level": 98.0,
+            "macd_hist": 1.0,
+            "rsi": 60.0,
+            "ma_long": 99.0,
+            "atr_pct": 1.0,
+        }
+
+        intent = backtest.choose_sell_intent(
+            10, state, indicators, params, backtest.resolve_signal_tuning(params)
         )
 
         self.assertIsNotNone(intent)
         self.assertEqual(intent["reason"], "trailing_stop")
+        # The whole point of the invariant: the exit clears entry plus the round trip.
+        self.assertGreater(indicators["current_price"], state["avg_buy"] * 1.003)
+
+    def test_partial_take_profit_fires_at_the_target(self):
+        params = backtest.make_params(3, "BALANCED")
+        params["take_profit_pct"] = 1.44
+        params["partial_take_profit_pct"] = 35.0
+
+        state = {
+            "qty": 1.0,
+            "avg_buy": 100.0,
+            "trailing_high": 100.0,
+            "entry_atr_pct": None,
+            "last_partial_take_index": None,
+        }
+        indicators = {
+            "current_price": 101.6,
+            "current_high": 101.6,
+            "trailing_window_high": 101.6,
+            "breakdown_level": 98.0,
+            "macd_hist": 1.0,
+            "rsi": 60.0,
+            "ma_long": 99.0,
+            "atr_pct": None,
+        }
+
+        intent = backtest.choose_sell_intent(
+            10, state, indicators, params, backtest.resolve_signal_tuning(params)
+        )
+
+        self.assertIsNotNone(intent)
+        self.assertEqual(intent["reason"], "take_profit_partial")
+        self.assertEqual(intent["pct"], 35.0)
+
+    def test_stop_loss_is_not_disabled_by_zero_stop_exit_pct(self):
+        params = backtest.make_params(3, "BALANCED")
+        params["stop_exit_pct"] = 0.0
+
+        state = {
+            "qty": 1.0,
+            "avg_buy": 100.0,
+            "trailing_high": 100.0,
+            "entry_atr_pct": None,
+            "last_partial_take_index": None,
+        }
+        indicators = {
+            "current_price": 90.0,
+            "current_high": 90.0,
+            "trailing_window_high": 100.0,
+            "breakdown_level": 80.0,
+            "macd_hist": 1.0,
+            "rsi": 60.0,
+            "ma_long": 99.0,
+            "atr_pct": None,
+        }
+
+        intent = backtest.choose_sell_intent(
+            10, state, indicators, params, backtest.resolve_signal_tuning(params)
+        )
+
+        self.assertIsNotNone(intent)
+        self.assertEqual(intent["reason"], "stop_loss")
+        self.assertEqual(intent["pct"], 100.0)
+
+    def test_squeeze_model_requires_a_contracted_band(self):
+        """Parity with VolatilityContractionBreakoutModelTest.skipsWhenVolatilityHasNotContracted."""
+        params = backtest.make_params(60, "BALANCED")
+        params["squeeze_max_bandwidth_pct"] = 2.5
+        tuning = backtest.resolve_signal_tuning(params)
+
+        wide = self._squeeze_indicators(bandwidth_pct=6.0)
+        decision = backtest.SQUEEZE_SIGNAL_MODEL.evaluate_buy(wide, tuning, params)
+
+        self.assertEqual(decision["kind"], "SKIP")
+        self.assertEqual(decision["reason"], "no_squeeze")
+
+    def test_squeeze_model_enters_on_expansion(self):
+        params = backtest.make_params(60, "BALANCED")
+        params["squeeze_max_bandwidth_pct"] = 2.5
+        tuning = backtest.resolve_signal_tuning(params)
+
+        decision = backtest.SQUEEZE_SIGNAL_MODEL.evaluate_buy(
+            self._squeeze_indicators(bandwidth_pct=1.2), tuning, params
+        )
+
+        self.assertEqual(decision["kind"], "BUY")
+        self.assertEqual(decision["reason"], "squeeze_breakout")
+
+    def test_squeeze_model_has_no_overextension_cap(self):
+        """The difference from trend_breakout: a break far from MA_LONG is the setup, not a veto."""
+        params = backtest.make_params(60, "BALANCED")
+        params["squeeze_max_bandwidth_pct"] = 2.5
+        params["max_extension_pct"] = 1.5
+        tuning = backtest.resolve_signal_tuning(params)
+        far = self._squeeze_indicators(bandwidth_pct=1.2, price=140.0, ma_long=99.0, breakout_level=130.0)
+
+        self.assertEqual(
+            backtest.UNIFIED_SIGNAL_MODEL.evaluate_buy(far, tuning, params)["reason"], "overextended"
+        )
+        self.assertEqual(backtest.SQUEEZE_SIGNAL_MODEL.evaluate_buy(far, tuning, params)["kind"], "BUY")
+
+    def test_resolve_signal_model_matches_the_registry_keys(self):
+        self.assertIs(
+            backtest.resolve_signal_model({"signal_model": "squeeze_breakout"}),
+            backtest.SQUEEZE_SIGNAL_MODEL,
+        )
+        self.assertIs(
+            backtest.resolve_signal_model({"signal_model": "trend_breakout"}),
+            backtest.UNIFIED_SIGNAL_MODEL,
+        )
+        # Unknown names fall back rather than trading nothing.
+        self.assertIs(backtest.resolve_signal_model({"signal_model": "nope"}), backtest.UNIFIED_SIGNAL_MODEL)
+
+    @staticmethod
+    def _squeeze_indicators(bandwidth_pct, price=101.0, ma_long=99.0, breakout_level=100.5):
+        return {
+            "current_price": price,
+            "ma_short": 100.5 if price == 101.0 else 120.0,
+            "ma_long": ma_long,
+            "ma_long_slope": 0.2,
+            "adx": 22.0,
+            "volume_ratio": 1.6,
+            "rsi": 56.0,
+            "breakout_level": breakout_level,
+            "bollinger": {"bandwidth_pct": bandwidth_pct},
+        }
 
     def test_choose_sell_intent_uses_donchian_exit(self):
         params = backtest.make_params(15, "BALANCED")

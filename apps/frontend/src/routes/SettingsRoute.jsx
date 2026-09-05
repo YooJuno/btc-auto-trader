@@ -17,7 +17,7 @@ function SettingsRoute({
             <UserPreferencesCard {...userPreferences} />
           </>
         ) : (
-          <article className="control-card card--elevated">
+          <article className="control-card">
             <div className="card-head">
               <div>
                 <h2>조회 전용 모드</h2>

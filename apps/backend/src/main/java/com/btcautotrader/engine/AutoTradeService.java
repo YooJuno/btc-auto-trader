@@ -4,6 +4,7 @@ import com.btcautotrader.order.OrderRepository;
 import com.btcautotrader.order.OrderRequest;
 import com.btcautotrader.order.OrderResponse;
 import com.btcautotrader.order.OrderService;
+import com.btcautotrader.paper.TradingAccountService;
 import com.btcautotrader.auth.TradingAccessService;
 import com.btcautotrader.strategy.StrategyConfig;
 import com.btcautotrader.strategy.StrategyMarketOverrides;
@@ -18,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -40,6 +42,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class AutoTradeService {
@@ -59,7 +63,15 @@ public class AutoTradeService {
     private final OrderRepository orderRepository;
     private final TradeDecisionRepository tradeDecisionRepository;
     private final TradeDecisionService tradeDecisionService;
-    private final TradeSignalModel tradeSignalModel = new UnifiedTrendSignalModel();
+    private final UniverseSelectionService universeSelectionService;
+    private final TradingAccountService tradingAccountService;
+    /**
+     * Entry-model registry. resolveSignalModel used to ignore its argument and return one hardcoded
+     * instance, so the pluggability hook existed in name only.
+     */
+    private final Map<String, TradeSignalModel> signalModels = Stream
+            .of(new UnifiedTrendSignalModel(), new VolatilityContractionBreakoutModel())
+            .collect(Collectors.toUnmodifiableMap(TradeSignalModel::name, model -> model));
 
     private final BigDecimal minOrderKrw;
     private final BigDecimal feeRate;
@@ -85,8 +97,8 @@ public class AutoTradeService {
     private final double minVolumeRatio;
     private final int bollingerWindow;
     private final double bollingerStdDev;
-    private final double bollingerMinBandwidthPct;
-    private final double bollingerMaxPercentB;
+    private final double squeezeMaxBandwidthPct;
+    private final String defaultSignalModel;
     private final int breakoutLookback;
     private final int breakdownLookback;
     private final double breakoutPct;
@@ -99,6 +111,7 @@ public class AutoTradeService {
     private final double atrTrailingStopMultiplier;
     private final double atrTrailingArmMultiplier;
     private final boolean atrRiskSizingEnabled;
+    private final boolean atrExitThresholdsEnabled;
     private final long partialTakeProfitCooldownMinutes;
     private final long stopLossCooldownMinutes;
     private final long reentryCooldownMinutes;
@@ -149,6 +162,10 @@ public class AutoTradeService {
     private final Map<String, Deque<OffsetDateTime>> stopLossEventsByMarket = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> stopLossGuardUntilByMarket = new ConcurrentHashMap<>();
     private final Map<String, DailyLossBaseline> dailyLossBaselinesByTenant = new ConcurrentHashMap<>();
+    // The tick's market overrides, per tenant, so entry-model resolution is reachable from handleBuy and
+    // recordDecision without threading the overrides through 15 call sites. Keyed by tenant because
+    // tenants tick concurrently on the scheduler pool.
+    private final Map<String, StrategyMarketOverrides> tickOverridesByTenant = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> trailingHighByMarket = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> lastEntryAtByMarket = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> entryAtrPctByMarket = new ConcurrentHashMap<>();
@@ -165,6 +182,8 @@ public class AutoTradeService {
             OrderRepository orderRepository,
             TradeDecisionRepository tradeDecisionRepository,
             TradeDecisionService tradeDecisionService,
+            UniverseSelectionService universeSelectionService,
+            TradingAccountService tradingAccountService,
             @Value("${trading.min-krw:5000}") BigDecimal minOrderKrw,
             @Value("${trading.fee-rate:0.0005}") BigDecimal feeRate,
             @Value("${trading.slippage-pct:0.001}") BigDecimal slippagePct,
@@ -188,8 +207,8 @@ public class AutoTradeService {
             @Value("${signal.min-volume-ratio:0.4}") double minVolumeRatio,
             @Value("${signal.bollinger.window:20}") int bollingerWindow,
             @Value("${signal.bollinger.stddev:2.0}") double bollingerStdDev,
-            @Value("${signal.bollinger.min-bandwidth-pct:0.8}") double bollingerMinBandwidthPct,
-            @Value("${signal.bollinger.max-percent-b:1.05}") double bollingerMaxPercentB,
+            @Value("${signal.squeeze.max-bandwidth-pct:2.5}") double squeezeMaxBandwidthPct,
+            @Value("${signal.model:trend_breakout}") String defaultSignalModel,
             @Value("${signal.breakout-lookback:20}") int breakoutLookback,
             @Value("${signal.breakdown-lookback:10}") int breakdownLookback,
             @Value("${signal.breakout-pct:0.05}") double breakoutPct,
@@ -202,6 +221,7 @@ public class AutoTradeService {
             @Value("${risk.atr-trailing-stop-multiplier:1.8}") double atrTrailingStopMultiplier,
             @Value("${risk.atr-trailing-arm-multiplier:1.5}") double atrTrailingArmMultiplier,
             @Value("${risk.atr-risk-sizing-enabled:true}") boolean atrRiskSizingEnabled,
+            @Value("${risk.atr-exit-thresholds-enabled:true}") boolean atrExitThresholdsEnabled,
             @Value("${risk.partial-take-profit-cooldown-minutes:120}") long partialTakeProfitCooldownMinutes,
             @Value("${risk.stop-loss-cooldown-minutes:30}") long stopLossCooldownMinutes,
             @Value("${risk.reentry-cooldown-minutes:15}") long reentryCooldownMinutes,
@@ -252,6 +272,8 @@ public class AutoTradeService {
         this.orderRepository = orderRepository;
         this.tradeDecisionRepository = tradeDecisionRepository;
         this.tradeDecisionService = tradeDecisionService;
+        this.universeSelectionService = universeSelectionService;
+        this.tradingAccountService = tradingAccountService;
         this.minOrderKrw = minOrderKrw;
         this.feeRate = normalizeRate(feeRate);
         this.slippagePct = normalizeRate(slippagePct);
@@ -277,8 +299,10 @@ public class AutoTradeService {
         this.minVolumeRatio = minVolumeRatio;
         this.bollingerWindow = Math.max(0, Math.min(bollingerWindow, 200));
         this.bollingerStdDev = Math.max(0.1, Math.min(bollingerStdDev, 6.0));
-        this.bollingerMinBandwidthPct = Math.max(0.0, bollingerMinBandwidthPct);
-        this.bollingerMaxPercentB = bollingerMaxPercentB;
+        this.squeezeMaxBandwidthPct = squeezeMaxBandwidthPct;
+        this.defaultSignalModel = defaultSignalModel == null || defaultSignalModel.isBlank()
+                ? UnifiedTrendSignalModel.NAME
+                : defaultSignalModel.trim();
         this.breakoutLookback = breakoutLookback;
         this.breakdownLookback = Math.max(0, Math.min(breakdownLookback, 200));
         this.breakoutPct = breakoutPct;
@@ -291,6 +315,7 @@ public class AutoTradeService {
         this.atrTrailingStopMultiplier = clamp(atrTrailingStopMultiplier, 0.1, 12.0);
         this.atrTrailingArmMultiplier = clamp(atrTrailingArmMultiplier, 0.1, 10.0);
         this.atrRiskSizingEnabled = atrRiskSizingEnabled;
+        this.atrExitThresholdsEnabled = atrExitThresholdsEnabled;
         this.partialTakeProfitCooldownMinutes = partialTakeProfitCooldownMinutes;
         this.stopLossCooldownMinutes = stopLossCooldownMinutes;
         this.reentryCooldownMinutes = reentryCooldownMinutes;
@@ -340,6 +365,8 @@ public class AutoTradeService {
         }
         try {
             restoreExitStateForCurrentTenant();
+        restoreDailyLossBaselineForCurrentTenant();
+        restoreOpenPositionStateForCurrentTenant();
         } catch (RuntimeException ex) {
             // Retry on next tick if hydration fails due to transient DB errors.
             restoredStateTenants.remove(tenantKey);
@@ -402,6 +429,129 @@ public class AutoTradeService {
         }
     }
 
+    /**
+     * Rebuilds today's equity baseline for the daily-loss guard.
+     *
+     * The baseline lived only in memory, so a restart re-seeded it from the CURRENT (already drawn down)
+     * equity and cleared the circuit breaker — a bot that had hit its daily limit resumed trading, and a
+     * crash loop could bypass the limit indefinitely. It is written into every decision's details, so the
+     * first decision recorded today carries the correct value.
+     */
+    /**
+     * Rebuilds an open position's trailing high, entry time and entry ATR.
+     *
+     * All three lived only in memory, so a restart mid-trade re-seeded the trailing high at roughly the
+     * current price — loosening the stop on a position that had already run up and pulled back — and
+     * resized the ATR-derived stop to whatever volatility happened to be now.
+     *
+     * Only decisions STRICTLY AFTER the latest BUY are trusted. recordDecision falls back to
+     * indicators.trailingHigh() when nothing is tracked, and that is the candle-window high including
+     * bars before entry; arming a trail from a peak the position never participated in would force an
+     * instant exit, which handleSell_ignoresPreEntryHighWhenArmingTrailingStop exists to prevent.
+     */
+    private void restoreOpenPositionStateForCurrentTenant() {
+        if (tradeDecisionRepository == null || stateRestoreLimit <= 0) {
+            return;
+        }
+        List<TradeDecisionEntity> recent = tradeDecisionRepository.findByActionIn(
+                List.of("BUY", "SELL", "SKIP", "ERROR"),
+                PageRequest.of(0, stateRestoreLimit, Sort.by(Sort.Direction.DESC, "executedAt"))
+        ).getContent();
+
+        // Descending, so the first BUY seen for a market is its latest entry.
+        Map<String, OffsetDateTime> latestBuyAt = new HashMap<>();
+        for (TradeDecisionEntity decision : recent) {
+            if (decision == null || decision.getExecutedAt() == null
+                    || !"BUY".equalsIgnoreCase(decision.getAction())) {
+                continue;
+            }
+            String key = tenantScopedMarketKey(decision.getMarket());
+            if (key == null) {
+                continue;
+            }
+            if (latestBuyAt.putIfAbsent(key, decision.getExecutedAt()) == null) {
+                lastEntryAtByMarket.putIfAbsent(key, decision.getExecutedAt());
+                BigDecimal entryAtr = readDecimalDetail(decision, "entryAtrPct");
+                if (entryAtr != null && entryAtr.compareTo(BigDecimal.ZERO) > 0) {
+                    entryAtrPctByMarket.putIfAbsent(key, entryAtr);
+                }
+            }
+        }
+
+        for (TradeDecisionEntity decision : recent) {
+            if (decision == null || decision.getTrailingHigh() == null || decision.getExecutedAt() == null) {
+                continue;
+            }
+            String key = tenantScopedMarketKey(decision.getMarket());
+            OffsetDateTime entryAt = key == null ? null : latestBuyAt.get(key);
+            if (entryAt == null || !decision.getExecutedAt().isAfter(entryAt)) {
+                continue;
+            }
+            if (decision.getTrailingHigh().compareTo(BigDecimal.ZERO) > 0) {
+                // Descending order, so the first match is the most recent running maximum.
+                trailingHighByMarket.putIfAbsent(key, decision.getTrailingHigh());
+            }
+        }
+    }
+
+    private BigDecimal readDecimalDetail(TradeDecisionEntity decision, String field) {
+        if (decision == null || decision.getDetails() == null || decision.getDetails().isBlank()) {
+            return null;
+        }
+        try {
+            Object value = tradeDecisionService.parseDetails(decision.getDetails()).get(field);
+            return value == null ? null : new BigDecimal(String.valueOf(value));
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private void restoreDailyLossBaselineForCurrentTenant() {
+        if (tradeDecisionRepository == null || dailyLossLimitPct <= 0) {
+            return;
+        }
+        String tenantKey = currentTenantKey();
+        if (dailyLossBaselinesByTenant.containsKey(tenantKey)) {
+            return;
+        }
+
+        LocalDate today = LocalDate.now();
+        OffsetDateTime dayStart = today.atStartOfDay().atOffset(OffsetDateTime.now().getOffset());
+        List<TradeDecisionEntity> todays = tradeDecisionRepository
+                .findByActionInAndExecutedAtGreaterThanEqualAndExecutedAtLessThanOrderByExecutedAtAsc(
+                        List.of("BUY", "SELL", "SKIP", "ERROR"),
+                        dayStart,
+                        dayStart.plusDays(1)
+                );
+
+        for (TradeDecisionEntity decision : todays) {
+            BigDecimal baseline = readDailyLossBaseline(decision, today);
+            if (baseline != null) {
+                dailyLossBaselinesByTenant.put(tenantKey, new DailyLossBaseline(today, baseline));
+                log.info("Restored daily-loss baseline {} for tenant {}", baseline, tenantKey);
+                return;
+            }
+        }
+    }
+
+    private BigDecimal readDailyLossBaseline(TradeDecisionEntity decision, LocalDate today) {
+        if (decision == null || decision.getDetails() == null || decision.getDetails().isBlank()) {
+            return null;
+        }
+        try {
+            Map<String, Object> parsed = tradeDecisionService.parseDetails(decision.getDetails());
+            Object date = parsed.get("dailyLossBaselineDate");
+            Object value = parsed.get("dailyLossBaselineKrw");
+            if (date == null || value == null || !today.toString().equals(String.valueOf(date))) {
+                return null;
+            }
+            BigDecimal baseline = new BigDecimal(String.valueOf(value));
+            return baseline.compareTo(BigDecimal.ZERO) > 0 ? baseline : null;
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
     @Scheduled(fixedDelayString = "${engine.tick-ms:5000}")
     public void scheduledTick() {
         List<String> tenants = tenantDatabaseProvisioningService.listKnownTenantDatabases();
@@ -458,6 +608,7 @@ public class AutoTradeService {
                 return new AutoTradeResult(now.toString(), List.of());
             }
             StrategyMarketOverrides runtimeOverrides = strategyService.getMarketOverridesSnapshot(userId);
+            tickOverridesByTenant.put(currentTenantKey(), runtimeOverrides);
 
             Map<String, AccountSnapshot> accounts;
             try {
@@ -487,6 +638,19 @@ public class AutoTradeService {
                 recordDecision(SYSTEM_KEY, action, null, null, null, null, null, null);
                 return new AutoTradeResult(now.toString(), List.of(action));
             }
+            // Cross-sectional momentum selection, when enabled, decides which markets may take NEW
+            // positions. Held markets are unioned back in so a name that drops out of the universe keeps
+            // its stop-loss evaluated instead of being orphaned.
+            if (universeSelectionService.isEnabled()) {
+                markets = universeSelectionService.resolveTradableMarkets(markets, heldMarkets(accounts));
+                if (markets.isEmpty()) {
+                    AutoTradeAction action = new AutoTradeAction(
+                            SYSTEM_KEY, "SKIP", "universe_empty", null, null, null, null, null);
+                    recordDecision(SYSTEM_KEY, action, config, StrategyProfile.from(config.profile()), null, null, null, null);
+                    return new AutoTradeResult(now.toString(), List.of(action));
+                }
+            }
+
             Map<String, RegimeSnapshot> regimeByMarket = new HashMap<>();
             DailyLossStatus dailyLossStatus = evaluateDailyLossStatus(accounts);
             BigDecimal totalAssetKrw = dailyLossStatus.currentAssetKrw() != null
@@ -523,12 +687,10 @@ public class AutoTradeService {
                 BigDecimal marketMaxOrderKrw = resolveMarketMaxOrderKrw(market, marketConfig, runtimeOverrides);
                 boolean tradePaused = isTradePaused(market, runtimeOverrides);
 
-                if (isBackoffActive(market, now)) {
-                    AutoTradeAction action = new AutoTradeAction(market, "SKIP", "backoff", null, null, null, null, null);
-                    actions.add(action);
-                    recordDecision(market, action, marketConfig, profile, null, tuning, regime, marketMaxOrderKrw);
-                    continue;
-                }
+                // Backoff gates ENTRIES only. It used to short-circuit the market before the position was
+                // even inspected, so a handful of transient Upbit errors (the delay escalates to 300s) left
+                // an open position with no stop-loss evaluation for up to five minutes.
+                boolean backoffActive = isBackoffActive(market, now);
 
                 MarketIndicators indicators = null;
                 try {
@@ -551,6 +713,21 @@ public class AutoTradeService {
                             trailingHighByMarket.remove(tenantMarketKey);
                             lastEntryAtByMarket.remove(tenantMarketKey);
                             entryAtrPctByMarket.remove(tenantMarketKey);
+                        }
+                        if (backoffActive) {
+                            AutoTradeAction action = new AutoTradeAction(
+                                    market,
+                                    "SKIP",
+                                    "backoff",
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null
+                            );
+                            actions.add(action);
+                            recordDecision(market, action, marketConfig, profile, null, tuning, regime, marketMaxOrderKrw);
+                            continue;
                         }
                         if (dailyLossStatus.active()) {
                             AutoTradeAction action = new AutoTradeAction(
@@ -723,6 +900,99 @@ public class AutoTradeService {
         }
     }
 
+    /**
+     * Emergency liquidation: market-sell every non-KRW balance that has a tradeable KRW pair.
+     *
+     * Stopping the engine only stops new decisions - it leaves open positions with nothing watching the
+     * stop-loss. This is the "get me out" control that was missing entirely. It deliberately ignores the
+     * per-market order cooldown (an emergency should not be rate-limited by a comfort setting) but still
+     * refuses to stack a second SELL on top of one already in flight.
+     */
+    public AutoTradeResult liquidateAll(String reason) {
+        String exitReason = reason == null || reason.isBlank() ? "panic_exit" : reason.trim();
+        OffsetDateTime now = OffsetDateTime.now();
+        List<AutoTradeAction> actions = new ArrayList<>();
+
+        Map<String, AccountSnapshot> accounts;
+        try {
+            accounts = loadAccounts();
+        } catch (RuntimeException ex) {
+            AutoTradeAction action = new AutoTradeAction(
+                    SYSTEM_KEY, "ERROR", resolveSystemErrorReason(ex), null, null, null, null, null);
+            recordDecision(SYSTEM_KEY, action, null, null, null, null, null, null);
+            return new AutoTradeResult(now.toString(), List.of(action));
+        }
+
+        for (Map.Entry<String, AccountSnapshot> entry : accounts.entrySet()) {
+            String currency = entry.getKey();
+            if (currency == null || "KRW".equalsIgnoreCase(currency)) {
+                continue;
+            }
+            BigDecimal available = entry.getValue().balance();
+            if (available == null || available.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            String market = "KRW-" + currency.toUpperCase();
+            AutoTradeAction action;
+            try {
+                BigDecimal currentPrice = fetchCurrentPrice(market);
+                if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
+                    action = new AutoTradeAction(market, "SKIP", "price unavailable", null, available, null, null, null);
+                } else if (currentPrice.multiply(available).compareTo(resolveMinOrderKrw(market, "SELL")) < 0) {
+                    action = new AutoTradeAction(market, "SKIP", "below min order", currentPrice, available, null, null, null);
+                } else if (hasOpenRequest(market, "SELL")) {
+                    action = new AutoTradeAction(market, "SKIP", "pending", currentPrice, available, null, null, null);
+                } else {
+                    OrderRequest request = new OrderRequest(market, "SELL", "MARKET", null, available, null, null);
+                    OrderResponse response = orderService.create(request);
+                    recordSellEvent(market, exitReason, response);
+                    clearMarketRuntimeState(market);
+                    action = new AutoTradeAction(
+                            market, "SELL", exitReason, currentPrice, available, null,
+                            response.orderId(), response.requestStatus());
+                }
+            } catch (RuntimeException ex) {
+                action = new AutoTradeAction(
+                        market, "ERROR", truncate(ex.getMessage(), 200), null, available, null, null, null);
+            }
+            actions.add(action);
+            recordDecision(market, action, null, null, null, null, null, null);
+        }
+
+        return new AutoTradeResult(now.toString(), actions);
+    }
+
+    private void clearMarketRuntimeState(String market) {
+        String key = tenantScopedMarketKey(market);
+        if (key == null) {
+            return;
+        }
+        trailingHighByMarket.remove(key);
+        lastPartialTakeProfitAt.remove(key);
+        lastEntryAtByMarket.remove(key);
+        entryAtrPctByMarket.remove(key);
+    }
+
+    /** Markets with a non-zero balance right now, as KRW pair codes. */
+    private List<String> heldMarkets(Map<String, AccountSnapshot> accounts) {
+        List<String> held = new ArrayList<>();
+        if (accounts == null) {
+            return held;
+        }
+        for (Map.Entry<String, AccountSnapshot> entry : accounts.entrySet()) {
+            String currency = entry.getKey();
+            if (currency == null || "KRW".equalsIgnoreCase(currency)) {
+                continue;
+            }
+            AccountSnapshot snapshot = entry.getValue();
+            if (snapshot != null && snapshot.total().compareTo(BigDecimal.ZERO) > 0) {
+                held.add("KRW-" + currency.toUpperCase());
+            }
+        }
+        return held;
+    }
+
     private StrategyConfig resolveConfigForMarket(
             String market,
             StrategyConfig baseConfig,
@@ -839,7 +1109,10 @@ public class AutoTradeService {
         minAdxThreshold = clamp(minAdxThreshold, 5.0, 60.0);
         minVolumeRatioThreshold = clamp(minVolumeRatioThreshold, 0.1, 3.0);
         breakout = clamp(breakout, 0.05, 3.0);
-        maxExtension = clamp(maxExtension, 0.2, 5.0);
+        // 0 disables the overextension filter entirely. It must stay reachable: requiring
+        // price > 20-bar high AND price <= MA_long x (1 + maxExtension) are contradictory demands, and
+        // clamping the floor to 0.2 made the filter impossible to switch off.
+        maxExtension = maxExtension <= 0 ? 0.0 : clamp(maxExtension, 0.2, 5.0);
         minSlope = clamp(minSlope, -0.5, 1.0);
         confirmations = clamp(confirmations, 1, 3);
 
@@ -877,6 +1150,18 @@ public class AutoTradeService {
             }
             return candidate.compareTo(previous) > 0 ? candidate : previous;
         });
+    }
+
+    /**
+     * Upbit takes at most 8 decimal places for volume. available.multiply(fraction) carries the balance's
+     * scale plus the fraction's, so a partial exit produced up to 16 and the order was rejected on
+     * format. Rounds DOWN so a rounding step can never try to sell more than is held.
+     */
+    private static BigDecimal normalizeVolume(BigDecimal volume) {
+        if (volume == null) {
+            return null;
+        }
+        return volume.setScale(8, RoundingMode.DOWN);
     }
 
     private static BigDecimal maxPositive(BigDecimal... values) {
@@ -951,16 +1236,68 @@ public class AutoTradeService {
             trailingStopThreshold = entryTrailingHigh.multiply(percentFactor(-trailingStopPct.doubleValue()));
         }
 
+        // Protective exits always liquidate. stopExitPct is a position fraction, and a non-positive value
+        // used to make submitSellByPct return "<reason>_disabled" — silently turning the stop-loss off for
+        // the market. A stop that can be switched off by a sizing field is not a stop.
+        double protectiveExitPct = config.stopExitPct() > 0 ? config.stopExitPct() : 100.0;
+
         if (currentPrice.compareTo(stopLossThreshold) <= 0) {
-            return submitSellByPct(market, available, currentPrice, config.stopExitPct(), "stop_loss", true, minTotal);
+            return submitSellByPct(market, available, currentPrice, protectiveExitPct, "stop_loss", true, minTotal);
         }
         if (trailingStopThreshold != null && currentPrice.compareTo(trailingStopThreshold) <= 0) {
-            return submitSellByPct(market, available, currentPrice, config.stopExitPct(), "trailing_stop", true, minTotal);
+            return submitSellByPct(market, available, currentPrice, protectiveExitPct, "trailing_stop", true, minTotal);
         }
+
+        // Take-profit: bank a slice at the configured target and let the remainder ride the trailing stop.
+        // takeProfitPct previously only fed the trailing-arm calculation, where MAX_TRAILING_ARM_PCT capped
+        // it at 1.2 — so any value above 1.2% was inert.
+        if (config.takeProfitPct() > 0) {
+            BigDecimal takeProfitThreshold = avgBuyPrice.multiply(percentFactor(config.takeProfitPct()));
+            if (currentPrice.compareTo(takeProfitThreshold) >= 0
+                    && canTakePartialProfit(market, OffsetDateTime.now())) {
+                AutoTradeAction partial = attemptPartialTakeProfit(
+                        market,
+                        available,
+                        currentPrice,
+                        config.partialTakeProfitPct(),
+                        minTotal
+                );
+                if (partial != null) {
+                    return partial;
+                }
+            }
+        }
+
         if (indicators != null
                 && indicators.breakdownLevel() != null
                 && currentPrice.compareTo(indicators.breakdownLevel()) <= 0) {
             return submitSellByPct(market, available, currentPrice, 100.0, "donchian_exit", false, minTotal);
+        }
+
+        // Trend break: price closed back under the slow MA that justified the entry.
+        if (config.trendExitPct() > 0
+                && indicators != null
+                && indicators.maLong() != null
+                && currentPrice.compareTo(indicators.maLong()) < 0) {
+            return submitSellByPct(market, available, currentPrice, config.trendExitPct(), "trend_break", false, minTotal);
+        }
+
+        // Momentum reversal: RSI rolled under its sell threshold and MACD histogram turned negative.
+        if (config.momentumExitPct() > 0
+                && indicators != null
+                && indicators.rsi() != null
+                && indicators.macdHistogram() != null
+                && indicators.rsi().doubleValue() < tuning.rsiSellThreshold()
+                && indicators.macdHistogram().compareTo(BigDecimal.ZERO) < 0) {
+            return submitSellByPct(
+                    market,
+                    available,
+                    currentPrice,
+                    config.momentumExitPct(),
+                    "momentum_reversal",
+                    false,
+                    minTotal
+            );
         }
 
         return new AutoTradeAction(market, "SKIP", "no signal", currentPrice, available, null, null, null);
@@ -1008,6 +1345,10 @@ public class AutoTradeService {
                 regimeSizeMultiplier
         );
         orderFunds = applyCostBuffer(orderFunds);
+        // Every other sizing stage only shrinks, but the regime multiplier (default risk-on 1.20) can grow
+        // the order past the cap it started from. Re-apply the hard limits so the user's per-market cap and
+        // the available KRW balance always have the last word.
+        orderFunds = min(orderFunds, min(cash, marketMaxOrderKrw));
         if (marketMaxOrderKrw != null
                 && marketMaxOrderKrw.compareTo(BigDecimal.ZERO) > 0
                 && currentPositionValueKrw != null
@@ -1024,11 +1365,10 @@ public class AutoTradeService {
         if (orderFunds.compareTo(minTotal) < 0) {
             return new AutoTradeAction(market, "SKIP", "insufficient cash", null, null, orderFunds, null, null);
         }
-        BuySignalDecision buySignalDecision = resolveSignalModel(config).evaluateBuy(new BuySignalContext(
+        BuySignalDecision buySignalDecision = resolveSignalModelForCurrentTenant(market).evaluateBuy(new BuySignalContext(
                 indicators,
                 tuning,
-                bollingerWindow > 1 ? bollingerMinBandwidthPct : 0.0,
-                bollingerWindow > 1 ? bollingerMaxPercentB : 0.0
+                bollingerWindow > 1 ? squeezeMaxBandwidthPct : 0.0
         ));
         if (!buySignalDecision.proceed()) {
             return new AutoTradeAction(
@@ -1360,8 +1700,31 @@ public class AutoTradeService {
         return value * multiplier;
     }
 
-    private TradeSignalModel resolveSignalModel(StrategyConfig config) {
-        return tradeSignalModel;
+    /**
+     * Per-market entry model, falling back to the signal.model default.
+     *
+     * A multi-market bot wants different models on different markets — a large-cap in a steady trend and
+     * a thin alt breaking out of a squeeze are not the same problem — so the choice is a per-market
+     * override rather than one global switch.
+     */
+    private TradeSignalModel resolveSignalModelForCurrentTenant(String market) {
+        return resolveSignalModel(market, tickOverridesByTenant.get(currentTenantKey()));
+    }
+
+    private TradeSignalModel resolveSignalModel(String market, StrategyMarketOverrides runtimeOverrides) {
+        String requested = null;
+        if (market != null && runtimeOverrides != null && runtimeOverrides.signalModelByMarket() != null) {
+            requested = runtimeOverrides.signalModelByMarket().get(market);
+        }
+        if (requested == null || requested.isBlank()) {
+            requested = defaultSignalModel;
+        }
+        TradeSignalModel model = signalModels.get(requested);
+        if (model == null) {
+            log.warn("Unknown signal model '{}', falling back to {}", requested, UnifiedTrendSignalModel.NAME);
+            return signalModels.get(UnifiedTrendSignalModel.NAME);
+        }
+        return model;
     }
 
     private void recordEntryEvent(String market, OrderResponse response) {
@@ -1386,8 +1749,9 @@ public class AutoTradeService {
         entryAtrPctByMarket.put(key, indicators.atrPct());
     }
 
-    private AutoTradeAction submitSell(String market, BigDecimal volume, String reason) {
-        if (volume.compareTo(BigDecimal.ZERO) <= 0) {
+    private AutoTradeAction submitSell(String market, BigDecimal rawVolume, String reason) {
+        BigDecimal volume = normalizeVolume(rawVolume);
+        if (volume == null || volume.compareTo(BigDecimal.ZERO) <= 0) {
             return new AutoTradeAction(market, "SKIP", "no volume", null, volume, null, null, null);
         }
 
@@ -1434,7 +1798,7 @@ public class AutoTradeService {
         }
 
         BigDecimal fraction = BigDecimal.valueOf(pct).divide(HUNDRED, 8, RoundingMode.HALF_UP);
-        BigDecimal volume = available.multiply(fraction);
+        BigDecimal volume = normalizeVolume(available.multiply(fraction));
         if (volume.compareTo(BigDecimal.ZERO) <= 0) {
             return new AutoTradeAction(market, "SKIP", "no volume", null, available, null, null, null);
         }
@@ -1494,7 +1858,7 @@ public class AutoTradeService {
     }
 
     private Map<String, AccountSnapshot> loadAccounts() {
-        List<Map<String, Object>> accounts = upbitService.fetchAccounts();
+        List<Map<String, Object>> accounts = tradingAccountService.fetchAccounts();
         Map<String, AccountSnapshot> byCurrency = new HashMap<>();
         for (Map<String, Object> account : accounts) {
             String currency = asString(account.get("currency"));
@@ -1577,11 +1941,20 @@ public class AutoTradeService {
         );
     }
 
+    /**
+     * The trailing stop must only arm once it can actually lock in a gain.
+     *
+     * With arm = 1.5xATR and trail = 1.8xATR (the previous defaults) the stop armed at
+     * entry x (1 + 1.5xATR) and immediately sat at high x (1 - 1.8xATR), i.e. ~0.3xATR BELOW entry —
+     * so the most common outcome ("ran up, came back") was a guaranteed loss, and there was no path
+     * to banking a winner at all. Enforce arm >= trail + round-trip cost in code so a config change
+     * cannot reintroduce the inversion.
+     */
     private BigDecimal resolveConfiguredTrailingArmPct(String market, StrategyConfig config, MarketIndicators indicators) {
         if (config == null) {
             return BigDecimal.valueOf(MAX_TRAILING_ARM_PCT);
         }
-        return resolveAtrBackedPct(
+        BigDecimal armPct = resolveAtrBackedPct(
                 market,
                 indicators,
                 atrTrailingArmMultiplier,
@@ -1589,12 +1962,27 @@ public class AutoTradeService {
                 BigDecimal.valueOf(0.2),
                 BigDecimal.valueOf(20.0)
         );
+        BigDecimal trailPct = resolveConfiguredTrailingStopPct(market, config, indicators);
+        if (armPct == null || trailPct == null || trailPct.compareTo(BigDecimal.ZERO) <= 0) {
+            return armPct;
+        }
+        BigDecimal roundTripCostPct = tradeCostRate.multiply(BigDecimal.valueOf(2)).multiply(HUNDRED);
+        BigDecimal minimumArmPct = trailPct.add(roundTripCostPct);
+        return armPct.compareTo(minimumArmPct) < 0 ? minimumArmPct : armPct;
     }
 
     private BigDecimal resolveAtrStopLossPct(String market, StrategyConfig config, MarketIndicators indicators) {
         return resolveConfiguredStopLossPct(market, config, indicators);
     }
 
+    /**
+     * ATR-derived exit threshold, falling back to the configured percentage.
+     *
+     * When ATR is available this REPLACES the user's configured stop-loss / trailing percentages, and
+     * ATR is available essentially always — so the per-market 손절 % / 트레일링 % fields in the settings
+     * UI had no effect and no flag existed to restore them (atr-risk-sizing-enabled gates position
+     * sizing, not these thresholds). risk.atr-exit-thresholds-enabled makes that a choice.
+     */
     private BigDecimal resolveAtrBackedPct(
             String market,
             MarketIndicators indicators,
@@ -1603,6 +1991,9 @@ public class AutoTradeService {
             BigDecimal minPct,
             BigDecimal maxPct
     ) {
+        if (!atrExitThresholdsEnabled) {
+            return fallback;
+        }
         BigDecimal atrPct = resolveAtrPctForMarket(market, indicators);
         if (atrPct == null || atrPct.compareTo(BigDecimal.ZERO) <= 0 || multiplier <= 0) {
             return fallback;
@@ -2656,7 +3047,7 @@ public class AutoTradeService {
         OffsetDateTime now = OffsetDateTime.now();
         BigDecimal fraction = BigDecimal.valueOf(partialTakeProfitPct)
                 .divide(HUNDRED, 8, RoundingMode.HALF_UP);
-        BigDecimal volume = available.multiply(fraction);
+        BigDecimal volume = normalizeVolume(available.multiply(fraction));
         if (volume.compareTo(BigDecimal.ZERO) <= 0) {
             return null;
         }
@@ -2827,7 +3218,14 @@ public class AutoTradeService {
             }
 
             Map<String, Object> details = new HashMap<>();
-            details.put("signalModel", "UNIFIED_TREND");
+            details.put("signalModel", resolveSignalModelForCurrentTenant(market).name());
+            if (trailingKey != null) {
+                // Persisted so a restart restores the stop geometry an open position was opened with.
+                BigDecimal storedEntryAtrPct = entryAtrPctByMarket.get(trailingKey);
+                if (storedEntryAtrPct != null) {
+                    details.put("entryAtrPct", storedEntryAtrPct);
+                }
+            }
             details.put("timeframeUnit", candleUnitMinutes);
             details.put("maShortWindow", maShort);
             details.put("maLongWindow", maLong);
@@ -2841,8 +3239,6 @@ public class AutoTradeService {
             details.put("minVolumeRatio", minVolumeRatio);
             details.put("bollingerWindow", bollingerWindow);
             details.put("bollingerStdDev", bollingerStdDev);
-            details.put("bollingerMinBandwidthPct", bollingerMinBandwidthPct);
-            details.put("bollingerMaxPercentB", bollingerMaxPercentB);
             details.put("breakoutLookback", breakoutLookback);
             details.put("breakdownLookback", breakdownLookback);
             details.put("trailingWindow", trailingWindow);
@@ -2851,6 +3247,7 @@ public class AutoTradeService {
             details.put("atrTrailingStopMultiplier", atrTrailingStopMultiplier);
             details.put("atrTrailingArmMultiplier", atrTrailingArmMultiplier);
             details.put("atrRiskSizingEnabled", atrRiskSizingEnabled);
+            details.put("atrExitThresholdsEnabled", atrExitThresholdsEnabled);
             details.put("entryTrailingHigh", entryTrailingHigh);
             if (indicators != null) {
                 details.put("windowTrailingHigh", indicators.trailingHigh());
@@ -2862,6 +3259,12 @@ public class AutoTradeService {
             details.put("feeRate", feeRate);
             details.put("slippagePct", slippagePct);
             details.put("tradeCostRate", tradeCostRate);
+            // Persist the day's equity baseline so the daily-loss circuit breaker survives a restart.
+            DailyLossBaseline persistedBaseline = dailyLossBaselinesByTenant.get(currentTenantKey());
+            if (persistedBaseline != null && persistedBaseline.totalAssetKrw() != null) {
+                details.put("dailyLossBaselineDate", persistedBaseline.date().toString());
+                details.put("dailyLossBaselineKrw", persistedBaseline.totalAssetKrw());
+            }
             details.put("orderChanceCacheMinutes", orderChanceCacheMinutes);
             details.put("reentryCooldownMinutes", reentryCooldownMinutes);
             details.put("stopLossGuardLookbackMinutes", stopLossGuardLookbackMinutes);

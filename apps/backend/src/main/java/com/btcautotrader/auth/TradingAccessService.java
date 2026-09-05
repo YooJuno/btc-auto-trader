@@ -1,5 +1,6 @@
 package com.btcautotrader.auth;
 
+import com.btcautotrader.tenant.TenantContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -32,21 +33,30 @@ public class TradingAccessService {
     }
 
     public UserEntity requireOrderSubmissionAllowed(Authentication authentication) {
-        UserEntity user = currentUserService.requireUser(authentication);
+        UserEntity user = resolveIdentityUser(authentication);
         requireTradingAllowed(user, "주문 실행 권한이 없습니다.");
         return user;
     }
 
     public UserEntity requireEngineExecutionAllowed(Authentication authentication) {
-        UserEntity user = currentUserService.requireUser(authentication);
+        UserEntity user = resolveIdentityUser(authentication);
         requireTradingAllowed(user, "엔진 실행 권한이 없습니다.");
         return user;
     }
 
     public UserEntity requireTenantReadAllowed(Authentication authentication) {
-        UserEntity user = currentUserService.requireUser(authentication);
+        UserEntity user = resolveIdentityUser(authentication);
         requireTenantReadAllowed(user);
         return user;
+    }
+
+    /**
+     * Identity lives in the system database only. Controllers under the tenant-scoped paths run with
+     * TenantContext already bound by TenantContextInterceptor, so resolving the user without clearing it
+     * would query (and insert into) the tenant database's empty app_users table.
+     */
+    private UserEntity resolveIdentityUser(Authentication authentication) {
+        return TenantContext.callWithTenantDatabase(null, () -> currentUserService.requireUser(authentication));
     }
 
     public String requireTenantDatabase(UserEntity user) {

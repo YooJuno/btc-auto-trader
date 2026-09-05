@@ -1,14 +1,16 @@
 package com.btcautotrader.engine;
 
 interface TradeSignalModel {
+    /** Registry key, matched against the {@code signal.model} setting. */
+    String name();
+
     BuySignalDecision evaluateBuy(BuySignalContext context);
 }
 
 record BuySignalContext(
         MarketIndicators indicators,
         SignalTuning tuning,
-        double bollingerMinBandwidthPct,
-        double bollingerMaxPercentB
+        double squeezeMaxBandwidthPct
 ) {
 }
 

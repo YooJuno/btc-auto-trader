@@ -2,6 +2,7 @@ package com.btcautotrader.order;
 
 import com.btcautotrader.upbit.UpbitApiException;
 import com.btcautotrader.upbit.UpbitOrderResponse;
+import com.btcautotrader.paper.PaperTradingService;
 import com.btcautotrader.upbit.UpbitService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -28,8 +30,15 @@ public class OrderService {
     private final UpbitService upbitService;
     private final OrderRepository orderRepository;
     private final ObjectMapper objectMapper;
+    private final PaperTradingService paperTradingService;
 
-    public OrderService(UpbitService upbitService, OrderRepository orderRepository, ObjectMapper objectMapper) {
+    public OrderService(
+            UpbitService upbitService,
+            OrderRepository orderRepository,
+            ObjectMapper objectMapper,
+            PaperTradingService paperTradingService
+    ) {
+        this.paperTradingService = paperTradingService;
         this.upbitService = upbitService;
         this.orderRepository = orderRepository;
         this.objectMapper = objectMapper;
@@ -70,6 +79,13 @@ public class OrderService {
             OrderEntity found = orderRepository.findByClientOrderId(clientOrderId)
                     .orElseThrow(() -> ex);
             return toResponse(found);
+        }
+
+        // Paper mode intercepts here, after the order row exists, so a simulated fill lands in the same
+        // orders table with the same statuses. Order history, realised P&L, the decision join and the
+        // reconciler therefore all work unchanged, and nothing downstream needs to know the mode.
+        if (paperTradingService.isPaperMode()) {
+            return fillAsPaper(entity, request, payload);
         }
 
         try {
@@ -115,6 +131,54 @@ public class OrderService {
         }
     }
 
+    private OrderResponse fillAsPaper(OrderEntity entity, OrderRequest request, UpbitPayload payload) {
+        PaperTradingService.PaperFill fill = paperTradingService.execute(
+                request.market(),
+                request.side(),
+                request.type(),
+                request.price(),
+                request.volume(),
+                request.funds()
+        );
+
+        entity.setExternalId("paper-" + entity.getClientOrderId());
+        entity.setCreatedAt(OffsetDateTime.now());
+        if (!fill.filled()) {
+            // Recorded as a real rejection would be. Silently dropping unaffordable orders would make a
+            // paper run look better than the strategy is.
+            entity.setState("cancel");
+            entity.setStatus(OrderStatus.FAILED);
+            entity.setErrorMessage("paper: " + fill.reason());
+            orderRepository.save(entity);
+            return toResponse(entity);
+        }
+
+        entity.setState("done");
+        entity.setStatus(OrderStatus.FILLED);
+        entity.setPrice(fill.price());
+        entity.setVolume(fill.quantity());
+        entity.setFunds(fill.funds());
+        entity.setRawResponse(safeSerializePaper(fill, payload));
+        orderRepository.save(entity);
+        return toResponse(entity);
+    }
+
+    private String safeSerializePaper(PaperTradingService.PaperFill fill, UpbitPayload payload) {
+        try {
+            Map<String, Object> raw = new LinkedHashMap<>();
+            raw.put("simulated", true);
+            raw.put("reason", fill.reason());
+            raw.put("price", fill.price());
+            raw.put("volume", fill.quantity());
+            raw.put("funds", fill.funds());
+            raw.put("fee", fill.fee());
+            raw.put("request", payload.queryString());
+            return objectMapper.writeValueAsString(raw);
+        } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException ex) {
+            return null;
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<OrderHistoryItem> listRecent(int limit) {
         int safeLimit = normalizeLimit(limit);
@@ -140,7 +204,7 @@ public class OrderService {
 
         if (ordType.equals("limit")) {
             body.put("volume", toPlain(request.volume()));
-            body.put("price", toPlain(request.price()));
+            body.put("price", toPlain(alignToTickSize(request.market(), request.price())));
         } else if (ordType.equals("price")) {
             body.put("price", toPlain(request.funds()));
         } else if (ordType.equals("market")) {
@@ -169,6 +233,42 @@ public class OrderService {
 
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Snaps a KRW limit price onto Upbit's tick grid.
+     *
+     * Upbit rejects limit orders whose price is not a multiple of the tick size for its band, and nothing
+     * here enforced that — the manual ticket even offers step="0.1", so any price a user typed for a
+     * large-cap was rejected by the exchange. Mirrors Upbit's published KRW tick table; non-KRW quotes are
+     * left untouched because their rules differ.
+     */
+    static BigDecimal alignToTickSize(String market, BigDecimal price) {
+        if (price == null || market == null || !market.toUpperCase(Locale.ROOT).startsWith("KRW-")) {
+            return price;
+        }
+        if (price.compareTo(BigDecimal.ZERO) <= 0) {
+            return price;
+        }
+        BigDecimal tick = krwTickSize(price);
+        // Floor onto the grid: for a bid this never pays more than asked, and for an ask it never
+        // undercuts by more than one tick.
+        BigDecimal aligned = price.divide(tick, 0, RoundingMode.DOWN).multiply(tick);
+        return aligned.compareTo(BigDecimal.ZERO) <= 0 ? tick : aligned.stripTrailingZeros();
+    }
+
+    private static BigDecimal krwTickSize(BigDecimal price) {
+        if (price.compareTo(new BigDecimal("2000000")) >= 0) return new BigDecimal("1000");
+        if (price.compareTo(new BigDecimal("1000000")) >= 0) return new BigDecimal("1000");
+        if (price.compareTo(new BigDecimal("500000")) >= 0) return new BigDecimal("500");
+        if (price.compareTo(new BigDecimal("100000")) >= 0) return new BigDecimal("100");
+        if (price.compareTo(new BigDecimal("10000")) >= 0) return new BigDecimal("50");
+        if (price.compareTo(new BigDecimal("1000")) >= 0) return new BigDecimal("10");
+        if (price.compareTo(new BigDecimal("100")) >= 0) return BigDecimal.ONE;
+        if (price.compareTo(BigDecimal.TEN) >= 0) return new BigDecimal("0.1");
+        if (price.compareTo(BigDecimal.ONE) >= 0) return new BigDecimal("0.01");
+        if (price.compareTo(new BigDecimal("0.1")) >= 0) return new BigDecimal("0.001");
+        return new BigDecimal("0.0001");
     }
 
     private static String toPlain(BigDecimal value) {

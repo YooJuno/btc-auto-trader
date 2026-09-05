@@ -3,6 +3,7 @@ package com.btcautotrader.engine;
 import com.btcautotrader.auth.TradingAccessService;
 import com.btcautotrader.auth.CurrentUserService;
 import com.btcautotrader.auth.UserEntity;
+import com.btcautotrader.paper.TradingAccountService;
 import com.btcautotrader.tenant.TenantContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,14 +27,17 @@ public class EngineController {
     private final TradeDecisionService tradeDecisionService;
     private final TradingAccessService tradingAccessService;
     private final CurrentUserService currentUserService;
+    private final TradingAccountService tradingAccountService;
 
     public EngineController(
             EngineService engineService,
             AutoTradeService autoTradeService,
             TradeDecisionService tradeDecisionService,
             TradingAccessService tradingAccessService,
-            CurrentUserService currentUserService
+            CurrentUserService currentUserService,
+            TradingAccountService tradingAccountService
     ) {
+        this.tradingAccountService = tradingAccountService;
         this.engineService = engineService;
         this.autoTradeService = autoTradeService;
         this.tradeDecisionService = tradeDecisionService;
@@ -76,6 +80,35 @@ public class EngineController {
         return ResponseEntity.ok(statusResponse(running));
     }
 
+    /**
+     * Kill switch: stop the engine AND flatten every position, in that order.
+     *
+     * Plain /stop only halts decision-making; it leaves open positions with nothing evaluating their
+     * stop-loss. Stopping first means the tick cannot re-enter a market while the liquidation runs.
+     */
+    @PostMapping("/panic")
+    public ResponseEntity<Map<String, Object>> panic(Authentication authentication) {
+        tradingAccessService.requireEngineExecutionAllowed(authentication);
+        UserEntity user = TenantContext.callWithTenantDatabase(null, () -> currentUserService.requireUser(authentication));
+        String tenantDatabase = tradingAccessService.requireTenantDatabase(user);
+
+        AutoTradeResult result = TenantContext.callWithTenantDatabase(tenantDatabase, () -> {
+            engineService.stop();
+            return autoTradeService.liquidateAll("panic_exit");
+        });
+
+        long submitted = result.actions().stream()
+                .filter(action -> "SELL".equalsIgnoreCase(action.action()))
+                .count();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("running", false);
+        response.put("timestamp", OffsetDateTime.now().toString());
+        response.put("liquidationsSubmitted", submitted);
+        response.put("actions", result.actions());
+        return ResponseEntity.ok(response);
+    }
+
     @PostMapping("/tick")
     public ResponseEntity<AutoTradeResult> tick(
             Authentication authentication,
@@ -115,6 +148,9 @@ public class EngineController {
     private Map<String, Object> statusResponse(boolean running) {
         Map<String, Object> response = new HashMap<>();
         response.put("running", running);
+        // Rides on the status poll the dashboard already makes, so the UI can never be uncertain about
+        // whether it is showing real money.
+        response.put("tradingMode", tradingAccountService.isPaperMode() ? "PAPER" : "LIVE");
         response.put("timestamp", OffsetDateTime.now().toString());
         return response;
     }

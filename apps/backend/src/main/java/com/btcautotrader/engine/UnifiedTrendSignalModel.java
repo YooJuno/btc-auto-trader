@@ -3,6 +3,13 @@ package com.btcautotrader.engine;
 import java.math.BigDecimal;
 
 final class UnifiedTrendSignalModel implements TradeSignalModel {
+    static final String NAME = "trend_breakout";
+
+    @Override
+    public String name() {
+        return NAME;
+    }
+
     @Override
     public BuySignalDecision evaluateBuy(BuySignalContext context) {
         MarketIndicators indicators = context.indicators();

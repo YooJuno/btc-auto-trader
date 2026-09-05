@@ -1,6 +1,7 @@
 package com.btcautotrader.engine;
 
 import com.btcautotrader.auth.TradingAccessService;
+import com.btcautotrader.paper.TradingAccountService;
 import com.btcautotrader.order.OrderRepository;
 import com.btcautotrader.order.OrderResponse;
 import com.btcautotrader.order.OrderService;
@@ -17,6 +18,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageImpl;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -28,6 +31,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -80,103 +84,23 @@ class AutoTradeServiceTest {
     @Mock
     private TradeDecisionService tradeDecisionService;
 
+    // Default mock returns isEnabled() == false, so these fixtures keep the pre-universe behaviour.
+    @Mock
+    private UniverseSelectionService universeSelectionService;
+
+    @Mock
+    private TradingAccountService tradingAccountService;
+
     private AutoTradeService service;
 
     @BeforeEach
     void setUp() {
-        service = new AutoTradeService(
-                upbitService,
-                orderService,
-                strategyService,
-                engineService,
-                tenantDatabaseProvisioningService,
-                tradingAccessService,
-                orderRepository,
-                tradeDecisionRepository,
-                tradeDecisionService,
-                new BigDecimal("5000"),
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                0L,
-                0L,
-                5L,
-                300L,
-                1,
-                2,
-                3,
-                2,
-                50.0,
-                40.0,
-                80.0,
-                2,
-                3,
-                2,
-                2,
-                0.0,
-                1,
-                0.0,
-                0,
-                2.0,
-                0.0,
-                0.0,
-                2,
-                10,
-                0.0,
-                5.0,
-                0,
-                1,
-                0,
-                14,
-                2.0,
-                2.5,
-                1.0,
-                false,
-                0L,
-                0L,
-                0L,
-                0L,
-                0,
-                0L,
-                0.0,
-                0,
-                BigDecimal.ZERO,
-                false,
-                false,
-                15,
-                30,
-                90,
-                5,
-                0.0,
-                48,
-                BigDecimal.ZERO,
-                false,
-                0.12,
-                0.8,
-                1.15,
-                1.1,
-                1.05,
-                1.1,
-                -1.0,
-                0.8,
-                0.95,
-                0.9,
-                0.9,
-                1.5,
-                false,
-                60,
-                20,
-                50,
-                3,
-                0.0,
-                0L,
-                0L,
-                0
-        );
+        service = buildService(0);
 
         lenient().when(strategyService.getConfig()).thenReturn(TEST_CONFIG);
         lenient().when(strategyService.configuredMarkets(null)).thenReturn(List.of("KRW-BTC"));
         lenient().when(strategyService.getMarketOverridesSnapshot(any())).thenReturn(
-                new StrategyMarketOverrides(Map.of(), Map.of(), Map.of(), Map.of())
+                new StrategyMarketOverrides(Map.of(), Map.of(), Map.of(), Map.of(), Map.of())
         );
         lenient().when(upbitService.fetchMinuteCandles(eq("KRW-BTC"), eq(1), anyInt())).thenReturn(bullishCandles());
         lenient().when(upbitService.fetchOrderChance("KRW-BTC")).thenReturn(Map.of());
@@ -189,7 +113,7 @@ class AutoTradeServiceTest {
 
     @Test
     void runOnce_doesNotScaleInWhenPositionAlreadyExists() {
-        when(upbitService.fetchAccounts()).thenReturn(accountsWithBtcPosition());
+        when(tradingAccountService.fetchAccounts()).thenReturn(accountsWithBtcPosition());
         when(upbitService.fetchTickers(anyList())).thenReturn(Map.of());
 
         AutoTradeResult result = service.runOnce();
@@ -208,7 +132,7 @@ class AutoTradeServiceTest {
     @Test
     void runOnce_tradesAcrossMultipleConfiguredMarketsWithoutOverspendingCash() {
         when(strategyService.configuredMarkets(7L)).thenReturn(List.of("KRW-BTC", "KRW-ETH"));
-        when(upbitService.fetchAccounts()).thenReturn(accountsWithKrwOnly("30000"));
+        when(tradingAccountService.fetchAccounts()).thenReturn(accountsWithKrwOnly("30000"));
         when(upbitService.fetchMinuteCandles(eq("KRW-ETH"), eq(1), anyInt())).thenReturn(bullishCandles());
         when(upbitService.fetchOrderChance("KRW-ETH")).thenReturn(Map.of());
         when(orderService.create(any())).thenReturn(orderResponse("btc-order", "KRW-BTC"));
@@ -232,11 +156,12 @@ class AutoTradeServiceTest {
                 new StrategyMarketOverrides(
                         Map.of(),
                         Map.of(),
+                        Map.of(),
                         Map.of("KRW-BTC", true),
                         Map.of()
                 )
         );
-        when(upbitService.fetchAccounts()).thenReturn(accountsWithKrwOnly("100000"));
+        when(tradingAccountService.fetchAccounts()).thenReturn(accountsWithKrwOnly("100000"));
 
         AutoTradeResult result = service.runOnce(7L);
 
@@ -365,6 +290,235 @@ class AutoTradeServiceTest {
         assertThat(action.action()).isEqualTo("SELL");
         assertThat(action.reason()).isEqualTo("trailing_stop");
         verify(orderService).create(any());
+    }
+
+    @Test
+    void trailingArmIsNeverNarrowerThanTheTrailingStop() throws Exception {
+        // This service is constructed with arm multiplier 1.0 and trail multiplier 2.5 - the inverted
+        // geometry that shipped. Arming at 1.0xATR while trailing 2.5xATR puts the stop 1.5xATR BELOW
+        // entry the instant it arms, so a position that runs up and comes back can only ever lose.
+        MarketIndicators indicators = indicatorsWithAtrPct(new BigDecimal("1.0"));
+
+        BigDecimal armPct = invokePctResolver("resolveConfiguredTrailingArmPct", indicators);
+        BigDecimal trailPct = invokePctResolver("resolveConfiguredTrailingStopPct", indicators);
+
+        assertThat(armPct).isGreaterThanOrEqualTo(trailPct);
+    }
+
+    @Test
+    void handleSell_stopLossStillFiresWhenStopExitPctIsZero() throws Exception {
+        lenient().when(upbitService.fetchOrderChance("KRW-BTC")).thenReturn(Map.of());
+        when(orderService.create(any())).thenReturn(orderResponse("sell-order", "KRW-BTC"));
+        seedLastEntryAt("KRW-BTC", OffsetDateTime.now().minusMinutes(5));
+
+        // stopExitPct is a position FRACTION that shares a grid and a near-identical Korean label with the
+        // stop-loss price threshold. At 0 it used to make submitSellByPct return "stop_loss_disabled",
+        // silently disarming the stop for that market.
+        StrategyConfig zeroStopExit = new StrategyConfig(
+                true, 30000.0, 1.44, 1.024, 0.675, 35.0, "BALANCED", 0.0, 40.0, 25.0, 0.7);
+
+        AutoTradeAction action = invokeHandleSell(
+                "KRW-BTC",
+                accountSnapshot("100", "0", "100"),
+                zeroStopExit,
+                indicatorsAtPrice(new BigDecimal("90.00"))
+        );
+
+        assertThat(action.action()).isEqualTo("SELL");
+        assertThat(action.reason()).isEqualTo("stop_loss");
+    }
+
+    private AutoTradeService buildService(int stateRestoreLimit) {
+        return new AutoTradeService(
+                upbitService,
+                orderService,
+                strategyService,
+                engineService,
+                tenantDatabaseProvisioningService,
+                tradingAccessService,
+                orderRepository,
+                tradeDecisionRepository,
+                tradeDecisionService,
+                universeSelectionService,
+                tradingAccountService,
+                new BigDecimal("5000"),
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                0L,
+                0L,
+                5L,
+                300L,
+                1,
+                2,
+                3,
+                2,
+                50.0,
+                40.0,
+                80.0,
+                2,
+                3,
+                2,
+                2,
+                0.0,
+                1,
+                0.0,
+                0,
+                2.0,
+                0.0,
+                UnifiedTrendSignalModel.NAME,
+                2,
+                10,
+                0.0,
+                5.0,
+                0,
+                1,
+                0,
+                14,
+                2.0,
+                2.5,
+                1.0,
+                false,
+                true,
+                0L,
+                0L,
+                0L,
+                0L,
+                0,
+                0L,
+                0.0,
+                0,
+                BigDecimal.ZERO,
+                false,
+                false,
+                15,
+                30,
+                90,
+                5,
+                0.0,
+                48,
+                BigDecimal.ZERO,
+                false,
+                0.12,
+                0.8,
+                1.15,
+                1.1,
+                1.05,
+                1.1,
+                -1.0,
+                0.8,
+                0.95,
+                0.9,
+                0.9,
+                1.5,
+                false,
+                60,
+                20,
+                50,
+                3,
+                0.0,
+                0L,
+                0L,
+                stateRestoreLimit
+        );
+    }
+
+    @Test
+    void restoresTheTrailingHighRecordedAfterEntry() throws Exception {
+        OffsetDateTime entryAt = OffsetDateTime.now().minusHours(3);
+        when(tradeDecisionRepository.findByActionIn(anyCollection(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        // Descending, as the query returns them.
+                        decision("KRW-BTC", "SKIP", entryAt.plusHours(2), "115"),
+                        decision("KRW-BTC", "SKIP", entryAt.plusHours(1), "110"),
+                        decision("KRW-BTC", "BUY", entryAt, "999")
+                )));
+
+        service = buildService(200);
+        invokeRestoreOpenPositionState();
+
+        // The running maximum from the most recent post-entry decision, not the BUY row.
+        assertThat(trailingHighFor("KRW-BTC")).isEqualByComparingTo(new BigDecimal("115"));
+    }
+
+    @Test
+    void ignoresTheTrailingHighRecordedAtEntry() throws Exception {
+        // recordDecision falls back to indicators.trailingHigh() when nothing is tracked, and that is the
+        // candle-window high INCLUDING bars before entry. Restoring it would arm the trail from a peak the
+        // position never participated in and force an immediate exit.
+        OffsetDateTime entryAt = OffsetDateTime.now().minusHours(1);
+        when(tradeDecisionRepository.findByActionIn(anyCollection(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        decision("KRW-BTC", "BUY", entryAt, "9999")
+                )));
+
+        service = buildService(200);
+        invokeRestoreOpenPositionState();
+
+        assertThat(trailingHighFor("KRW-BTC")).isNull();
+    }
+
+    @Test
+    void ignoresTrailingHighFromAPreviousPosition() throws Exception {
+        OffsetDateTime entryAt = OffsetDateTime.now().minusHours(1);
+        when(tradeDecisionRepository.findByActionIn(anyCollection(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        decision("KRW-BTC", "BUY", entryAt, "500"),
+                        // Belongs to a position that was closed before the current entry.
+                        decision("KRW-BTC", "SKIP", entryAt.minusHours(5), "800")
+                )));
+
+        service = buildService(200);
+        invokeRestoreOpenPositionState();
+
+        assertThat(trailingHighFor("KRW-BTC")).isNull();
+    }
+
+    private void invokeRestoreOpenPositionState() throws Exception {
+        Method method = AutoTradeService.class.getDeclaredMethod("restoreOpenPositionStateForCurrentTenant");
+        method.setAccessible(true);
+        method.invoke(service);
+    }
+
+    @SuppressWarnings("unchecked")
+    private BigDecimal trailingHighFor(String market) throws Exception {
+        Field field = AutoTradeService.class.getDeclaredField("trailingHighByMarket");
+        field.setAccessible(true);
+        return ((Map<String, BigDecimal>) field.get(service)).get("__system__::" + market);
+    }
+
+    private static TradeDecisionEntity decision(
+            String market,
+            String action,
+            OffsetDateTime executedAt,
+            String trailingHigh
+    ) {
+        TradeDecisionEntity entity = new TradeDecisionEntity();
+        entity.setMarket(market);
+        entity.setAction(action);
+        entity.setExecutedAt(executedAt);
+        entity.setTrailingHigh(new BigDecimal(trailingHigh));
+        return entity;
+    }
+
+    private BigDecimal invokePctResolver(String methodName, MarketIndicators indicators) throws Exception {
+        Method method = AutoTradeService.class.getDeclaredMethod(
+                methodName, String.class, StrategyConfig.class, MarketIndicators.class);
+        method.setAccessible(true);
+        return (BigDecimal) method.invoke(service, "KRW-BTC", balancedConfig(), indicators);
+    }
+
+    private static MarketIndicators indicatorsWithAtrPct(BigDecimal atrPct) {
+        return new MarketIndicators(
+                new BigDecimal("100.00"), new BigDecimal("100.00"), new BigDecimal("99.00"),
+                null, atrPct, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, OffsetDateTime.now().minusMinutes(1));
+    }
+
+    private static MarketIndicators indicatorsAtPrice(BigDecimal price) {
+        return new MarketIndicators(
+                price, new BigDecimal("100.00"), new BigDecimal("99.00"),
+                null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, price, OffsetDateTime.now().minusMinutes(1));
     }
 
     private AutoTradeAction invokeHandleSell(

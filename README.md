@@ -6,9 +6,31 @@ Spring Boot 백엔드 + React 프론트 + PostgreSQL로 구성된 모노레포�
 ---
 
 ## ✅ 핵심 기능
-- 실시간 추천(거래대금/추세/변동성 기반)
-- 모의계좌(Paper Trading) 포트폴리오/손익 표시
-- 자동매매 설정(전략/리스크/선정 방식)
+- 추세 돌파 기반 자동매매 엔진 (1시간봉 신호 / 4시간봉 상위 추세 확인)
+- 실계좌(Upbit) 포트폴리오·평가손익 표시
+- 마켓별 전략/리스크 설정, 마켓 단위 일시정지
+- **엔진 판단 로그**: 매 틱의 판단 근거(진입/청산 사유, 미체결 사유, 지표 스냅샷)를 저장하고 화면에 표시
+- **긴급 청산**: 엔진 중지 + 보유 코인 전량 시장가 매도 (`POST /api/engine/panic`)
+
+### 모의매매 (Paper Trading)
+
+`trading.mode=PAPER` 로 전환하면 **실제 시세**에 대해 **모의 체결**로 동작합니다.
+
+- 계좌 잔고와 주문 체결만 시뮬레이션합니다. 신호·지표·청산·사이징·레짐 게이트는 실매매와 **동일한 코드
+  경로**를 그대로 탑니다. 그래야 모의 결과가 실매매에 대한 근거가 됩니다.
+- 체결가는 엔진이 주문 크기를 계산할 때 쓰는 것과 **같은 수수료·슬리피지**로 산정됩니다.
+- 평균매수가는 업비트와 동일하게 **수수료 제외** 기준입니다. 손절이 평균매수가와 비교되므로, 여기서
+  기준이 달라지면 모의와 실매매의 손절 위치가 어긋납니다.
+- 잔고 부족·수량 부족은 조용히 건너뛰지 않고 **거부된 주문으로 기록**됩니다.
+- 지정가는 이미 시장가가 통과한 경우에만 체결되고, 미체결 지정가는 거부됩니다(호가창 시뮬레이션 없음).
+- 화면 좌측 상단에 `모의` / `실계좌` 배지가 항상 표시됩니다.
+
+```dotenv
+trading.mode=PAPER
+trading.paper.initial-krw=1000000
+```
+
+기본값은 `LIVE` 입니다 — 이 빌드를 배포해도 기존 실계좌 운용이 조용히 멈추지 않도록 하기 위함입니다.
 
 ## Backend
 - Spring Boot v3.3.4
@@ -86,18 +108,23 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
 ### 백테스트 가이드
 - 실행/검증 문서: `docs/BACKTEST_GUIDE.md`
 - 기본 실행:
-  - `python3 scripts/research/backtest.py --days 30`
+  - `python3 scripts/research/backtest.py --days 180`
 - 파라미터 탐색 포함:
-  - `python3 scripts/research/backtest.py --days 30 --optimize --max-combos 120`
+  - `python3 scripts/research/backtest.py --days 180 --optimize --max-combos 120`
+- 횡단면 모멘텀(측정 결과 손실, 문서 참고):
+  - `python3 scripts/research/backtest_cross_sectional.py --days 800`
 
-### Strategy Lab (지속 테스트 루프)
+### Strategy Research Loop (워크포워드 검증 루프)
 - 실행 문서: `docs/STRATEGY_LAB.md`
 - 역할:
-  - 실시간 자동매매와 별개로 백테스트를 주기적으로 반복
-  - 결과를 `data/strategy-lab/`에 누적 저장
-  - 다음 Codex 요청 시 누적 데이터 기반으로 전략 코드/설정 반영
+  - 전체 이력에 대해 **앵커드 워크포워드**로 후보를 검증 (학습 구간과 검증 구간 분리)
+  - **다중검정 보정**(deflated Sharpe)으로 "많이 시도해서 얻은 우연"을 걸러냄
+  - 7개 조건을 모두 통과해야 채택. **기본 판정은 거부**이고, 대부분의 실행은 거부가 정상
+  - 결과를 `data/strategy-research/`에 누적 (`history.jsonl` append-only)
+  - `--auto-promote` 를 켜도 `champion.json` 기록만 하고 **설정 파일은 건드리지 않음**
 - 설치/시작:
   - `./scripts/systemd/install_services.sh --strategy-only`
+- 이전 `strategy_lab_daemon.py` 는 과적합 루프였고 더 이상 사용하지 않습니다 (문서 참고)
 
 ### Tenant 분리 확인 체크리스트
 1. 계정 A/B 각각 로그인 후 `/api/me`의 `tenantDatabase`가 다른지 확인

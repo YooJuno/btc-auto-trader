@@ -5,14 +5,24 @@ import {
   PROFILE_VALUES,
 } from '../../constants/tradingUi.js'
 import {
+  SIGNAL_MODEL_OPTIONS,
   applyRatioPresetToMarket,
   clearMarketRatioOverrides,
   normalizeProfileValue,
+  normalizeSignalModelValue,
   removeMarketRow,
   resolvePresetDisplayName,
   toInputValue,
   updateMarketOverrideInput,
 } from '../../utils/tradingUi.js'
+
+// An explicitly entered 0 disables that exit. Blank means "inherit the default", which is not the same.
+const isDisabledRatio = (value) => {
+  if (value === null || value === undefined || String(value).trim() === '') {
+    return false
+  }
+  return Number(value) === 0
+}
 
 function MarketOverridesCard({
   strategyError,
@@ -48,7 +58,7 @@ function MarketOverridesCard({
   readOnly = false,
 }) {
   return (
-    <article className="control-card card--elevated market-card">
+    <article className="control-card market-card">
       <div className="card-head">
         <div>
           <h2>마켓별 설정</h2>
@@ -152,6 +162,7 @@ function MarketOverridesCard({
             <span>마켓</span>
             <span>최대 매수 KRW</span>
             <span>프로필</span>
+            <span>진입 모델</span>
             <span>자동매매</span>
             <span>관리</span>
           </div>
@@ -192,6 +203,19 @@ function MarketOverridesCard({
                       {PROFILE_VALUES.map((profile) => (
                         <option key={profile} value={profile}>
                           {profile}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="market-inline-field">
+                    <select
+                      value={normalizeSignalModelValue(row.signalModel)}
+                      disabled={readOnly}
+                      onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'signalModel', event.target.value)}
+                    >
+                      {SIGNAL_MODEL_OPTIONS.map((option) => (
+                        <option key={option.value || 'default'} value={option.value}>
+                          {option.label}
                         </option>
                       ))}
                     </select>
@@ -260,84 +284,112 @@ function MarketOverridesCard({
                         입력값에 적용되었습니다. 아래 마켓 설정 저장 버튼을 눌러야 서버 반영됩니다.
                       </p>
                     )}
-                    <div className="form-grid market-ratio-grid">
-                      <label className="form-field">
-                        <span>익절 %</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder={toInputValue(strategy?.takeProfitPct)}
-                          value={row.takeProfitPct}
-                          disabled={readOnly}
-                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'takeProfitPct', event.target.value)}
-                        />
-                      </label>
-                      <label className="form-field">
-                        <span>손절 %</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder={toInputValue(strategy?.stopLossPct)}
-                          value={row.stopLossPct}
-                          disabled={readOnly}
-                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'stopLossPct', event.target.value)}
-                        />
-                      </label>
-                      <label className="form-field">
-                        <span>트레일링 %</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder={toInputValue(strategy?.trailingStopPct)}
-                          value={row.trailingStopPct}
-                          disabled={readOnly}
-                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'trailingStopPct', event.target.value)}
-                        />
-                      </label>
-                      <label className="form-field">
-                        <span>부분 익절 %</span>
-                        <input
-                          type="number"
-                          step="1"
-                          placeholder={toInputValue(strategy?.partialTakeProfitPct)}
-                          value={row.partialTakeProfitPct}
-                          disabled={readOnly}
-                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'partialTakeProfitPct', event.target.value)}
-                        />
-                      </label>
-                      <label className="form-field">
-                        <span>손절/트레일링 매도 %</span>
-                        <input
-                          type="number"
-                          step="1"
-                          placeholder={toInputValue(strategy?.stopExitPct)}
-                          value={row.stopExitPct}
-                          disabled={readOnly}
-                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'stopExitPct', event.target.value)}
-                        />
-                      </label>
-                      <label className="form-field">
-                        <span>추세 이탈 매도 %</span>
-                        <input
-                          type="number"
-                          step="1"
-                          placeholder={toInputValue(strategy?.trendExitPct)}
-                          value={row.trendExitPct}
-                          disabled={readOnly}
-                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'trendExitPct', event.target.value)}
-                        />
-                      </label>
-                      <label className="form-field">
-                        <span>모멘텀 역전 매도 %</span>
-                        <input
-                          type="number"
-                          step="1"
-                          placeholder={toInputValue(strategy?.momentumExitPct)}
-                          value={row.momentumExitPct}
-                          disabled={readOnly}
-                          onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'momentumExitPct', event.target.value)}
-                        />
-                      </label>
+                    {/*
+                      Two different kinds of number used to sit in one undifferentiated grid with
+                      confusable Korean labels: 손절 % is a PRICE threshold, 손절/트레일링 매도 % is a
+                      POSITION FRACTION. Setting the latter to 0 disarmed the stop for that market with no
+                      warning anywhere. They are now separated and 0 is called out explicitly.
+                    */}
+                    <div className="field-group">
+                      <span className="field-group__title">청산 트리거 — 가격 기준 %</span>
+                      <div className="form-grid market-ratio-grid">
+                        <label className="form-field">
+                          <span>익절 %</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            placeholder={toInputValue(strategy?.takeProfitPct)}
+                            value={row.takeProfitPct}
+                            disabled={readOnly}
+                            onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'takeProfitPct', event.target.value)}
+                          />
+                          <span className="field-hint">평균 매수가 대비 상승 시 부분 익절</span>
+                        </label>
+                        <label className="form-field">
+                          <span>손절 %</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            placeholder={toInputValue(strategy?.stopLossPct)}
+                            value={row.stopLossPct}
+                            disabled={readOnly}
+                            onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'stopLossPct', event.target.value)}
+                          />
+                          <span className="field-hint">평균 매수가 대비 하락 시 전량 손절</span>
+                        </label>
+                        <label className="form-field">
+                          <span>트레일링 %</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            placeholder={toInputValue(strategy?.trailingStopPct)}
+                            value={row.trailingStopPct}
+                            disabled={readOnly}
+                            onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'trailingStopPct', event.target.value)}
+                          />
+                          <span className="field-hint">진입 후 최고가 대비 하락폭</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="field-group">
+                      <span className="field-group__title">청산 비중 — 보유 수량 기준 %</span>
+                      <div className="form-grid market-ratio-grid">
+                        <label className="form-field">
+                          <span>부분 익절 매도 %</span>
+                          <input
+                            type="number"
+                            step="1"
+                            placeholder={toInputValue(strategy?.partialTakeProfitPct)}
+                            value={row.partialTakeProfitPct}
+                            disabled={readOnly}
+                            onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'partialTakeProfitPct', event.target.value)}
+                          />
+                          {isDisabledRatio(row.partialTakeProfitPct) && (
+                            <span className="field-warning">0 이면 익절이 실행되지 않습니다.</span>
+                          )}
+                        </label>
+                        <label className="form-field">
+                          <span>손절/트레일링 매도 %</span>
+                          <input
+                            type="number"
+                            step="1"
+                            placeholder={toInputValue(strategy?.stopExitPct)}
+                            value={row.stopExitPct}
+                            disabled={readOnly}
+                            onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'stopExitPct', event.target.value)}
+                          />
+                          <span className="field-hint">비워두면 전량(100%) 매도</span>
+                        </label>
+                        <label className="form-field">
+                          <span>추세 이탈 매도 %</span>
+                          <input
+                            type="number"
+                            step="1"
+                            placeholder={toInputValue(strategy?.trendExitPct)}
+                            value={row.trendExitPct}
+                            disabled={readOnly}
+                            onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'trendExitPct', event.target.value)}
+                          />
+                          {isDisabledRatio(row.trendExitPct) && (
+                            <span className="field-warning">0 이면 추세 이탈 청산이 비활성화됩니다.</span>
+                          )}
+                        </label>
+                        <label className="form-field">
+                          <span>모멘텀 역전 매도 %</span>
+                          <input
+                            type="number"
+                            step="1"
+                            placeholder={toInputValue(strategy?.momentumExitPct)}
+                            value={row.momentumExitPct}
+                            disabled={readOnly}
+                            onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'momentumExitPct', event.target.value)}
+                          />
+                          {isDisabledRatio(row.momentumExitPct) && (
+                            <span className="field-warning">0 이면 모멘텀 청산이 비활성화됩니다.</span>
+                          )}
+                        </label>
+                      </div>
                     </div>
                     <div className="button-row">
                       <button

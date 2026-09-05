@@ -429,20 +429,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workdir", default=".")
     parser.add_argument("--python-bin", default=sys.executable)
     parser.add_argument("--market", default="KRW-BTC")
-    parser.add_argument("--days", type=int, default=7)
+    # 7 days of 1h candles is ~168 bars and a handful of trades - not enough to tell signal from noise.
+    parser.add_argument("--days", type=int, default=180)
     parser.add_argument("--profiles", default="BALANCED,CONSERVATIVE,AGGRESSIVE")
-    parser.add_argument("--short-unit", type=int, default=3)
-    parser.add_argument("--mid-unit", type=int, default=15)
+    # Units now match the engine (signal 60m, confirm 240m). 3m/15m could not clear the fee floor.
+    parser.add_argument("--short-unit", type=int, default=60)
+    parser.add_argument("--mid-unit", type=int, default=240)
     parser.add_argument("--split-ratio", type=float, default=0.5)
     parser.add_argument("--max-combos", type=int, default=60)
     parser.add_argument("--cache-dir", default="data/backtest")
     parser.add_argument("--output-dir", default="data/strategy-lab")
-    parser.add_argument("--interval-minutes", type=int, default=60)
+    # Re-optimising hourly over a window that barely moves produces correlated "consensus" samples, not
+    # independent evidence. Daily.
+    parser.add_argument("--interval-minutes", type=int, default=1440)
     parser.add_argument("--history-limit", type=int, default=300)
     parser.add_argument("--consensus-lookback", type=int, default=12)
-    parser.add_argument("--min-sell-trades", type=int, default=1)
-    parser.add_argument("--min-trades-per-day", type=float, default=0.15)
-    parser.add_argument("--max-trades-per-day", type=float, default=4.5)
+    # A recommendation derived from a single trade is noise with a decimal point on it.
+    parser.add_argument("--min-sell-trades", type=int, default=20)
+    # A 1h trend system trades ~10-25 times a year per asset; the old floor rejected exactly that.
+    parser.add_argument("--min-trades-per-day", type=float, default=0.02)
+    parser.add_argument("--max-trades-per-day", type=float, default=3.0)
     parser.add_argument("--refresh-cache", action="store_true")
     parser.add_argument("--single-run", action="store_true")
 

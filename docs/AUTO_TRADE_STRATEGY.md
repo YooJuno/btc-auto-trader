@@ -16,46 +16,158 @@ Ref: https://docs.upbit.com/kr/reference/%EB%B6%84minute-%EC%BA%94%EB%93%A4-1
 **Recommendation:** 1-minute default is okay for rapid reaction, but it is noisier.
 For stability, consider 5m or 15m as your production default.
 
-## 2) Strategy Logic (Balanced)
-**Trend-following with confirmation signals**
-- Compute `MA_SHORT` and `MA_LONG` on closing prices.
-- **Trend filter:** `MA_SHORT > MA_LONG` and price above `MA_LONG`.
-- **Slope filter (optional):** `MA_LONG` must be flat-to-up over recent candles.
-- **Overextension filter:** skip entries if price is too far above `MA_LONG`.
-- **Trend strength filter:** require ADX above a minimum threshold.
-- **Volume quality filter:** require current quote-volume ratio above baseline.
-- **Bollinger filter:** avoid entries when band is too tight or price is too overextended.
-- **Confirmation signals (need 2 of 3 by default):**
-  - RSI: `RSI >= RSI_BUY` and not overbought.
-  - MACD: MACD histogram > 0.
-  - Breakout: price breaks above recent high by a small buffer.
+## 2) Strategy Logic (as implemented)
 
-**Exit logic**
-- **Stop-loss:** price below `avg_buy_price * (1 - STOP_LOSS%)`.
-- **Trailing stop:** price drops below **entry 이후 최고가** * (1 - TRAILING_STOP%).
-- **Momentum reversal:** RSI below `RSI_SELL` and MACD histogram < 0.
-- **Trend break:** price below `MA_LONG`.
-- **Take-profit:** optional partial take-profit before full exit.
- - **Exit sizing:** non-stop exits can be partial; stop/trailing defaults to full exit.
+> This section describes what `UnifiedTrendSignalModel` and `AutoTradeService.handleSell` actually do.
+> Earlier revisions of this document described RSI/MACD "2 of 3 confirmations" and a Bollinger entry
+> filter that were never implemented; those claims have been removed rather than left as aspirations.
 
-**Suggested defaults (popular baseline)**
-- `MA_SHORT = 20`
-- `MA_LONG = 100`
-- `RSI_PERIOD = 14`
-- `RSI_BUY = 55`, `RSI_SELL = 45`, `RSI_OVERBOUGHT = 70`
+**Entry — trend-gated Donchian breakout (ALL conditions required)**
+- `MA_SHORT > MA_LONG` and price above `MA_LONG`
+- `MA_LONG` slope at or above the profile minimum
+- ADX at or above `signal.min-adx`
+- quote-volume ratio at or above `signal.min-volume-ratio`
+- price breaks above the `signal.breakout-lookback` high by `signal.breakout-pct`
+- higher-timeframe trend agrees (`signal.htf-confirm.*`)
+- market regime allows entries (`regime.filter.*`)
+
+`signal.max-extension-pct` defaults to **0 (disabled)**. Requiring price above the 20-bar high while
+also requiring it to stay close to `MA_LONG` are contradictory demands: strong breakouts get rejected
+and only weak ones near the MA are taken. Enable it only if you want that behaviour deliberately.
+
+RSI and MACD are computed and written to the decision log for auditing. `trend_breakout` does not gate
+on them; `squeeze_breakout` uses `rsi-overbought`, and `rsi-sell-threshold` drives the momentum exit.
+
+Two settings are carried for auditing only and gate nothing in any current model:
+`signal.rsi-buy-threshold` and `signal.min-confirmations`. They are annotated as such in
+`application.properties` so they are not tuned in the expectation of an effect. The Bollinger gate
+settings that were equally inert (`min-bandwidth-pct`, `max-percent-b`) have been removed outright;
+`window`/`stddev` remain because they produce the bandwidth `squeeze_breakout` gates on.
+
+**Exit (evaluated in this order)**
+1. **Stop-loss** — price below `avg_buy_price * (1 - STOP_LOSS%)`. Full exit.
+2. **Trailing stop** — price below `post-entry high * (1 - TRAILING_STOP%)`, once armed. Full exit.
+3. **Partial take-profit** — price at or above `avg_buy_price * (1 + TAKE_PROFIT%)`, sells
+   `PARTIAL_TAKE_PROFIT%` of the position and lets the rest run. Rate-limited by
+   `risk.partial-take-profit-cooldown-minutes`.
+4. **Donchian exit** — price below the `signal.breakdown-lookback` low. Full exit.
+5. **Trend break** — price below `MA_LONG`. Sells `TREND_EXIT%`.
+6. **Momentum reversal** — RSI below `RSI_SELL` *and* MACD histogram negative. Sells `MOMENTUM_EXIT%`.
+
+### Exit geometry invariant (important)
+
+The trailing stop arms at `entry * (1 + ARM%)` and then sits at `high * (1 - TRAIL%)`. If `ARM% < TRAIL%`
+the stop is **below the entry price at the moment it arms**, so a position that runs up and comes back can
+only ever be closed for a loss — there is no path to banking a winner.
+
+`AutoTradeService.resolveConfiguredTrailingArmPct` therefore enforces:
+
+```
+ARM% >= TRAIL% + round-trip cost%
+```
+
+`AutoTradeServiceTest.trailingArmIsNeverNarrowerThanTheTrailingStop` pins this. Do not remove it.
+
+### Cost floor
+
+Upbit KRW spot charges 0.05% per side to both maker and taker, so a round trip costs at least 0.10%
+before slippage; the backtester models 0.15% per side. A strategy is only viable where the average gross
+move per round trip is several times that — which is why the default timeframe is **1 hour**, not 1-15
+minutes. At 15m the ATR and the transaction cost are the same order of magnitude.
+
+**Defaults (see `application.properties` for the authoritative list)**
+- `MA_SHORT = 5`, `MA_LONG = 55` on 1h candles
+- `RSI_PERIOD = 14`, `RSI_BUY = 53`, `RSI_SELL = 47`, `RSI_OVERBOUGHT = 68`
 - `MACD = (12, 26, 9)`
-- `BREAKOUT_LOOKBACK = 20`, `BREAKOUT_PCT = 0.3%`
-- `STOP_LOSS = 2.0%`
-- `TAKE_PROFIT = 4.0%` (1:2 risk/reward baseline)
-- `TRAILING_STOP = 2.0%`
-- `PARTIAL_TAKE_PROFIT = 50%` (sell half at take-profit, let rest run)
-- `STOP_EXIT = 100%` (full exit on stop/trailing)
-- `TREND_EXIT = 50%` (partial exit on trend break)
-- `MOMENTUM_EXIT = 50%` (partial exit on momentum reversal)
+- `BREAKOUT_LOOKBACK = 20`, `BREAKOUT_PCT = 0.05%`
+- ATR-derived stops: stop `2.6 x ATR`, trailing `3.0 x ATR`, arm `3.5 x ATR`
+- `PARTIAL_TAKE_PROFIT = 35%`, `STOP_EXIT = 100%`, `TREND_EXIT = 40%`, `MOMENTUM_EXIT = 25%`
 
-These align with commonly cited risk/reward conventions (1:2 to 1:3) and default
-indicator settings (MACD 12-26-9, RSI 70/30 overbought/oversold) used widely in
-technical analysis literature and broker education.
+Note that `STOP_EXIT` and friends are **position fractions**, not price levels. A value of 0 disables
+that exit; stop-loss and trailing stop ignore 0 and always liquidate in full.
+
+## 1-1) Entry Models (registry)
+
+`resolveSignalModel` previously ignored its argument and returned one hardcoded instance — the
+pluggability hook existed in name only. Entry models are now registered by name and selected with
+`signal.model`. Exits, sizing and every risk control stay shared; a model only decides whether to enter.
+
+| `signal.model` | Entry rule | Use when |
+|---|---|---|
+| `trend_breakout` (default) | trend gate + Donchian break | continuation in an established trend |
+| `squeeze_breakout` | trend gate + Bollinger contraction + break + volume | range expansion out of a quiet period |
+
+`squeeze_breakout` deliberately has **no overextension cap**. Requiring price to break the lookback high
+while also staying near `MA_LONG` is self-contradictory, and it is why the original model systematically
+took the weakest breaks. It replaces that cap with a contraction requirement, so the entries it takes
+have the move size needed to clear a 0.1-0.3% round trip.
+
+Its squeeze test compares current Bollinger bandwidth to a fixed threshold
+(`signal.squeeze.max-bandwidth-pct`) rather than to its own trailing percentile. A percentile would adapt
+per market and is the textbook form; it needs bandwidth history `MarketIndicators` does not yet carry.
+
+**Per-market selection.** `signal.model` is the default; each market can override it from the 매매 설정
+screen (진입 모델). A blank override inherits the default, and an unrecognised value degrades to it
+rather than refusing to trade. A multi-market bot wants this: a large-cap grinding out a trend and a
+thin alt breaking out of a squeeze are not the same problem.
+
+**Adding a model:** implement `TradeSignalModel` (`name()` + `evaluateBuy`), register it in
+`AutoTradeService`, add its name to `StrategyService.SIGNAL_MODELS` and to `SIGNAL_MODEL_OPTIONS` in
+the frontend, and mirror it in `backtest.py`'s `SIGNAL_MODELS` so backtest/live parity holds.
+
+## 2-0) Universe Selection (Cross-Sectional Momentum, opt-in)
+
+`signal.universe.enabled=false` by default. When enabled, the engine no longer trades a fixed
+hand-typed market list; it ranks the KRW universe and opens new positions only in the leaders.
+
+> ⚠️ **측정 결과: 이 전략은 업비트 KRW 시장에서 손실입니다. 켜지 마세요.**
+>
+> `scripts/research/backtest_cross_sectional.py` 로 287개 KRW 종목 / 663일 측정:
+>
+> | | 값 |
+> |---|---|
+> | 수익률 | **−75.3%** |
+> | CAGR | −53.7% |
+> | 최대낙폭 | 84.2% |
+> | Sharpe | −0.96 |
+> | KRW-BTC 보유 | −12.8% |
+> | 알파 | **−62.5%p** |
+>
+> 리밸런싱 95회 중 45회를 리스크오프로 현금 보유했는데도 이 결과이고, **상장폐지 종목이 빠진
+> 생존 편향으로 실제보다 좋게 나온 숫자**입니다.
+>
+> 원인: 30일 상승률 상위 종목 매수는 국내 알트 시장에서 사실상 **펌프 꼭지 매수**입니다. 미국 주식에서
+> 검증된 횡단면 모멘텀이 이 시장에 그대로 이식되지 않습니다. 7일 스킵으로 단기 반전을 피하려 했지만
+> 충분하지 않았습니다.
+>
+> 코드는 재현·재측정을 위해 남겨두되 `signal.universe.enabled=false` 가 기본값입니다.
+
+**Why this exists.** Cross-sectional momentum — hold the strongest names, drop the rest — is
+well-documented in equities, and this codebase had no way to evaluate it at all. It is orthogonal to
+the per-market signal: selection decides *which* markets are eligible, the trend/breakout model still
+decides *when* to enter. It was built to be measured, and the measurement above is the answer.
+
+**Pipeline**
+1. **Risk-off gate.** If `signal.universe.risk-off-market` closes below its
+   `signal.universe.risk-off-ma-days` MA, the universe is **empty** — no new entries anywhere.
+   Holding the strongest alt through a broad decline is how this strategy family loses money.
+2. **Liquidity floor.** One batched ticker call ranks every KRW market by 24h traded value;
+   anything under `signal.universe.min-daily-value-krw` is dropped, as is anything Upbit has flagged
+   유의종목 (`market_warning`). Only the top `max-candidates` survivors go to step 3, so the daily-candle
+   fetch costs ~40 calls, not ~200.
+3. **Momentum rank.** Trailing return over `lookback-days`, measured to `skip-days` ago. The most recent
+   week is deliberately excluded: short-horizon crypto returns mean-revert, so including it inverts the
+   signal. Markets with negative absolute momentum are dropped regardless of rank.
+4. **Top-K.** The best `top-k` markets become the tradable universe, cached for `refresh-minutes`.
+
+**Safety property.** The selected universe is always unioned with markets currently held. A position
+whose market falls out of the ranking keeps being evaluated, so its stop-loss still runs. Dropping it
+from the list would orphan the position. `UniverseSelectionServiceTest` pins this in both the normal and
+the risk-off path.
+
+**Known limitation.** This is a momentum *screen* feeding a trend engine, not a periodic portfolio
+rebalance with volatility weighting. A true rebalance needs a different execution model than this tick
+loop, and is better done deliberately than bolted on.
 
 ## 2-1) Profile Selection (Aggressive/Balanced/Conservative)
 Profiles adjust confirmation strictness without changing your core MA settings.

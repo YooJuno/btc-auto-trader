@@ -5,7 +5,7 @@
 ## 1) 빠른 실행
 
 ```bash
-python3 scripts/research/backtest.py --days 30
+python3 scripts/research/backtest.py --days 180
 ```
 
 기본 동작:
@@ -16,7 +16,7 @@ python3 scripts/research/backtest.py --days 30
 ## 2) 파라미터 탐색 포함 검증
 
 ```bash
-python3 scripts/research/backtest.py --days 30 --optimize --max-combos 120
+python3 scripts/research/backtest.py --days 180 --optimize --max-combos 120
 ```
 
 - 탐색은 기본 파라미터 주변만 제한적으로 수행합니다.
@@ -26,14 +26,14 @@ python3 scripts/research/backtest.py --days 30 --optimize --max-combos 120
 ## 3) 결과 저장
 
 ```bash
-python3 scripts/research/backtest.py --days 30 --optimize --export data/backtest/report_30d.json
+python3 scripts/research/backtest.py --days 180 --optimize --export data/backtest/report_180d.json
 ```
 
 ## 4) 주요 옵션
 
 - `--market KRW-BTC` 대상 마켓
-- `--days 30` 조회 기간(일)
-- `--short-unit 3 --mid-unit 15` 비교 타임프레임
+- `--days 180` 조회 기간(일). 기본값이며, 1시간봉 기준 짧은 창은 표본이 부족합니다
+- `--short-unit 60 --mid-unit 240` 비교 타임프레임 (엔진의 신호/상위 확인 타임프레임과 동일)
 - `--split-ratio 0.7` train/test 비율
 - `--profile BALANCED|AGGRESSIVE|CONSERVATIVE`
 - `--refresh-cache` 캐시 무시 후 재수집
@@ -61,5 +61,6 @@ python3 scripts/research/backtest.py --days 30 --optimize --export data/backtest
 
 1. `--optimize --max-combos 120`으로 후보 1차 선정
 2. `--optimize` 없이 동일 파라미터 재실행(재현성 확인)
-3. 기간 늘려 재검증 (`--days 90`, `--days 180`)
+3. 기간 늘려 재검증 (`--days 365`)
+4. 체결 20건 미만 결과는 `score_metrics`가 강등합니다 — 표본이 부족하면 순위를 신뢰하지 마세요
 4. 결과가 흔들리면 파라미터를 원복하고 재탐색 범위를 줄여 재실행

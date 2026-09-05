@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -238,6 +239,7 @@ public class StrategyService {
 
         Map<String, Double> maxOrderKrwByMarket = new HashMap<>();
         Map<String, String> profileByMarket = new HashMap<>();
+        Map<String, String> signalModelByMarket = new HashMap<>();
         Map<String, Boolean> tradePausedByMarket = new HashMap<>();
         Map<String, StrategyMarketRatios> ratiosByMarket = new HashMap<>();
 
@@ -251,6 +253,11 @@ public class StrategyService {
                     market,
                     overrides.profileByMarket().getOrDefault(market, defaultProfile)
             );
+            // Absent means "inherit signal.model"; the engine, not this response, owns that default.
+            String signalModel = overrides.signalModelByMarket().get(market);
+            if (signalModel != null) {
+                signalModelByMarket.put(market, signalModel);
+            }
             tradePausedByMarket.put(
                     market,
                     overrides.tradePausedByMarket().getOrDefault(market, false)
@@ -265,6 +272,7 @@ public class StrategyService {
                 List.copyOf(markets),
                 Map.copyOf(maxOrderKrwByMarket),
                 Map.copyOf(profileByMarket),
+                Map.copyOf(signalModelByMarket),
                 Map.copyOf(tradePausedByMarket),
                 Map.copyOf(ratiosByMarket)
         );
@@ -296,6 +304,17 @@ public class StrategyService {
                 }
                 StrategyMarketOverrideEntity entity = getOrCreateOverride(byMarket, market);
                 entity.setProfile(StrategyProfile.from(profile).name());
+            }
+        }
+        if (request != null && request.signalModelByMarket() != null) {
+            for (Map.Entry<String, String> entry : request.signalModelByMarket().entrySet()) {
+                String market = normalizeMarket(entry.getKey());
+                String signalModel = normalizeSignalModel(entry.getValue());
+                if (market == null) {
+                    continue;
+                }
+                StrategyMarketOverrideEntity entity = getOrCreateOverride(byMarket, market);
+                entity.setSignalModel(signalModel);
             }
         }
         if (request != null && request.tradePausedByMarket() != null) {
@@ -339,8 +358,23 @@ public class StrategyService {
         return settingsMarkets.map(List::copyOf);
     }
 
+    /**
+     * Known entry-model names. Kept here rather than referencing the engine so the strategy module does
+     * not depend on it; the engine falls back to its default for anything it does not recognise anyway.
+     */
+    private static final Set<String> SIGNAL_MODELS = Set.of("trend_breakout", "squeeze_breakout");
+
+    /** null means "inherit signal.model", which is also what an unknown value degrades to. */
+    static String normalizeSignalModel(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        return SIGNAL_MODELS.contains(normalized) ? normalized : null;
+    }
+
     private static StrategyMarketOverrides emptyMarketOverrides() {
-        return new StrategyMarketOverrides(Map.of(), Map.of(), Map.of(), Map.of());
+        return new StrategyMarketOverrides(Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
     }
 
     private static List<String> parseMarkets(String config) {
@@ -393,6 +427,7 @@ public class StrategyService {
 
         Map<String, Double> maxOrderKrwByMarket = new HashMap<>();
         Map<String, String> profileByMarket = new HashMap<>();
+        Map<String, String> signalModelByMarket = new HashMap<>();
         Map<String, Boolean> tradePausedByMarket = new HashMap<>();
         Map<String, StrategyMarketRatios> ratiosByMarket = new HashMap<>();
         for (StrategyMarketOverrideEntity entity : entities) {
@@ -411,6 +446,10 @@ public class StrategyService {
             if (profile != null && !profile.isBlank()) {
                 profileByMarket.put(market, StrategyProfile.from(profile).name());
             }
+            String signalModel = normalizeSignalModel(entity.getSignalModel());
+            if (signalModel != null) {
+                signalModelByMarket.put(market, signalModel);
+            }
             Boolean tradePaused = entity.getTradePaused();
             if (tradePaused != null) {
                 tradePausedByMarket.put(market, tradePaused);
@@ -423,6 +462,7 @@ public class StrategyService {
         return new StrategyMarketOverrides(
                 Map.copyOf(maxOrderKrwByMarket),
                 Map.copyOf(profileByMarket),
+                Map.copyOf(signalModelByMarket),
                 Map.copyOf(tradePausedByMarket),
                 Map.copyOf(ratiosByMarket)
         );

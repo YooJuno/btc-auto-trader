@@ -92,7 +92,11 @@ public class TradeDecisionService {
         );
     }
 
-    private Map<String, Object> parseDetails(String raw) {
+    /**
+     * Exposed so the engine can read back values it persisted into a decision's details (the daily-loss
+     * baseline). Handles the large-object OID form as well as inline JSON.
+     */
+    public Map<String, Object> parseDetails(String raw) {
         if (raw == null || raw.isBlank()) {
             return Map.of();
         }

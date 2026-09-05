@@ -70,6 +70,7 @@ CREATE TABLE strategy_market_overrides (
   market                  VARCHAR(20) PRIMARY KEY,
   max_order_krw           DOUBLE PRECISION,
   profile                 VARCHAR(20),
+  signal_model            VARCHAR(40),
   trade_paused            BOOLEAN DEFAULT false,
   take_profit_pct         DOUBLE PRECISION,
   stop_loss_pct           DOUBLE PRECISION,
@@ -124,41 +125,16 @@ CREATE TABLE engine_state (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- OAuth 사용자 계정
-CREATE TABLE app_users (
-  id                BIGSERIAL PRIMARY KEY,
-  provider          VARCHAR(40) NOT NULL,
-  provider_user_id  VARCHAR(120) NOT NULL,
-  email             VARCHAR(160),
-  display_name      VARCHAR(160),
-  tenant_db         VARCHAR(63),
-  trading_approval_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-  trading_approval_note VARCHAR(500),
-  trading_approval_updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_login_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT uk_app_users_provider_subject UNIQUE (provider, provider_user_id)
+-- 모의매매(Paper Trading) 잔고. 실계좌와 같은 형태로 유지해 엔진이 분기 없이 동작합니다.
+CREATE TABLE paper_accounts (
+  currency      VARCHAR(20) PRIMARY KEY,
+  balance       NUMERIC(38, 18) NOT NULL DEFAULT 0,
+  locked        NUMERIC(38, 18) NOT NULL DEFAULT 0,
+  avg_buy_price NUMERIC(38, 18) NOT NULL DEFAULT 0,
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_app_users_email
-  ON app_users(email);
-
-CREATE INDEX idx_app_users_tenant_db
-  ON app_users(tenant_db);
-
--- 사용자별 거래소 API 키(암호화 저장)
-CREATE TABLE user_exchange_credentials (
-  user_id              BIGINT PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
-  access_key_encrypted TEXT NOT NULL,
-  secret_key_encrypted TEXT NOT NULL,
-  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- 사용자별 인터페이스 설정
-CREATE TABLE user_settings (
-  user_id           BIGINT PRIMARY KEY REFERENCES app_users(id) ON DELETE CASCADE,
-  preferred_markets TEXT NOT NULL DEFAULT '[]',
-  risk_profile      VARCHAR(20) NOT NULL DEFAULT 'BALANCED',
-  ui_prefs          TEXT NOT NULL DEFAULT '{}',
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+-- NOTE: 신원(identity) 테이블은 의도적으로 여기에 없습니다.
+-- app_users / user_exchange_credentials / user_settings 는 시스템 DB에만 존재하며,
+-- 테넌트 DB 는 거래 데이터만 보관합니다. 관련 서비스는 TenantContext.callWithTenantDatabase(null, ...)
+-- 로 항상 시스템 DB 를 조회합니다. 테넌트 DB 에 사본을 만들면 신원이 두 곳으로 갈라집니다.

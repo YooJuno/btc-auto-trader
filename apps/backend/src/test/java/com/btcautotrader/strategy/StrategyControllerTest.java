@@ -142,6 +142,7 @@ class StrategyControllerTest {
                         List.of("KRW-BTC", "KRW-ETH"),
                         Map.of("KRW-BTC", 30000.0, "KRW-ETH", 12000.0),
                         Map.of("KRW-BTC", "BALANCED", "KRW-ETH", "AGGRESSIVE"),
+                        Map.of("KRW-ETH", "squeeze_breakout"),
                         Map.of("KRW-BTC", false, "KRW-ETH", true),
                         Map.of(
                                 "KRW-ETH",
@@ -228,6 +229,7 @@ class StrategyControllerTest {
         when(strategyService.replaceMarketOverrides(eq(7L), any())).thenReturn(
                 new StrategyMarketOverridesResponse(
                         List.of(),
+                        Map.of(),
                         Map.of(),
                         Map.of(),
                         Map.of(),

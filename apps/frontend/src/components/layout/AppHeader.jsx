@@ -5,6 +5,13 @@ import {
   SETTINGS_ROUTE,
 } from '../../constants/tradingUi.js'
 
+const TABS = [
+  { route: DASHBOARD_ROUTE, label: '현황' },
+  { route: SETTINGS_ROUTE, label: '매매 설정' },
+  { route: PROFILE_ROUTE, label: '계정', authOnly: true },
+  { route: ADMIN_USERS_ROUTE, label: '관리자', authOnly: true, adminOnly: true },
+]
+
 function AppHeader({
   activeRoute,
   onNavigateRoute,
@@ -12,11 +19,15 @@ function AppHeader({
   authProviders,
   authError,
   onProviderLogin,
-  engineClass,
   engineError,
   engineBusy,
   engineStatus,
+  engineKnown,
+  tradingMode,
   onEngineToggle,
+  onPanic,
+  panicBusy,
+  hasOpenPositions,
   updatedAt,
   authUser,
   connectionClass,
@@ -29,126 +40,125 @@ function AppHeader({
   const userLabel = authenticated
     ? (authUser?.displayName || authUser?.email || `${authUser?.provider}:${authUser?.providerUserId}`)
     : '게스트'
-  const approvalStatusLabel = approvalStatus || '-'
-  const approvalStatusClass = approvalStatusLabel === 'ADMIN' ? 'approval-status--admin' : ''
   const providers = Array.isArray(authProviders) ? authProviders.filter(Boolean) : []
-  const loginLabel = authChecking ? '로그인 확인 중...' : providers.length === 0 ? '로그인 설정 필요' : null
+  const loginLabel = authChecking ? '확인 중' : providers.length === 0 ? '로그인 설정 필요' : null
+
+  // Three states, not two. Collapsing "unknown" into "OFF" showed a live engine as stopped and
+  // offered to start it — the most dangerous thing this header could get wrong.
+  const engineDotClass = !engineKnown ? 'engine-dot--unknown' : engineStatus ? 'engine-dot--on' : 'engine-dot--off'
+  const engineLabel = !engineKnown ? 'ENGINE ?' : engineStatus ? 'ENGINE ON' : 'ENGINE OFF'
 
   return (
-    <header className="app__header">
-      <div className="brand-block">
-        <p className="eyebrow">BTC AUTO TRADER</p>
-        <h1>Trading Control Center</h1>
-        <p className="sub">
-          실시간 현황, 매매 세팅, 개인 정보를 탭별로 나눠서 관리합니다.
-        </p>
-        <div className="route-tabs" role="tablist" aria-label="페이지 이동">
-          <button
-            type="button"
-            className={`route-tab ${activeRoute === DASHBOARD_ROUTE ? 'is-active' : ''}`}
-            onClick={() => onNavigateRoute(DASHBOARD_ROUTE)}
-          >
-            실시간 현황
-          </button>
-          <button
-            type="button"
-            className={`route-tab ${activeRoute === SETTINGS_ROUTE ? 'is-active' : ''}`}
-            onClick={() => onNavigateRoute(SETTINGS_ROUTE)}
-          >
-            매매 세팅
-          </button>
+    <>
+      <header className="topbar">
+        <span className="topbar__brand">BTC AUTO TRADER</span>
+        {/* Which money is at stake is the one thing this bar must never leave ambiguous. */}
+        {tradingMode && (
+          <span className={`mode-badge ${tradingMode === 'PAPER' ? 'mode-badge--paper' : 'mode-badge--live'}`}>
+            {tradingMode === 'PAPER' ? '모의' : '실계좌'}
+          </span>
+        )}
+
+        <nav className="topbar__nav" aria-label="페이지 이동">
+          {TABS.map((tab) => {
+            if (tab.authOnly && !authenticated) return null
+            if (tab.adminOnly && !canAccessAdmin) return null
+            return (
+              <button
+                key={tab.route}
+                type="button"
+                className={`route-tab ${activeRoute === tab.route ? 'is-active' : ''}`}
+                aria-current={activeRoute === tab.route ? 'page' : undefined}
+                onClick={() => onNavigateRoute(tab.route)}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
+        </nav>
+
+        <span className="topbar__spacer" />
+
+        <div className="topbar__meta">
+          <span>
+            갱신 <b className="mono">{updatedAt}</b>
+          </span>
+          <span className={`connection-badge ${connectionClass}`}>{connectionLabel}</span>
           {authenticated && (
-            <button
-              type="button"
-              className={`route-tab ${activeRoute === PROFILE_ROUTE ? 'is-active' : ''}`}
-              onClick={() => onNavigateRoute(PROFILE_ROUTE)}
-            >
-              개인 정보
-            </button>
+            <span title={authUser?.email ?? undefined}>
+              {userLabel}
+              {approvalStatus && approvalStatus !== '-' ? (
+                <b className={`approval-status ${approvalStatus === 'ADMIN' ? 'approval-status--admin' : ''}`} style={{ marginLeft: 6 }}>
+                  {approvalStatus}
+                </b>
+              ) : null}
+            </span>
           )}
-          {authenticated && canAccessAdmin && (
-            <button
-              type="button"
-              className={`route-tab ${activeRoute === ADMIN_USERS_ROUTE ? 'is-active' : ''}`}
-              onClick={() => onNavigateRoute(ADMIN_USERS_ROUTE)}
-            >
-              관리자
-            </button>
-          )}
+        </div>
+
+        <div className="topbar__actions">
           {authenticated ? (
-            <div className="route-tabs-tools">
-              <span className={`status ${engineClass}`}>ENGINE {engineStatus ? 'ON' : 'OFF'}</span>
+            <>
+              <span className="engine-control">
+                <span className={`engine-dot ${engineDotClass}`} aria-hidden="true" />
+                <span className="engine-state-label">{engineLabel}</span>
+              </span>
               <button
                 type="button"
-                className={`engine-toggle-btn ${engineStatus ? 'is-on' : 'is-off'}`}
+                className="engine-toggle-btn"
                 onClick={onEngineToggle}
                 disabled={engineBusy}
               >
-                {engineBusy ? (engineStatus ? '중지 중...' : '시작 중...') : engineStatus ? '엔진 중지' : '엔진 시작'}
+                {engineBusy ? '처리 중' : engineStatus ? '엔진 중지' : '엔진 시작'}
               </button>
-            </div>
-          ) : (
-            <div className="route-tabs-tools">
-              {loginLabel ? (
-                <button
-                  type="button"
-                  className="primary-button"
-                  disabled
-                >
-                  {loginLabel}
-                </button>
-              ) : (
-                <div className="login-provider-list">
-                  {providers.map((provider, index) => {
-                    const providerLabel = provider?.name ? `${provider.name} 로그인` : '로그인'
-                    return (
-                      <button
-                        key={provider?.id ?? provider?.authorizationUrl ?? providerLabel}
-                        type="button"
-                        className={index === 0 ? 'primary-button' : 'ghost-button'}
-                        onClick={() => onProviderLogin(provider?.authorizationUrl)}
-                        disabled={authChecking || !provider?.authorizationUrl}
-                      >
-                        {providerLabel}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        {authenticated && engineError && <p className="status-error">{engineError}</p>}
-        {!authenticated && authError && <p className="status-error">{authError}</p>}
-      </div>
-      <div className="status-card">
-        <div className="status-row">
-          <span>업데이트</span>
-          <strong className="mono">{updatedAt}</strong>
-        </div>
-        <div className="status-row">
-          <span>사용자</span>
-          <strong className="mono">{userLabel}</strong>
-        </div>
-        <div className="status-row">
-          <span>승인 상태</span>
-          <strong className={`mono approval-status ${approvalStatusClass}`}>{approvalStatusLabel}</strong>
-        </div>
-        <div className="status-connection-row">
-          <span>서버 연결</span>
-          <span className={`connection-badge ${connectionClass}`}>{connectionLabel}</span>
-        </div>
-        <div className="status-actions">
-          {authenticated ? (
-            <button className="ghost-button" type="button" onClick={onLogout}>
-              로그아웃
+              <button
+                type="button"
+                className="panic-btn"
+                onClick={onPanic}
+                disabled={panicBusy}
+                title="엔진을 중지하고 보유 코인을 전량 시장가 매도합니다"
+              >
+                {panicBusy ? '청산 중' : '긴급 청산'}
+              </button>
+              <button className="ghost-button" type="button" onClick={onLogout}>
+                로그아웃
+              </button>
+            </>
+          ) : loginLabel ? (
+            <button type="button" className="primary-button" disabled>
+              {loginLabel}
             </button>
           ) : (
-            <p className="sub compact">로그인 후 저장/주문/엔진 제어가 활성화됩니다.</p>
+            <div className="login-provider-list">
+              {providers.map((provider, index) => (
+                <button
+                  key={provider?.id ?? provider?.authorizationUrl ?? index}
+                  type="button"
+                  className={index === 0 ? 'primary-button' : 'ghost-button'}
+                  onClick={() => onProviderLogin(provider?.authorizationUrl)}
+                  disabled={authChecking || !provider?.authorizationUrl}
+                >
+                  {provider?.name ? `${provider.name} 로그인` : '로그인'}
+                </button>
+              ))}
+            </div>
           )}
         </div>
-      </div>
-    </header>
+      </header>
+
+      {authenticated && !engineKnown && (
+        <p className="status-error">
+          엔진 상태를 확인할 수 없습니다. 실제로는 동작 중일 수 있으니 시작/중지 전에 서버 연결을 확인하세요.
+        </p>
+      )}
+      {authenticated && engineError && <p className="status-error">{engineError}</p>}
+      {authenticated && !engineStatus && engineKnown && hasOpenPositions && (
+        <p className="status-error">
+          엔진이 중지된 상태에서 보유 포지션이 있습니다. 손절/트레일링이 동작하지 않습니다.
+        </p>
+      )}
+      {!authenticated && authError && <p className="status-error">{authError}</p>}
+    </>
   )
 }
 

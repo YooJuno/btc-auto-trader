@@ -339,11 +339,11 @@ def score_metrics(metrics):
     if profit_factor is not None:
         value += min(profit_factor, 3.0) * 0.35
 
+    # Same sample-size gate as backtest.score_metrics: a configuration fitted to a couple of trades is
+    # noise, and a soft -2.0 penalty was not enough to stop one outranking a properly-sampled result.
     sell_trades = metrics.get("sell_trades", 0)
-    if sell_trades == 0:
-        value -= 6.0
-    elif sell_trades < 3:
-        value -= 2.0
+    if sell_trades < backtest.MIN_TRADES_FOR_SCORING:
+        return -1e9 + sell_trades
 
     if metrics["roi_pct"] < 0:
         value += metrics["roi_pct"] * 0.5
@@ -410,9 +410,10 @@ def make_candidate_params(base_params, param_space, seed, samples):
 def main():
     parser = argparse.ArgumentParser(description="Tune unified trend parameters on a shared-cash portfolio.")
     parser.add_argument("--markets", default="KRW-BTC,KRW-ETH,KRW-XRP")
-    parser.add_argument("--unit", type=int, default=15)
-    parser.add_argument("--days", type=int, default=30)
-    parser.add_argument("--split-ratio", type=float, default=0.5)
+    # Engine signal timeframe. 15m could not clear a ~0.3% round trip against a ~0.3% ATR.
+    parser.add_argument("--unit", type=int, default=60)
+    parser.add_argument("--days", type=int, default=180)
+    parser.add_argument("--split-ratio", type=float, default=0.7)
     parser.add_argument("--profile", default="BALANCED")
     parser.add_argument("--samples", type=int, default=320)
     parser.add_argument("--seed", type=int, default=23)

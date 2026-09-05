@@ -140,12 +140,22 @@ public class OrderReconcileService {
                     orderRepository.save(order);
                     continue;
                 }
-                order.setStatus(OrderStatus.SUBMITTED);
-                order.setErrorMessage("reconcile timeout");
+                // Past the stale cutoff and Upbit does not know this identifier: the order will never
+                // resolve. Terminate it. Writing SUBMITTED back put it straight into the stale query again,
+                // so these rows were re-polled every reconcile cycle forever.
+                order.setStatus(OrderStatus.FAILED);
+                order.setErrorMessage("reconcile timeout: order not found");
                 orderRepository.save(order);
             } catch (RuntimeException ex) {
-                order.setStatus(OrderStatus.SUBMITTED);
-                order.setErrorMessage(truncate(ex.getMessage(), 2000));
+                // A transient Upbit error is not proof the order failed, so keep the current status and
+                // retry — but bound the retrying so a permanently unreachable order cannot poll forever.
+                if (order.getRequestedAt() != null
+                        && order.getRequestedAt().isBefore(OffsetDateTime.now().minusMinutes(staleMinutes * 2))) {
+                    order.setStatus(OrderStatus.FAILED);
+                    order.setErrorMessage(truncate("reconcile abandoned: " + ex.getMessage(), 2000));
+                } else {
+                    order.setErrorMessage(truncate(ex.getMessage(), 2000));
+                }
                 orderRepository.save(order);
             }
         }

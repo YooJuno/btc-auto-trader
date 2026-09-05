@@ -22,6 +22,10 @@ public class StrategyMarketOverrideEntity {
     @Column(name = "profile", length = 20)
     private String profile;
 
+    /** Entry model for this market; null inherits the signal.model default. */
+    @Column(name = "signal_model", length = 40)
+    private String signalModel;
+
     @Column(name = "trade_paused")
     private Boolean tradePaused;
 
@@ -102,6 +106,14 @@ public class StrategyMarketOverrideEntity {
 
     public String getProfile() {
         return profile;
+    }
+
+    public String getSignalModel() {
+        return signalModel;
+    }
+
+    public void setSignalModel(String signalModel) {
+        this.signalModel = signalModel;
     }
 
     public void setProfile(String profile) {

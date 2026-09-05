@@ -614,7 +614,9 @@ def resolve_signal_tuning(params):
         "min_adx": clamp(min_adx, 5.0, 60.0),
         "min_volume_ratio": clamp(min_volume_ratio, 0.1, 3.0),
         "breakout_pct": clamp(breakout_pct, 0.05, 3.0),
-        "max_extension_pct": clamp(max_extension_pct, 0.2, 5.0),
+        # Parity with AutoTradeService.resolveSignalTuning: 0 disables the overextension filter, and the
+        # 0.2 floor previously made it impossible to switch off.
+        "max_extension_pct": 0.0 if max_extension_pct <= 0 else clamp(max_extension_pct, 0.2, 5.0),
         "min_ma_long_slope_pct": clamp(min_ma_long_slope_pct, -0.5, 1.0),
         "min_confirmations": int(clamp(min_confirmations, 1, 3)),
     }
@@ -1085,7 +1087,82 @@ class UnifiedTrendSignalModel(TradeSignalModel):
         return buy_signal_proceed("trend_breakout")
 
 
+class VolatilityContractionBreakoutModel(TradeSignalModel):
+    """Parity with VolatilityContractionBreakoutModel.java.
+
+    Trend gate + Bollinger contraction + break + volume, with NO overextension cap. The cap and the
+    breakout requirement contradict each other, which is what made the original model take only the
+    weakest breaks.
+    """
+
+    def evaluate_buy(self, indicators, tuning, params):
+        if indicators is None or tuning is None:
+            return buy_signal_skip("insufficient candles")
+
+        price = indicators.get("current_price")
+        ma_short = indicators.get("ma_short")
+        ma_long = indicators.get("ma_long")
+        if price is None or ma_short is None or ma_long is None:
+            return buy_signal_skip("insufficient candles")
+
+        if ma_short <= ma_long or price <= ma_long:
+            return buy_signal_skip("no trend")
+
+        min_slope = tuning.get("min_ma_long_slope_pct", 0.0)
+        ma_long_slope = indicators.get("ma_long_slope")
+        if min_slope > 0:
+            if ma_long_slope is None:
+                return buy_signal_skip("no trend slope")
+            if ma_long_slope < min_slope:
+                return buy_signal_skip("trend weakening")
+
+        squeeze_max = to_float(params.get("squeeze_max_bandwidth_pct"), 0.0)
+        if squeeze_max > 0:
+            bollinger = indicators.get("bollinger") or {}
+            bandwidth = bollinger.get("bandwidth_pct")
+            if bandwidth is None:
+                return buy_signal_skip("no bandwidth")
+            if bandwidth > squeeze_max:
+                return buy_signal_skip("no_squeeze")
+
+        min_adx = tuning.get("min_adx", 0.0)
+        adx = indicators.get("adx")
+        if min_adx > 0 and adx is not None and adx < min_adx:
+            return buy_signal_skip("weak_trend")
+
+        min_volume_ratio = tuning.get("min_volume_ratio", 0.0)
+        volume_ratio = indicators.get("volume_ratio")
+        if min_volume_ratio > 0:
+            if volume_ratio is None:
+                return buy_signal_skip("no volume")
+            if volume_ratio < min_volume_ratio:
+                return buy_signal_skip("low_volume")
+
+        breakout_level = indicators.get("breakout_level")
+        if breakout_level is None or price <= breakout_level:
+            return buy_signal_skip("no breakout")
+
+        rsi = indicators.get("rsi")
+        rsi_over = tuning.get("rsi_over", 0.0)
+        if rsi is not None and rsi_over > 0 and rsi >= rsi_over:
+            return buy_signal_skip("overbought")
+
+        return buy_signal_proceed("squeeze_breakout")
+
+
 UNIFIED_SIGNAL_MODEL = UnifiedTrendSignalModel()
+SQUEEZE_SIGNAL_MODEL = VolatilityContractionBreakoutModel()
+
+# Mirrors the registry in AutoTradeService; keys match the signal.model setting.
+SIGNAL_MODELS = {
+    "trend_breakout": UNIFIED_SIGNAL_MODEL,
+    "squeeze_breakout": SQUEEZE_SIGNAL_MODEL,
+}
+
+
+def resolve_signal_model(params):
+    name = str((params or {}).get("signal_model") or "trend_breakout")
+    return SIGNAL_MODELS.get(name, UNIFIED_SIGNAL_MODEL)
 
 
 def resolve_entry_atr_pct(state, indicators):
@@ -1098,6 +1175,9 @@ def resolve_entry_atr_pct(state, indicators):
 
 def resolve_atr_backed_pct(state, indicators, params, multiplier_key, fallback_key, min_pct=0.2, max_pct=30.0):
     fallback = max(0.0, to_float(params.get(fallback_key), 0.0))
+    # Parity with AutoTradeService.resolveAtrBackedPct.
+    if not params.get("atr_exit_thresholds_enabled", True):
+        return fallback
     atr_pct = resolve_entry_atr_pct(state, indicators)
     multiplier = max(0.0, to_float(params.get(multiplier_key), 0.0))
     if atr_pct is None or multiplier <= 0:
@@ -1145,6 +1225,11 @@ def choose_sell_intent(index, state, indicators, params, tuning):
     atr_arm_multiplier = max(0.0, to_float(params.get("atr_trailing_arm_multiplier"), 0.0))
     if atr_pct is not None and atr_arm_multiplier > 0:
         trailing_arm_pct = clamp(atr_pct * atr_arm_multiplier, 0.2, 20.0)
+    # Parity with AutoTradeService.resolveConfiguredTrailingArmPct: arming must be able to lock a gain.
+    # If arm < trail the stop sits below entry the instant it arms and no winner can ever be banked.
+    if trailing_stop_pct > 0:
+        round_trip_cost_pct = to_float(params.get("trade_cost_rate"), 0.0) * 2.0 * 100.0
+        trailing_arm_pct = max(trailing_arm_pct, trailing_stop_pct + round_trip_cost_pct)
 
     stop_loss_threshold = avg_buy * percent_factor(-stop_loss_pct)
 
@@ -1158,10 +1243,14 @@ def choose_sell_intent(index, state, indicators, params, tuning):
     ):
         trailing_stop_threshold = trailing_high * percent_factor(-trailing_stop_pct)
 
+    # Protective exits always liquidate; stop_exit_pct is a position fraction and 0 must not disarm
+    # the stop. Mirrors protectiveExitPct in AutoTradeService.handleSell.
+    stop_exit_pct = params["stop_exit_pct"] if params["stop_exit_pct"] > 0 else 100.0
+
     if current_price <= stop_loss_threshold:
         return {
             "type": "SELL_PCT",
-            "pct": params["stop_exit_pct"],
+            "pct": stop_exit_pct,
             "reason": "stop_loss",
             "allow_full_fallback": True,
         }
@@ -1169,9 +1258,24 @@ def choose_sell_intent(index, state, indicators, params, tuning):
     if trailing_stop_threshold is not None and current_price <= trailing_stop_threshold:
         return {
             "type": "SELL_PCT",
-            "pct": params["stop_exit_pct"],
+            "pct": stop_exit_pct,
             "reason": "trailing_stop",
             "allow_full_fallback": True,
+        }
+
+    take_profit_pct = to_float(params.get("take_profit_pct"), 0.0)
+    partial_take_profit_pct = to_float(params.get("partial_take_profit_pct"), 0.0)
+    if (
+        take_profit_pct > 0
+        and 0 < partial_take_profit_pct < 100
+        and current_price >= avg_buy * percent_factor(take_profit_pct)
+        and can_take_partial_profit(index, state, params)
+    ):
+        return {
+            "type": "SELL_PCT",
+            "pct": partial_take_profit_pct,
+            "reason": "take_profit_partial",
+            "allow_full_fallback": False,
         }
 
     breakdown_level = indicators.get("breakdown_level")
@@ -1180,6 +1284,33 @@ def choose_sell_intent(index, state, indicators, params, tuning):
             "type": "SELL_PCT",
             "pct": 100.0,
             "reason": "donchian_exit",
+            "allow_full_fallback": False,
+        }
+
+    trend_exit_pct = to_float(params.get("trend_exit_pct"), 0.0)
+    ma_long = indicators.get("ma_long")
+    if trend_exit_pct > 0 and ma_long is not None and current_price < ma_long:
+        return {
+            "type": "SELL_PCT",
+            "pct": trend_exit_pct,
+            "reason": "trend_break",
+            "allow_full_fallback": False,
+        }
+
+    momentum_exit_pct = to_float(params.get("momentum_exit_pct"), 0.0)
+    rsi = indicators.get("rsi")
+    macd_hist = indicators.get("macd_hist")
+    if (
+        momentum_exit_pct > 0
+        and rsi is not None
+        and macd_hist is not None
+        and rsi < tuning["rsi_sell"]
+        and macd_hist < 0
+    ):
+        return {
+            "type": "SELL_PCT",
+            "pct": momentum_exit_pct,
+            "reason": "momentum_reversal",
             "allow_full_fallback": False,
         }
 
@@ -1555,7 +1686,7 @@ def backtest_strategy_with_model(candles, params, unit, signal_model):
 
 
 def backtest_strategy(candles, params, unit):
-    return backtest_strategy_with_model(candles, params, unit, UNIFIED_SIGNAL_MODEL)
+    return backtest_strategy_with_model(candles, params, unit, resolve_signal_model(params))
 
 
 def backtest_buy_and_hold(candles, params, unit):
@@ -1581,9 +1712,21 @@ def backtest_buy_and_hold(candles, params, unit):
     return build_metrics(initial_cash, final_value, equity_curve, trades, unit, len(candles), len(candles))
 
 
+# Below this many closed trades a result is noise, not evidence. The optimizer used to happily rank a
+# configuration that made two trades above one that made forty, which is how a 7-day window and an
+# hourly re-run turned into a machine for fitting noise.
+MIN_TRADES_FOR_SCORING = 20
+
+
 def score_metrics(metrics):
     if not metrics:
         return -1e18
+
+    sell_trades = metrics.get("sell_trades", 0) or 0
+    if sell_trades < MIN_TRADES_FOR_SCORING:
+        # Rank by sample size so a longer/denser run still beats an under-sampled one, but never let an
+        # under-sampled result outscore a properly-sampled one.
+        return -1e9 + sell_trades
 
     score = metrics["roi_pct"] - (0.6 * metrics["max_drawdown_pct"])
 
@@ -1595,8 +1738,11 @@ def score_metrics(metrics):
     if profit_factor is not None:
         score += min(profit_factor, 4.0) * 0.4
 
+    # The old band (0.2-5.0/day) assumed an intraday strategy. At the 1h signal timeframe a trend system
+    # correctly trades ~10-25 times a year per asset, i.e. ~0.03/day - the previous floor penalised the
+    # exact behaviour the strategy is supposed to have.
     trades_per_day = metrics.get("trades_per_day", 0.0)
-    if trades_per_day < 0.2 or trades_per_day > 5.0:
+    if trades_per_day < 0.02 or trades_per_day > 3.0:
         score -= 2.0
 
     return score
@@ -1608,13 +1754,16 @@ def summarize_result(result):
 
 def make_params(timeframe_unit, profile="BALANCED"):
     normalized_profile = str(profile or "BALANCED").upper()
-    htf_confirm_unit = 15 if timeframe_unit <= 3 else 60
+    # Higher-timeframe confirmation must be strictly above the signal timeframe.
+    htf_confirm_unit = 15 if timeframe_unit <= 3 else (240 if timeframe_unit >= 60 else 60)
     return {
         "profile": normalized_profile,
         "initial_cash": 1_000_000.0,
         "max_order_krw": 30_000.0,
         "min_order_krw": 5_000.0,
         "trade_cost_rate": 0.0015,
+        "signal_model": "trend_breakout",
+        "squeeze_max_bandwidth_pct": 2.5,
         "ma_short": 5,
         "ma_long": 55,
         "rsi_period": 14,
@@ -1625,25 +1774,24 @@ def make_params(timeframe_unit, profile="BALANCED"):
         "macd_slow": 26,
         "macd_signal": 9,
         "adx_period": 14,
-        "min_adx": 8.0,
+        "min_adx": 20.0,
         "volume_lookback": 20,
-        "min_volume_ratio": 0.4,
+        "min_volume_ratio": 1.2,
         "boll_window": 20,
         "boll_stddev": 2.0,
-        "boll_min_bandwidth_pct": 0.8,
-        "boll_max_percent_b": 1.05,
         "breakout_lookback": 20,
         "breakdown_lookback": 10,
         "breakout_pct": 0.05,
-        "max_extension_pct": 1.5,
+        "max_extension_pct": 0.0,
         "ma_long_slope_lookback": 5,
         "min_confirmations": 2,
         "trailing_window": 20,
         "atr_period": 20,
         "atr_stop_loss_multiplier": 2.6,
-        "atr_trailing_stop_multiplier": 1.8,
-        "atr_trailing_arm_multiplier": 1.5,
+        "atr_trailing_stop_multiplier": 3.0,
+        "atr_trailing_arm_multiplier": 3.5,
         "atr_risk_sizing_enabled": True,
+        "atr_exit_thresholds_enabled": True,
         "stop_loss_pct": 1.024,
         "take_profit_pct": 1.44,
         "trailing_stop_pct": 0.675,
@@ -1695,21 +1843,11 @@ def make_params(timeframe_unit, profile="BALANCED"):
 
 
 def build_optimization_grid(base_params):
-    return {
+    grid = {
         "take_profit_pct": [
             round(base_params["take_profit_pct"] * 0.8, 4),
             base_params["take_profit_pct"],
             round(base_params["take_profit_pct"] * 1.2, 4),
-        ],
-        "stop_loss_pct": [
-            round(base_params["stop_loss_pct"] * 0.8, 4),
-            base_params["stop_loss_pct"],
-            round(base_params["stop_loss_pct"] * 1.2, 4),
-        ],
-        "trailing_stop_pct": [
-            round(base_params["trailing_stop_pct"] * 0.75, 4),
-            base_params["trailing_stop_pct"],
-            round(base_params["trailing_stop_pct"] * 1.25, 4),
         ],
         "min_adx": [
             max(5.0, base_params["min_adx"] - 4.0),
@@ -1722,6 +1860,35 @@ def build_optimization_grid(base_params):
             round(base_params["min_volume_ratio"] + 0.2, 4),
         ],
     }
+
+    # stop_loss_pct and trailing_stop_pct only reach the engine when ATR-derived thresholds are off;
+    # otherwise ATR x multiplier replaces them and every combination along these axes is an identical
+    # backtest. Including them regardless meant 2 of 5 dimensions were no-ops, so most of the sampled
+    # grid re-ran the same configuration and the effective search was 9x smaller than it looked.
+    if not base_params.get("atr_exit_thresholds_enabled", True):
+        grid["stop_loss_pct"] = [
+            round(base_params["stop_loss_pct"] * 0.8, 4),
+            base_params["stop_loss_pct"],
+            round(base_params["stop_loss_pct"] * 1.2, 4),
+        ]
+        grid["trailing_stop_pct"] = [
+            round(base_params["trailing_stop_pct"] * 0.75, 4),
+            base_params["trailing_stop_pct"],
+            round(base_params["trailing_stop_pct"] * 1.25, 4),
+        ]
+    else:
+        grid["atr_stop_loss_multiplier"] = [
+            round(base_params["atr_stop_loss_multiplier"] * 0.8, 4),
+            base_params["atr_stop_loss_multiplier"],
+            round(base_params["atr_stop_loss_multiplier"] * 1.2, 4),
+        ]
+        grid["atr_trailing_stop_multiplier"] = [
+            round(base_params["atr_trailing_stop_multiplier"] * 0.8, 4),
+            base_params["atr_trailing_stop_multiplier"],
+            round(base_params["atr_trailing_stop_multiplier"] * 1.2, 4),
+        ]
+
+    return grid
 
 
 def iter_param_sets(base_params, max_combos):
@@ -1876,13 +2043,16 @@ def recommendation_score(run):
 def main():
     parser = argparse.ArgumentParser(description="Backtest auto-trading strategy with train/test validation")
     parser.add_argument("--market", default="KRW-BTC")
-    parser.add_argument("--days", type=int, default=7)
+    # Matched to the Strategy Lab and to docs/BACKTEST_GUIDE.md. 7 days at the 1h signal timeframe is
+    # ~168 bars and a handful of trades.
+    parser.add_argument("--days", type=int, default=180)
     parser.add_argument("--sleep", type=float, default=0.12)
     parser.add_argument("--cache-dir", default="data/backtest")
-    parser.add_argument("--short-unit", type=int, default=3)
-    parser.add_argument("--mid-unit", type=int, default=15)
+    # Engine timeframes: 60m signal, 240m higher-timeframe confirm.
+    parser.add_argument("--short-unit", type=int, default=60)
+    parser.add_argument("--mid-unit", type=int, default=240)
     parser.add_argument("--profile", default="BALANCED", choices=["AGGRESSIVE", "BALANCED", "CONSERVATIVE"])
-    parser.add_argument("--split-ratio", type=float, default=0.5)
+    parser.add_argument("--split-ratio", type=float, default=0.7)
     parser.add_argument("--optimize", action="store_true")
     parser.add_argument("--max-combos", type=int, default=120)
     parser.add_argument("--refresh-cache", action="store_true")

@@ -2,6 +2,7 @@ package com.btcautotrader.auth;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.btcautotrader.tenant.TenantContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +17,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+/**
+ * user_settings is identity-scoped and lives only in the system database. Tenant-scoped endpoints
+ * (/api/strategy/**) reach this service with TenantContext already bound, so every repository call is
+ * pinned back to the system database; otherwise the same userId would be written to the tenant database
+ * (violating user_settings.user_id -> app_users(id)) and read back from the system database.
+ */
 @Service
 public class UserSettingsService {
     private static final Pattern MARKET_CODE_PATTERN = Pattern.compile("^[A-Z]{2,10}-[A-Z0-9]{2,15}$");
@@ -39,24 +46,28 @@ public class UserSettingsService {
 
     @Transactional(readOnly = true)
     public UserSettingsResponse getSettings(Long userId) {
-        UserSettingsEntity entity = userSettingsRepository.findById(userId).orElse(null);
-        if (entity == null) {
-            return new UserSettingsResponse(List.of(), DEFAULT_PROFILE, Map.of(), null);
-        }
-        return toResponse(entity);
+        return TenantContext.callWithTenantDatabase(null, () -> {
+            UserSettingsEntity entity = userSettingsRepository.findById(userId).orElse(null);
+            if (entity == null) {
+                return new UserSettingsResponse(List.of(), DEFAULT_PROFILE, Map.of(), null);
+            }
+            return toResponse(entity);
+        });
     }
 
     @Transactional(readOnly = true)
     public Optional<List<String>> findPreferredMarkets(Long userId) {
-        UserSettingsEntity entity = userSettingsRepository.findById(userId).orElse(null);
-        if (entity == null) {
-            return Optional.empty();
-        }
-        String rawJson = entity.getPreferredMarketsJson();
-        if (rawJson == null || rawJson.isBlank()) {
-            return Optional.empty();
-        }
-        return Optional.of(parseMarkets(rawJson));
+        return TenantContext.callWithTenantDatabase(null, () -> {
+            UserSettingsEntity entity = userSettingsRepository.findById(userId).orElse(null);
+            if (entity == null) {
+                return Optional.empty();
+            }
+            String rawJson = entity.getPreferredMarketsJson();
+            if (rawJson == null || rawJson.isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(parseMarkets(rawJson));
+        });
     }
 
     @Transactional
@@ -69,27 +80,29 @@ public class UserSettingsService {
         String riskProfile = normalizeRiskProfile(request.riskProfile());
         Map<String, Object> uiPrefs = normalizeUiPrefs(request.uiPrefs());
 
-        UserSettingsEntity entity = findOrCreateEntity(userId);
-
-        entity.setPreferredMarketsJson(toJson(markets));
-        entity.setRiskProfile(riskProfile);
-        entity.setUiPrefsJson(toJson(uiPrefs));
-
-        UserSettingsEntity saved = userSettingsRepository.save(entity);
-        return toResponse(saved);
+        return TenantContext.callWithTenantDatabase(null, () -> {
+            UserSettingsEntity entity = findOrCreateEntity(userId);
+            entity.setPreferredMarketsJson(toJson(markets));
+            entity.setRiskProfile(riskProfile);
+            entity.setUiPrefsJson(toJson(uiPrefs));
+            return toResponse(userSettingsRepository.save(entity));
+        });
     }
 
     @Transactional
     public UserSettingsResponse updateMarkets(Long userId, List<String> markets) {
-        UserSettingsEntity entity = findOrCreateEntity(userId);
-        entity.setPreferredMarketsJson(toJson(normalizeMarkets(markets)));
-        if (entity.getRiskProfile() == null || entity.getRiskProfile().isBlank()) {
-            entity.setRiskProfile(DEFAULT_PROFILE);
-        }
-        if (entity.getUiPrefsJson() == null || entity.getUiPrefsJson().isBlank()) {
-            entity.setUiPrefsJson(toJson(Map.of()));
-        }
-        return toResponse(userSettingsRepository.save(entity));
+        List<String> normalizedMarkets = normalizeMarkets(markets);
+        return TenantContext.callWithTenantDatabase(null, () -> {
+            UserSettingsEntity entity = findOrCreateEntity(userId);
+            entity.setPreferredMarketsJson(toJson(normalizedMarkets));
+            if (entity.getRiskProfile() == null || entity.getRiskProfile().isBlank()) {
+                entity.setRiskProfile(DEFAULT_PROFILE);
+            }
+            if (entity.getUiPrefsJson() == null || entity.getUiPrefsJson().isBlank()) {
+                entity.setUiPrefsJson(toJson(Map.of()));
+            }
+            return toResponse(userSettingsRepository.save(entity));
+        });
     }
 
     private UserSettingsResponse toResponse(UserSettingsEntity entity) {

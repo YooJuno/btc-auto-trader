@@ -2,7 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import './App.css'
 import DashboardRoute from './routes/DashboardRoute.jsx'
 import AppHeader from './components/layout/AppHeader.jsx'
-import PageContextBanner from './components/layout/PageContextBanner.jsx'
 import ManualTradeModal from './components/trade/ManualTradeModal.jsx'
 import { useDeviceUiPreferences } from './hooks/useDeviceUiPreferences.js'
 import { useAuthSession } from './hooks/useAuthSession.js'
@@ -21,6 +20,7 @@ import {
   formatDateTime,
   formatKRW,
   formatPercent,
+  formatTime,
   pnlClass,
   resolveAppPath,
   resolveAppRoute,
@@ -36,6 +36,7 @@ const DASHBOARD_FORMATTERS = {
   formatCoin,
   formatPercent,
   formatDateTime,
+  formatTime,
   pnlClass,
 }
 const MANUAL_TRADE_FORMATTERS = {
@@ -229,8 +230,13 @@ function App() {
   const {
     loading,
     engineStatus,
+    engineKnown,
     engineBusy,
     engineError,
+    tradingMode,
+    decisionFeed,
+    panicBusy,
+    handlePanicExit,
     strategy,
     strategyError,
     ratioError,
@@ -302,6 +308,30 @@ function App() {
     syncUserMarkets,
   })
 
+  // Chart the market the engine is actually working: the largest open position, else the first
+  // configured market. userSettings.markets is the same list the engine iterates.
+  const chartMarket = useMemo(() => {
+    if (positions.length > 0 && positions[0]?.market) {
+      return positions[0].market
+    }
+    const configured = Array.isArray(userSettings?.markets) ? userSettings.markets.filter(Boolean) : []
+    return configured[0] ?? null
+  }, [positions, userSettings])
+
+  const chartPosition = useMemo(
+    () => positions.find((item) => item?.market === chartMarket) ?? null,
+    [positions, chartMarket]
+  )
+
+  const handlePanicConfirm = useCallback(() => {
+    const confirmed = window.confirm(
+      '긴급 청산\n\n엔진을 중지하고 보유 코인을 전량 시장가로 매도합니다.\n시장가 주문이므로 슬리피지가 발생할 수 있으며 되돌릴 수 없습니다.\n\n실행하시겠습니까?'
+    )
+    if (confirmed) {
+      handlePanicExit()
+    }
+  }, [handlePanicExit])
+
   const handleEngineToggle = useCallback(() => {
     if (engineStatus) {
       handleEngineStop()
@@ -311,6 +341,12 @@ function App() {
   }, [engineStatus, handleEngineStart, handleEngineStop])
 
   useEffect(() => {
+    // Do not judge the route until the session check has actually finished. authUser is null while
+    // authChecking is true, so a cold load of /profile or /admin/users used to bounce straight to the
+    // dashboard even for a logged-in user — deep links never worked.
+    if (authChecking) {
+      return
+    }
     if (!authUser) {
       if (activeRoute === ADMIN_USERS_ROUTE || activeRoute === PROFILE_ROUTE) {
         navigateRoute(DASHBOARD_ROUTE)
@@ -325,6 +361,7 @@ function App() {
     }
   }, [
     activeRoute,
+    authChecking,
     authUser,
     bootstrapLoaded,
     bootstrapLoading,
@@ -513,13 +550,13 @@ function App() {
   if (authenticated && (bootstrapLoading || !bootstrapLoaded)) {
     return (
       <div className={`app ${tableDensityClass}`}>
-        <section className="page-context">
-          <div>
+        <section className="control-card">
+          <div className="card-head">
             <h2>초기화 중</h2>
-            <p className="sub">사용자 설정을 확인하고 있습니다.</p>
-            {bootstrapError && <p className="status-error">{bootstrapError}</p>}
+            <span className="pill">LOADING</span>
           </div>
-          <span className="pill">LOADING</span>
+          <p className="sub">사용자 설정을 확인하고 있습니다.</p>
+          {bootstrapError && <p className="status-error">{bootstrapError}</p>}
         </section>
       </div>
     )
@@ -538,7 +575,12 @@ function App() {
         engineError={engineError}
         engineBusy={engineBusy}
         engineStatus={engineStatus}
+        engineKnown={engineKnown}
+        tradingMode={tradingMode}
         onEngineToggle={handleEngineToggle}
+        onPanic={handlePanicConfirm}
+        panicBusy={panicBusy}
+        hasOpenPositions={positions.length > 0}
         updatedAt={updatedAt}
         authUser={authUser}
         connectionClass={connectionClass}
@@ -547,8 +589,6 @@ function App() {
         canAccessAdmin={authenticated && canAccessAdmin}
         onLogout={handleLogout}
       />
-
-      <PageContextBanner activeRoute={effectiveRoute} />
 
       {effectiveRoute === ADMIN_USERS_ROUTE && authenticated && canAccessAdmin ? (
         <Suspense fallback={routeLoadingFallback}>
@@ -602,6 +642,9 @@ function App() {
           manualTradeNotice={manualTradeNotice}
           mergedOrderHistory={mergedOrderHistory}
           feedError={feedError}
+          decisionFeed={decisionFeed}
+          chartMarket={chartMarket}
+          chartAvgBuyPrice={chartPosition?.avgBuyPrice}
           onOpenManualTrade={openManualTrade}
           formatters={DASHBOARD_FORMATTERS}
         />

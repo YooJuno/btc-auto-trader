@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DASHBOARD_ROUTE,
   SETTINGS_ROUTE,
@@ -10,12 +10,14 @@ import {
   buildMarketOverrideRows,
   buildMarketOverrideSignature,
   buildMarketSuggestions,
+  isFilledOrder,
   isValidMarketCode,
   normalizeMarket,
   normalizeMarketCatalog,
   normalizeRatioPresets,
 } from '../utils/tradingUi.js'
 import {
+  panicExitRequest,
   saveMarketOverridesRequest,
   startEngineRequest,
   stopEngineRequest,
@@ -23,6 +25,8 @@ import {
 import { ApiError, requestJson } from '../utils/apiClient.js'
 
 const INVENTORY_EPSILON = 1e-12
+const FEED_POLL_MIN_MS = 6000
+const DECISION_FEED_LIMIT = 60
 const isServerReachable = (error) => error instanceof ApiError
 
 const toPositiveNumber = (value) => {
@@ -78,13 +82,18 @@ const appendTradeProfit = (orders) => {
   }
 
   const inventoryByMarket = new Map()
-  const wrappedOrders = orders.map((order, index) => ({
-    index,
-    order,
-    market: typeof order?.market === 'string' ? order.market : '',
-    side: normalizeOrderSide(order?.side),
-    sortTime: resolveOrderTimestamp(order, index),
-  }))
+  // Only fills move inventory. Running rejected and cancelled orders through the FIFO invented
+  // positions that never existed, which then corrupted the realised P&L of every genuine sell after
+  // them — the hidden half of the fabricated 수익 column.
+  const wrappedOrders = orders
+    .map((order, index) => ({
+      index,
+      order,
+      market: typeof order?.market === 'string' ? order.market : '',
+      side: normalizeOrderSide(order?.side),
+      sortTime: resolveOrderTimestamp(order, index),
+    }))
+    .filter(({ order }) => isFilledOrder(order))
 
   wrappedOrders.sort((left, right) => {
     if (left.sortTime !== right.sortTime) {
@@ -206,6 +215,9 @@ export function useTradingWorkspace({
 
   const [orderHistory, setOrderHistory] = useState([])
   const [decisionHistory, setDecisionHistory] = useState([])
+  const [decisionFeed, setDecisionFeed] = useState([])
+  const [panicBusy, setPanicBusy] = useState(false)
+  const [tradingMode, setTradingMode] = useState(null)
   const [summaryError, setSummaryError] = useState(null)
   const [orderHistoryError, setOrderHistoryError] = useState(null)
   const [decisionHistoryError, setDecisionHistoryError] = useState(null)
@@ -280,6 +292,7 @@ export function useTradingWorkspace({
     try {
       const data = await requestJson('/api/engine/status', {}, '엔진 상태 조회 실패')
       setEngineStatus(Boolean(data?.running))
+      setTradingMode(data?.tradingMode === 'PAPER' ? 'PAPER' : 'LIVE')
       setEngineError(null)
     } catch (err) {
       setEngineError(err?.message ?? '엔진 상태 조회 실패')
@@ -309,7 +322,7 @@ export function useTradingWorkspace({
 
   const fetchOrderHistory = useCallback(async () => {
     try {
-      const data = await requestJson('/api/order/history?limit=30', {}, '주문 로그 조회 실패')
+      const data = await requestJson('/api/order/history?limit=200', {}, '주문 로그 조회 실패')
       setOrderHistory(Array.isArray(data) ? data : [])
       setOrderHistoryError(null)
     } catch (err) {
@@ -319,8 +332,11 @@ export function useTradingWorkspace({
 
   const fetchDecisionHistory = useCallback(async () => {
     try {
+      // includeSkips=true: the SKIP rows ARE the answer to "the engine is on, why has nothing
+      // happened for two hours". They were being discarded server-side by the query parameter and
+      // again client-side by the BUY/SELL filter below.
       const data = await requestJson(
-        '/api/engine/decisions?limit=30&includeSkips=false',
+        `/api/engine/decisions?limit=${DECISION_FEED_LIMIT}&includeSkips=true`,
         {},
         '의사결정 로그 조회 실패'
       )
@@ -329,6 +345,7 @@ export function useTradingWorkspace({
         const action = String(decision?.action ?? '').toUpperCase()
         return action === 'BUY' || action === 'SELL'
       })
+      setDecisionFeed(allItems)
       setDecisionHistory(tradeOnlyItems)
       setDecisionHistoryError(null)
     } catch (err) {
@@ -336,12 +353,25 @@ export function useTradingWorkspace({
     }
   }, [])
 
-  const fetchMarketOverrides = useCallback(async () => {
+  // Latest-value refs so the automatic refresh can check for unsaved edits without taking marketRows as
+  // a dependency (which would rebuild the callback on every keystroke).
+  const pollInFlightRef = useRef({})
+  const marketRowsRef = useRef([])
+  const marketRowsBaselineRef = useRef('')
+
+  const fetchMarketOverrides = useCallback(async (force = false) => {
     setMarketConfigLoading(true)
     setMarketConfigError(null)
     setMarketConfigNotice(null)
     try {
       const data = await requestJson('/api/strategy/market-overrides', {}, '마켓 설정 조회 실패')
+      // Never silently discard unsaved edits. This refresh runs on every route change and every
+      // tab-visibility change, so switching browser tabs mid-edit used to wipe the form. The manual
+      // reload button already asks before overwriting; the automatic path now respects the same rule.
+      const dirty = buildMarketOverrideSignature(marketRowsRef.current) !== marketRowsBaselineRef.current
+      if (!force && dirty) {
+        return
+      }
       const rows = buildMarketOverrideRows(data)
       setMarketRows(rows)
       setMarketRowsBaseline(buildMarketOverrideSignature(rows))
@@ -415,13 +445,28 @@ export function useTradingWorkspace({
       fetchDecisionHistory()
     }
 
-    const summaryTimer = setInterval(() => fetchSummary(true), pollingIntervalMs)
-    const engineTimer = setInterval(() => fetchEngineStatus(), pollingIntervalMs)
+    // Skip a tick while the previous one is still in flight. The interval floor is 2s, so a slow
+    // backend or a slow Upbit call used to queue requests faster than they completed, and a late
+    // response could overwrite a newer one — showing a stale portfolio as current.
+    const poll = (key, run) => () => {
+      if (pollInFlightRef.current[key]) {
+        return
+      }
+      pollInFlightRef.current[key] = true
+      Promise.resolve(run()).finally(() => {
+        pollInFlightRef.current[key] = false
+      })
+    }
+
+    const summaryTimer = setInterval(poll('summary', () => fetchSummary(true)), pollingIntervalMs)
+    const engineTimer = setInterval(poll('engine', () => fetchEngineStatus()), pollingIntervalMs)
+    // The feed is history, not live state: at the 2s floor a 120-row decision payload every tick would
+    // hammer the backend and re-render the list for nothing. Poll it on its own slower cadence.
     const feedTimer = isDashboardRoute
-      ? setInterval(() => {
-        fetchOrderHistory()
-        fetchDecisionHistory()
-      }, pollingIntervalMs)
+      ? setInterval(
+        poll('feed', () => Promise.all([fetchOrderHistory(), fetchDecisionHistory()])),
+        Math.max(pollingIntervalMs, FEED_POLL_MIN_MS)
+      )
       : null
 
     return () => {
@@ -430,6 +475,7 @@ export function useTradingWorkspace({
       if (feedTimer) {
         clearInterval(feedTimer)
       }
+      pollInFlightRef.current = {}
     }
   }, [
     activeRoute,
@@ -465,11 +511,19 @@ export function useTradingWorkspace({
 
   const connectionClass = serverConnected === null ? 'checking' : serverConnected ? 'connected' : 'disconnected'
   const connectionLabel = serverConnected === null ? '확인중' : serverConnected ? '연결됨' : '끊김'
+  // engineStatus stays null until a status response actually arrives. Rendering that as OFF showed a
+  // live engine as stopped and offered to "start" it.
+  const engineKnown = engineStatus !== null
   const engineClass = engineStatus ? 'ok' : 'error'
   const marketRowsDirty = useMemo(
     () => buildMarketOverrideSignature(marketRows) !== marketRowsBaseline,
     [marketRows, marketRowsBaseline]
   )
+
+  useEffect(() => {
+    marketRowsRef.current = marketRows
+    marketRowsBaselineRef.current = marketRowsBaseline
+  }, [marketRows, marketRowsBaseline])
   const marketSuggestions = useMemo(
     () => buildMarketSuggestions(newMarketInput, marketCatalog, marketRows),
     [newMarketInput, marketCatalog, marketRows]
@@ -520,7 +574,7 @@ export function useTradingWorkspace({
     if (marketRowsDirty && !window.confirm('저장하지 않은 변경사항이 있습니다. 서버 설정으로 덮어쓸까요?')) {
       return
     }
-    fetchMarketOverrides()
+    fetchMarketOverrides(true)
   }, [fetchMarketOverrides, marketRowsDirty])
 
   const handleSaveMarketOverrides = useCallback(async () => {
@@ -707,11 +761,36 @@ export function useTradingWorkspace({
     }
   }, [])
 
+  const handlePanicExit = useCallback(async () => {
+    setPanicBusy(true)
+    setEngineError(null)
+    try {
+      const result = await panicExitRequest()
+      setEngineStatus(false)
+      const submitted = Number(result?.liquidationsSubmitted ?? 0)
+      setManualTradeNotice(
+        submitted > 0
+          ? `긴급 청산: ${submitted}건 시장가 매도 주문을 전송했습니다.`
+          : '긴급 청산: 엔진을 중지했습니다. 청산할 포지션이 없습니다.'
+      )
+      await Promise.all([fetchSummary(true), fetchOrderHistory(), fetchDecisionHistory()])
+    } catch (err) {
+      setEngineError(err?.message ?? '긴급 청산 실패')
+    } finally {
+      setPanicBusy(false)
+    }
+  }, [fetchDecisionHistory, fetchOrderHistory, fetchSummary])
+
   return {
     loading,
     engineStatus,
+    engineKnown,
     engineBusy,
     engineError,
+    tradingMode,
+    decisionFeed,
+    panicBusy,
+    handlePanicExit,
     strategy,
     strategyError,
     ratioError,

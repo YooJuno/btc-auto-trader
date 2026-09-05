@@ -1,89 +1,62 @@
-# Strategy Lab (Continuous Backtest Loop)
+# Strategy Research Loop (워크포워드 검증)
 
-실시간 자동매매(`btc-backend.service`)와 별개로, 백테스트를 주기적으로 반복 실행해
-전략 추천값을 누적/요약하는 백그라운드 프로세스입니다.
+> **`strategy_lab_daemon.py` 는 더 이상 사용하지 않습니다.**
+>
+> 그 데몬은 7일 창을 매시간 재최적화하면서 `--min-sell-trades 1`(거래 1건짜리 결과 채택)로 합의값을
+> 만들었습니다. 연구가 아니라 **노이즈를 학습하는 기계**였고, 익절 기본값을 2.4% → 1.92% → 1.44%로
+> 깎아온 원인입니다. 그게 감시 없이 실제 돈에 대해 돌고 있었습니다.
+>
+> 대체: `scripts/research/strategy_research_loop.py`
 
-핵심 목표:
-- 라이브 매매는 계속 유지
-- 별도 프로세스가 백테스트 반복
-- 결과를 `data/strategy-lab/`에 누적
-- 다음 Codex 수정 요청 시 누적 데이터 기반으로 코드/전략값 반영
+## 무엇이 달라졌나
 
-## 1) 실행 방식
+| | 이전 | 현재 |
+|---|---|---|
+| 검증 | train/test 1회 분할 | **앵커드 워크포워드 18폴드** (검증 구간 비중첩) |
+| 다중검정 | 없음 | **Deflated Sharpe** — 시도 조합이 많을수록 기준 상승 |
+| 최소 표본 | 거래 1건 | 폴드 6개 + OOS 거래 30건 |
+| 일관성 | 없음 | 양수 폴드 60% 이상 |
+| 현행 대비 | 없음 | +0.5%p 이상 개선 필수 |
+| 주기 | 매시간 | 하루 1회 |
+| 기본 판정 | 채택 | **거부** |
+| 자동 적용 | 사람이 반영 | `champion.json` 기록만, 설정 파일 미변경 |
 
-### 단발 실행(테스트)
+## 실행
+
 ```bash
-python3 scripts/research/strategy_lab_daemon.py --single-run
-```
+# 1회, 리포트만
+python3 scripts/research/strategy_research_loop.py --once
 
-### 지속 실행(포그라운드)
-```bash
-python3 scripts/research/strategy_lab_daemon.py --interval-minutes 60
-```
-
-### systemd 설치/시작
-```bash
+# 무인 (systemd)
 ./scripts/systemd/install_services.sh --strategy-only
 ```
 
-상태 확인:
-```bash
-sudo systemctl status btc-strategy-lab.service --no-pager -l
-journalctl -u btc-strategy-lab.service -f
+산출물은 `data/strategy-research/` 에 쌓입니다:
+- `latest.json` — 최근 1회 상세
+- `history.jsonl` — append-only 이력 (무엇을 시도했고 왜 거부됐는지)
+- `champion.json` — `--auto-promote` 사용 시 통과 후보 (적용은 수동)
+
+## 거부가 정상입니다
+
+**대부분의 실행은 REJECT를 반환합니다.** 게이트가 고장난 게 아니라 통과할 전략이 없다는 뜻입니다.
+
+실측 예 (KRW-BTC 60m, 730일, 18폴드):
+
+```
+baseline    중앙값 +0.00%  양수폴드 50%  거래 66
+challenger  중앙값 +0.00%  양수폴드 50%  거래 70  foldSharpe 0.14
+
+VERDICT: REJECT
+  [FAIL] 양수 폴드 50% (60% 필요)
+  [FAIL] fold Sharpe 0.138 < 노이즈 기준선 0.463 (조합 20개 시도 기준)
+  [FAIL] 현행 대비 +0.00%p (+0.50%p 필요)
 ```
 
-## 2) 산출물
+폴드별로 최적화한 challenger가 **최적화하지 않은 baseline을 전혀 이기지 못했습니다.** 파라미터
+튜닝으로 이 전략에 엣지를 만들 수 없다는 증거입니다. 예전 데몬이었다면 이 데이터에서도 파라미터를
+채택했을 겁니다.
 
-`data/strategy-lab/` 아래 파일이 생성됩니다.
+**답이 대부분 "이걸 적용하세요"인 연구 루프는 노이즈를 학습하고 있는 것입니다.**
 
-- `latest.json`
-  - 최근 1회 사이클의 상세 결과
-- `history.jsonl`
-  - 모든 사이클 누적 로그(JSONL)
-- `consensus.json`
-  - 최근 N회(`--consensus-lookback`)의 중앙값 기반 합의 추천
-- `next_codex_request.json`
-  - 다음 Codex 코드 수정 요청에 바로 사용 가능한 요약
-- `cycles/<timestamp>/report_<profile>.json`
-  - 프로필별 원본 백테스트 결과
+---
 
-## 3) 기본 전략
-
-기본적으로 아래 프로필을 순회합니다.
-- `BALANCED`
-- `CONSERVATIVE`
-- `AGGRESSIVE`
-
-각 프로필은 `scripts/research/backtest.py`를 호출해 walk-forward(`train/test`) + optimize를 수행합니다.
-
-## 4) 안전 원칙
-
-이 프로세스는 **코드를 자동 수정/배포하지 않습니다.**
-
-대신:
-- 누적 추천값을 생성
-- 사람이 확인 후 반영
-- Codex 요청 시 `consensus.json`을 기준으로 코드 수정
-
-이 방식이 라이브 환경에서 가장 안전합니다.
-
-## 5) 추천 워크플로우
-
-1. 밤새 `btc-strategy-lab.service` 실행
-2. 아침에 `data/strategy-lab/consensus.json` 확인
-3. Codex에 "consensus 기반 전략값 반영" 요청
-4. 테스트 후 재배포
-
-## 6) 주요 옵션
-
-```bash
-python3 scripts/research/strategy_lab_daemon.py \
-  --market KRW-BTC \
-  --days 90 \
-  --profiles BALANCED,CONSERVATIVE,AGGRESSIVE \
-  --short-unit 3 \
-  --mid-unit 15 \
-  --max-combos 60 \
-  --interval-minutes 60 \
-  --consensus-lookback 12
-```

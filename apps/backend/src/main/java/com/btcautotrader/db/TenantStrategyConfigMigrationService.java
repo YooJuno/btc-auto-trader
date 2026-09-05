@@ -100,6 +100,19 @@ public class TenantStrategyConfigMigrationService {
                 add column if not exists risk_per_trade_pct double precision
                 """);
         jdbcTemplate.execute("""
+                alter table if exists strategy_market_overrides
+                add column if not exists signal_model varchar(40)
+                """);
+        jdbcTemplate.execute("""
+                create table if not exists paper_accounts (
+                    currency varchar(20) primary key,
+                    balance numeric(38, 18) not null default 0,
+                    locked numeric(38, 18) not null default 0,
+                    avg_buy_price numeric(38, 18) not null default 0,
+                    updated_at timestamptz not null default now()
+                )
+                """);
+        jdbcTemplate.execute("""
                 update strategy_market_overrides
                 set trade_paused = coalesce(trade_paused, false)
                 """);
