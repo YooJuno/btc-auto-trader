@@ -10,6 +10,7 @@ import {
   buildMarketOverrideRows,
   buildMarketOverrideSignature,
   buildMarketSuggestions,
+  isFilledOrder,
   isValidMarketCode,
   normalizeMarket,
   normalizeMarketCatalog,
@@ -81,13 +82,18 @@ const appendTradeProfit = (orders) => {
   }
 
   const inventoryByMarket = new Map()
-  const wrappedOrders = orders.map((order, index) => ({
-    index,
-    order,
-    market: typeof order?.market === 'string' ? order.market : '',
-    side: normalizeOrderSide(order?.side),
-    sortTime: resolveOrderTimestamp(order, index),
-  }))
+  // Only fills move inventory. Running rejected and cancelled orders through the FIFO invented
+  // positions that never existed, which then corrupted the realised P&L of every genuine sell after
+  // them — the hidden half of the fabricated 수익 column.
+  const wrappedOrders = orders
+    .map((order, index) => ({
+      index,
+      order,
+      market: typeof order?.market === 'string' ? order.market : '',
+      side: normalizeOrderSide(order?.side),
+      sortTime: resolveOrderTimestamp(order, index),
+    }))
+    .filter(({ order }) => isFilledOrder(order))
 
   wrappedOrders.sort((left, right) => {
     if (left.sortTime !== right.sortTime) {
@@ -314,7 +320,7 @@ export function useTradingWorkspace({
 
   const fetchOrderHistory = useCallback(async () => {
     try {
-      const data = await requestJson('/api/order/history?limit=30', {}, '주문 로그 조회 실패')
+      const data = await requestJson('/api/order/history?limit=200', {}, '주문 로그 조회 실패')
       setOrderHistory(Array.isArray(data) ? data : [])
       setOrderHistoryError(null)
     } catch (err) {

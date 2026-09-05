@@ -2,6 +2,7 @@ import { lazy, memo, Suspense } from 'react'
 import DashboardSummaryCards from '../components/dashboard/DashboardSummaryCards.jsx'
 import DecisionFeedCard from '../components/dashboard/DecisionFeedCard.jsx'
 import OrderHistoryCard from '../components/dashboard/OrderHistoryCard.jsx'
+import PerformanceCard from '../components/dashboard/PerformanceCard.jsx'
 import PositionsCard from '../components/dashboard/PositionsCard.jsx'
 
 // lightweight-charts is ~177kB. The positions and decision feed are the load-bearing views, so let them
@@ -92,6 +93,8 @@ function DashboardRoute({
         </div>
 
         <div className="workspace-side">
+          <PerformanceCard orders={mergedOrderHistory} formatKRW={formatKRW} />
+
           <DecisionFeedCard
             decisions={decisionFeed}
             decisionError={null}

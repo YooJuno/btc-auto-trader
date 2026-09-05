@@ -1,13 +1,5 @@
 import { memo } from 'react'
-import { formatOrderStatus } from '../../utils/tradingUi.js'
-
-// Only these states represent a real fill, so only these may carry a realised-P&L figure.
-const FILLED_TOKENS = new Set(['FILLED', 'DONE'])
-
-const isFilled = (order) => {
-  const status = String(formatOrderStatus(order?.requestStatus, order?.state) ?? '').toUpperCase()
-  return [...FILLED_TOKENS].some((token) => status.startsWith(token))
-}
+import { formatOrderStatus, isFilledOrder } from '../../utils/tradingUi.js'
 
 const OrderHistoryRow = memo(function OrderHistoryRow({
   order,
@@ -16,7 +8,7 @@ const OrderHistoryRow = memo(function OrderHistoryRow({
   pnlClass,
 }) {
   const decision = order.decision
-  const filled = isFilled(order)
+  const filled = isFilledOrder(order)
   const status = formatOrderStatus(order?.requestStatus, order?.state)
   const side = String(order.side ?? '').toUpperCase()
 

@@ -546,6 +546,14 @@ export const buildApiErrorMessage = (payload, fallback) => {
   return `${base} (${details})`
 }
 
+// Only a genuine fill moves inventory. Anything else must not enter the realised-P&L FIFO.
+const FILLED_STATUS_PREFIXES = ['FILLED', 'DONE']
+
+export const isFilledOrder = (order) => {
+  const status = String(formatOrderStatus(order?.requestStatus, order?.state) ?? '').toUpperCase()
+  return FILLED_STATUS_PREFIXES.some((token) => status.startsWith(token))
+}
+
 export const formatOrderStatus = (requestStatus, state) => {
   const primary = normalizeOrderStatusToken(requestStatus)
   const secondary = normalizeOrderStatusToken(state)
