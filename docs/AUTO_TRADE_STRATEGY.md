@@ -80,6 +80,29 @@ minutes. At 15m the ATR and the transaction cost are the same order of magnitude
 Note that `STOP_EXIT` and friends are **position fractions**, not price levels. A value of 0 disables
 that exit; stop-loss and trailing stop ignore 0 and always liquidate in full.
 
+## 1-1) Entry Models (registry)
+
+`resolveSignalModel` previously ignored its argument and returned one hardcoded instance — the
+pluggability hook existed in name only. Entry models are now registered by name and selected with
+`signal.model`. Exits, sizing and every risk control stay shared; a model only decides whether to enter.
+
+| `signal.model` | Entry rule | Use when |
+|---|---|---|
+| `trend_breakout` (default) | trend gate + Donchian break | continuation in an established trend |
+| `squeeze_breakout` | trend gate + Bollinger contraction + break + volume | range expansion out of a quiet period |
+
+`squeeze_breakout` deliberately has **no overextension cap**. Requiring price to break the lookback high
+while also staying near `MA_LONG` is self-contradictory, and it is why the original model systematically
+took the weakest breaks. It replaces that cap with a contraction requirement, so the entries it takes
+have the move size needed to clear a 0.1-0.3% round trip.
+
+Its squeeze test compares current Bollinger bandwidth to a fixed threshold
+(`signal.squeeze.max-bandwidth-pct`) rather than to its own trailing percentile. A percentile would adapt
+per market and is the textbook form; it needs bandwidth history `MarketIndicators` does not yet carry.
+
+**Adding a model:** implement `TradeSignalModel` (`name()` + `evaluateBuy`) and add it to the registry in
+`AutoTradeService`. Per-market selection is not wired yet — `signal.model` is currently a global setting.
+
 ## 2-0) Universe Selection (Cross-Sectional Momentum, opt-in)
 
 `signal.universe.enabled=false` by default. When enabled, the engine no longer trades a fixed

@@ -40,6 +40,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class AutoTradeService {
@@ -60,7 +62,13 @@ public class AutoTradeService {
     private final TradeDecisionRepository tradeDecisionRepository;
     private final TradeDecisionService tradeDecisionService;
     private final UniverseSelectionService universeSelectionService;
-    private final TradeSignalModel tradeSignalModel = new UnifiedTrendSignalModel();
+    /**
+     * Entry-model registry. resolveSignalModel used to ignore its argument and return one hardcoded
+     * instance, so the pluggability hook existed in name only.
+     */
+    private final Map<String, TradeSignalModel> signalModels = Stream
+            .of(new UnifiedTrendSignalModel(), new VolatilityContractionBreakoutModel())
+            .collect(Collectors.toUnmodifiableMap(TradeSignalModel::name, model -> model));
 
     private final BigDecimal minOrderKrw;
     private final BigDecimal feeRate;
@@ -88,6 +96,8 @@ public class AutoTradeService {
     private final double bollingerStdDev;
     private final double bollingerMinBandwidthPct;
     private final double bollingerMaxPercentB;
+    private final double squeezeMaxBandwidthPct;
+    private final String defaultSignalModel;
     private final int breakoutLookback;
     private final int breakdownLookback;
     private final double breakoutPct;
@@ -192,6 +202,8 @@ public class AutoTradeService {
             @Value("${signal.bollinger.stddev:2.0}") double bollingerStdDev,
             @Value("${signal.bollinger.min-bandwidth-pct:0.8}") double bollingerMinBandwidthPct,
             @Value("${signal.bollinger.max-percent-b:1.05}") double bollingerMaxPercentB,
+            @Value("${signal.squeeze.max-bandwidth-pct:2.5}") double squeezeMaxBandwidthPct,
+            @Value("${signal.model:trend_breakout}") String defaultSignalModel,
             @Value("${signal.breakout-lookback:20}") int breakoutLookback,
             @Value("${signal.breakdown-lookback:10}") int breakdownLookback,
             @Value("${signal.breakout-pct:0.05}") double breakoutPct,
@@ -282,6 +294,10 @@ public class AutoTradeService {
         this.bollingerStdDev = Math.max(0.1, Math.min(bollingerStdDev, 6.0));
         this.bollingerMinBandwidthPct = Math.max(0.0, bollingerMinBandwidthPct);
         this.bollingerMaxPercentB = bollingerMaxPercentB;
+        this.squeezeMaxBandwidthPct = squeezeMaxBandwidthPct;
+        this.defaultSignalModel = defaultSignalModel == null || defaultSignalModel.isBlank()
+                ? UnifiedTrendSignalModel.NAME
+                : defaultSignalModel.trim();
         this.breakoutLookback = breakoutLookback;
         this.breakdownLookback = Math.max(0, Math.min(breakdownLookback, 200));
         this.breakoutPct = breakoutPct;
@@ -1264,7 +1280,8 @@ public class AutoTradeService {
                 indicators,
                 tuning,
                 bollingerWindow > 1 ? bollingerMinBandwidthPct : 0.0,
-                bollingerWindow > 1 ? bollingerMaxPercentB : 0.0
+                bollingerWindow > 1 ? bollingerMaxPercentB : 0.0,
+                bollingerWindow > 1 ? squeezeMaxBandwidthPct : 0.0
         ));
         if (!buySignalDecision.proceed()) {
             return new AutoTradeAction(
@@ -1597,7 +1614,12 @@ public class AutoTradeService {
     }
 
     private TradeSignalModel resolveSignalModel(StrategyConfig config) {
-        return tradeSignalModel;
+        TradeSignalModel model = signalModels.get(defaultSignalModel);
+        if (model == null) {
+            log.warn("Unknown signal.model '{}', falling back to {}", defaultSignalModel, UnifiedTrendSignalModel.NAME);
+            return signalModels.get(UnifiedTrendSignalModel.NAME);
+        }
+        return model;
     }
 
     private void recordEntryEvent(String market, OrderResponse response) {
