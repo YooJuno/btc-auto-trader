@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DASHBOARD_ROUTE,
   SETTINGS_ROUTE,
@@ -345,12 +345,24 @@ export function useTradingWorkspace({
     }
   }, [])
 
-  const fetchMarketOverrides = useCallback(async () => {
+  // Latest-value refs so the automatic refresh can check for unsaved edits without taking marketRows as
+  // a dependency (which would rebuild the callback on every keystroke).
+  const marketRowsRef = useRef([])
+  const marketRowsBaselineRef = useRef('')
+
+  const fetchMarketOverrides = useCallback(async (force = false) => {
     setMarketConfigLoading(true)
     setMarketConfigError(null)
     setMarketConfigNotice(null)
     try {
       const data = await requestJson('/api/strategy/market-overrides', {}, '마켓 설정 조회 실패')
+      // Never silently discard unsaved edits. This refresh runs on every route change and every
+      // tab-visibility change, so switching browser tabs mid-edit used to wipe the form. The manual
+      // reload button already asks before overwriting; the automatic path now respects the same rule.
+      const dirty = buildMarketOverrideSignature(marketRowsRef.current) !== marketRowsBaselineRef.current
+      if (!force && dirty) {
+        return
+      }
       const rows = buildMarketOverrideRows(data)
       setMarketRows(rows)
       setMarketRowsBaseline(buildMarketOverrideSignature(rows))
@@ -484,6 +496,11 @@ export function useTradingWorkspace({
     () => buildMarketOverrideSignature(marketRows) !== marketRowsBaseline,
     [marketRows, marketRowsBaseline]
   )
+
+  useEffect(() => {
+    marketRowsRef.current = marketRows
+    marketRowsBaselineRef.current = marketRowsBaseline
+  }, [marketRows, marketRowsBaseline])
   const marketSuggestions = useMemo(
     () => buildMarketSuggestions(newMarketInput, marketCatalog, marketRows),
     [newMarketInput, marketCatalog, marketRows]
@@ -534,7 +551,7 @@ export function useTradingWorkspace({
     if (marketRowsDirty && !window.confirm('저장하지 않은 변경사항이 있습니다. 서버 설정으로 덮어쓸까요?')) {
       return
     }
-    fetchMarketOverrides()
+    fetchMarketOverrides(true)
   }, [fetchMarketOverrides, marketRowsDirty])
 
   const handleSaveMarketOverrides = useCallback(async () => {
