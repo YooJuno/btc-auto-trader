@@ -65,3 +65,4 @@ __pycache__/
 # Backtest cache
 data/backtest/
 data/strategy-lab/
+data/strategy-research/
