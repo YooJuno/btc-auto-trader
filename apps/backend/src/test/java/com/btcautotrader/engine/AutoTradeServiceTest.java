@@ -17,6 +17,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageImpl;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -28,6 +30,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -88,96 +91,7 @@ class AutoTradeServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AutoTradeService(
-                upbitService,
-                orderService,
-                strategyService,
-                engineService,
-                tenantDatabaseProvisioningService,
-                tradingAccessService,
-                orderRepository,
-                tradeDecisionRepository,
-                tradeDecisionService,
-                universeSelectionService,
-                new BigDecimal("5000"),
-                BigDecimal.ZERO,
-                BigDecimal.ZERO,
-                0L,
-                0L,
-                5L,
-                300L,
-                1,
-                2,
-                3,
-                2,
-                50.0,
-                40.0,
-                80.0,
-                2,
-                3,
-                2,
-                2,
-                0.0,
-                1,
-                0.0,
-                0,
-                2.0,
-                0.0,
-                UnifiedTrendSignalModel.NAME,
-                2,
-                10,
-                0.0,
-                5.0,
-                0,
-                1,
-                0,
-                14,
-                2.0,
-                2.5,
-                1.0,
-                false,
-                true,
-                0L,
-                0L,
-                0L,
-                0L,
-                0,
-                0L,
-                0.0,
-                0,
-                BigDecimal.ZERO,
-                false,
-                false,
-                15,
-                30,
-                90,
-                5,
-                0.0,
-                48,
-                BigDecimal.ZERO,
-                false,
-                0.12,
-                0.8,
-                1.15,
-                1.1,
-                1.05,
-                1.1,
-                -1.0,
-                0.8,
-                0.95,
-                0.9,
-                0.9,
-                1.5,
-                false,
-                60,
-                20,
-                50,
-                3,
-                0.0,
-                0L,
-                0L,
-                0
-        );
+        service = buildService(0);
 
         lenient().when(strategyService.getConfig()).thenReturn(TEST_CONFIG);
         lenient().when(strategyService.configuredMarkets(null)).thenReturn(List.of("KRW-BTC"));
@@ -407,6 +321,177 @@ class AutoTradeServiceTest {
 
         assertThat(action.action()).isEqualTo("SELL");
         assertThat(action.reason()).isEqualTo("stop_loss");
+    }
+
+    private AutoTradeService buildService(int stateRestoreLimit) {
+        return new AutoTradeService(
+                upbitService,
+                orderService,
+                strategyService,
+                engineService,
+                tenantDatabaseProvisioningService,
+                tradingAccessService,
+                orderRepository,
+                tradeDecisionRepository,
+                tradeDecisionService,
+                universeSelectionService,
+                new BigDecimal("5000"),
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                0L,
+                0L,
+                5L,
+                300L,
+                1,
+                2,
+                3,
+                2,
+                50.0,
+                40.0,
+                80.0,
+                2,
+                3,
+                2,
+                2,
+                0.0,
+                1,
+                0.0,
+                0,
+                2.0,
+                0.0,
+                UnifiedTrendSignalModel.NAME,
+                2,
+                10,
+                0.0,
+                5.0,
+                0,
+                1,
+                0,
+                14,
+                2.0,
+                2.5,
+                1.0,
+                false,
+                true,
+                0L,
+                0L,
+                0L,
+                0L,
+                0,
+                0L,
+                0.0,
+                0,
+                BigDecimal.ZERO,
+                false,
+                false,
+                15,
+                30,
+                90,
+                5,
+                0.0,
+                48,
+                BigDecimal.ZERO,
+                false,
+                0.12,
+                0.8,
+                1.15,
+                1.1,
+                1.05,
+                1.1,
+                -1.0,
+                0.8,
+                0.95,
+                0.9,
+                0.9,
+                1.5,
+                false,
+                60,
+                20,
+                50,
+                3,
+                0.0,
+                0L,
+                0L,
+                stateRestoreLimit
+        );
+    }
+
+    @Test
+    void restoresTheTrailingHighRecordedAfterEntry() throws Exception {
+        OffsetDateTime entryAt = OffsetDateTime.now().minusHours(3);
+        when(tradeDecisionRepository.findByActionIn(anyCollection(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        // Descending, as the query returns them.
+                        decision("KRW-BTC", "SKIP", entryAt.plusHours(2), "115"),
+                        decision("KRW-BTC", "SKIP", entryAt.plusHours(1), "110"),
+                        decision("KRW-BTC", "BUY", entryAt, "999")
+                )));
+
+        service = buildService(200);
+        invokeRestoreOpenPositionState();
+
+        // The running maximum from the most recent post-entry decision, not the BUY row.
+        assertThat(trailingHighFor("KRW-BTC")).isEqualByComparingTo(new BigDecimal("115"));
+    }
+
+    @Test
+    void ignoresTheTrailingHighRecordedAtEntry() throws Exception {
+        // recordDecision falls back to indicators.trailingHigh() when nothing is tracked, and that is the
+        // candle-window high INCLUDING bars before entry. Restoring it would arm the trail from a peak the
+        // position never participated in and force an immediate exit.
+        OffsetDateTime entryAt = OffsetDateTime.now().minusHours(1);
+        when(tradeDecisionRepository.findByActionIn(anyCollection(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        decision("KRW-BTC", "BUY", entryAt, "9999")
+                )));
+
+        service = buildService(200);
+        invokeRestoreOpenPositionState();
+
+        assertThat(trailingHighFor("KRW-BTC")).isNull();
+    }
+
+    @Test
+    void ignoresTrailingHighFromAPreviousPosition() throws Exception {
+        OffsetDateTime entryAt = OffsetDateTime.now().minusHours(1);
+        when(tradeDecisionRepository.findByActionIn(anyCollection(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(
+                        decision("KRW-BTC", "BUY", entryAt, "500"),
+                        // Belongs to a position that was closed before the current entry.
+                        decision("KRW-BTC", "SKIP", entryAt.minusHours(5), "800")
+                )));
+
+        service = buildService(200);
+        invokeRestoreOpenPositionState();
+
+        assertThat(trailingHighFor("KRW-BTC")).isNull();
+    }
+
+    private void invokeRestoreOpenPositionState() throws Exception {
+        Method method = AutoTradeService.class.getDeclaredMethod("restoreOpenPositionStateForCurrentTenant");
+        method.setAccessible(true);
+        method.invoke(service);
+    }
+
+    @SuppressWarnings("unchecked")
+    private BigDecimal trailingHighFor(String market) throws Exception {
+        Field field = AutoTradeService.class.getDeclaredField("trailingHighByMarket");
+        field.setAccessible(true);
+        return ((Map<String, BigDecimal>) field.get(service)).get("__system__::" + market);
+    }
+
+    private static TradeDecisionEntity decision(
+            String market,
+            String action,
+            OffsetDateTime executedAt,
+            String trailingHigh
+    ) {
+        TradeDecisionEntity entity = new TradeDecisionEntity();
+        entity.setMarket(market);
+        entity.setAction(action);
+        entity.setExecutedAt(executedAt);
+        entity.setTrailingHigh(new BigDecimal(trailingHigh));
+        return entity;
     }
 
     private BigDecimal invokePctResolver(String methodName, MarketIndicators indicators) throws Exception {

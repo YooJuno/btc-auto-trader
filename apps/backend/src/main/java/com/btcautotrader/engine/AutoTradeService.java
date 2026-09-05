@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -357,6 +358,7 @@ public class AutoTradeService {
         try {
             restoreExitStateForCurrentTenant();
         restoreDailyLossBaselineForCurrentTenant();
+        restoreOpenPositionStateForCurrentTenant();
         } catch (RuntimeException ex) {
             // Retry on next tick if hydration fails due to transient DB errors.
             restoredStateTenants.remove(tenantKey);
@@ -427,6 +429,75 @@ public class AutoTradeService {
      * crash loop could bypass the limit indefinitely. It is written into every decision's details, so the
      * first decision recorded today carries the correct value.
      */
+    /**
+     * Rebuilds an open position's trailing high, entry time and entry ATR.
+     *
+     * All three lived only in memory, so a restart mid-trade re-seeded the trailing high at roughly the
+     * current price — loosening the stop on a position that had already run up and pulled back — and
+     * resized the ATR-derived stop to whatever volatility happened to be now.
+     *
+     * Only decisions STRICTLY AFTER the latest BUY are trusted. recordDecision falls back to
+     * indicators.trailingHigh() when nothing is tracked, and that is the candle-window high including
+     * bars before entry; arming a trail from a peak the position never participated in would force an
+     * instant exit, which handleSell_ignoresPreEntryHighWhenArmingTrailingStop exists to prevent.
+     */
+    private void restoreOpenPositionStateForCurrentTenant() {
+        if (tradeDecisionRepository == null || stateRestoreLimit <= 0) {
+            return;
+        }
+        List<TradeDecisionEntity> recent = tradeDecisionRepository.findByActionIn(
+                List.of("BUY", "SELL", "SKIP", "ERROR"),
+                PageRequest.of(0, stateRestoreLimit, Sort.by(Sort.Direction.DESC, "executedAt"))
+        ).getContent();
+
+        // Descending, so the first BUY seen for a market is its latest entry.
+        Map<String, OffsetDateTime> latestBuyAt = new HashMap<>();
+        for (TradeDecisionEntity decision : recent) {
+            if (decision == null || decision.getExecutedAt() == null
+                    || !"BUY".equalsIgnoreCase(decision.getAction())) {
+                continue;
+            }
+            String key = tenantScopedMarketKey(decision.getMarket());
+            if (key == null) {
+                continue;
+            }
+            if (latestBuyAt.putIfAbsent(key, decision.getExecutedAt()) == null) {
+                lastEntryAtByMarket.putIfAbsent(key, decision.getExecutedAt());
+                BigDecimal entryAtr = readDecimalDetail(decision, "entryAtrPct");
+                if (entryAtr != null && entryAtr.compareTo(BigDecimal.ZERO) > 0) {
+                    entryAtrPctByMarket.putIfAbsent(key, entryAtr);
+                }
+            }
+        }
+
+        for (TradeDecisionEntity decision : recent) {
+            if (decision == null || decision.getTrailingHigh() == null || decision.getExecutedAt() == null) {
+                continue;
+            }
+            String key = tenantScopedMarketKey(decision.getMarket());
+            OffsetDateTime entryAt = key == null ? null : latestBuyAt.get(key);
+            if (entryAt == null || !decision.getExecutedAt().isAfter(entryAt)) {
+                continue;
+            }
+            if (decision.getTrailingHigh().compareTo(BigDecimal.ZERO) > 0) {
+                // Descending order, so the first match is the most recent running maximum.
+                trailingHighByMarket.putIfAbsent(key, decision.getTrailingHigh());
+            }
+        }
+    }
+
+    private BigDecimal readDecimalDetail(TradeDecisionEntity decision, String field) {
+        if (decision == null || decision.getDetails() == null || decision.getDetails().isBlank()) {
+            return null;
+        }
+        try {
+            Object value = tradeDecisionService.parseDetails(decision.getDetails()).get(field);
+            return value == null ? null : new BigDecimal(String.valueOf(value));
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
     private void restoreDailyLossBaselineForCurrentTenant() {
         if (tradeDecisionRepository == null || dailyLossLimitPct <= 0) {
             return;
@@ -3120,7 +3191,14 @@ public class AutoTradeService {
             }
 
             Map<String, Object> details = new HashMap<>();
-            details.put("signalModel", "UNIFIED_TREND");
+            details.put("signalModel", resolveSignalModel(config).name());
+            if (trailingKey != null) {
+                // Persisted so a restart restores the stop geometry an open position was opened with.
+                BigDecimal storedEntryAtrPct = entryAtrPctByMarket.get(trailingKey);
+                if (storedEntryAtrPct != null) {
+                    details.put("entryAtrPct", storedEntryAtrPct);
+                }
+            }
             details.put("timeframeUnit", candleUnitMinutes);
             details.put("maShortWindow", maShort);
             details.put("maLongWindow", maLong);
