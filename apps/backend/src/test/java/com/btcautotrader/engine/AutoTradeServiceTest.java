@@ -367,6 +367,63 @@ class AutoTradeServiceTest {
         verify(orderService).create(any());
     }
 
+    @Test
+    void trailingArmIsNeverNarrowerThanTheTrailingStop() throws Exception {
+        // This service is constructed with arm multiplier 1.0 and trail multiplier 2.5 - the inverted
+        // geometry that shipped. Arming at 1.0xATR while trailing 2.5xATR puts the stop 1.5xATR BELOW
+        // entry the instant it arms, so a position that runs up and comes back can only ever lose.
+        MarketIndicators indicators = indicatorsWithAtrPct(new BigDecimal("1.0"));
+
+        BigDecimal armPct = invokePctResolver("resolveConfiguredTrailingArmPct", indicators);
+        BigDecimal trailPct = invokePctResolver("resolveConfiguredTrailingStopPct", indicators);
+
+        assertThat(armPct).isGreaterThanOrEqualTo(trailPct);
+    }
+
+    @Test
+    void handleSell_stopLossStillFiresWhenStopExitPctIsZero() throws Exception {
+        lenient().when(upbitService.fetchOrderChance("KRW-BTC")).thenReturn(Map.of());
+        when(orderService.create(any())).thenReturn(orderResponse("sell-order", "KRW-BTC"));
+        seedLastEntryAt("KRW-BTC", OffsetDateTime.now().minusMinutes(5));
+
+        // stopExitPct is a position FRACTION that shares a grid and a near-identical Korean label with the
+        // stop-loss price threshold. At 0 it used to make submitSellByPct return "stop_loss_disabled",
+        // silently disarming the stop for that market.
+        StrategyConfig zeroStopExit = new StrategyConfig(
+                true, 30000.0, 1.44, 1.024, 0.675, 35.0, "BALANCED", 0.0, 40.0, 25.0, 0.7);
+
+        AutoTradeAction action = invokeHandleSell(
+                "KRW-BTC",
+                accountSnapshot("100", "0", "100"),
+                zeroStopExit,
+                indicatorsAtPrice(new BigDecimal("90.00"))
+        );
+
+        assertThat(action.action()).isEqualTo("SELL");
+        assertThat(action.reason()).isEqualTo("stop_loss");
+    }
+
+    private BigDecimal invokePctResolver(String methodName, MarketIndicators indicators) throws Exception {
+        Method method = AutoTradeService.class.getDeclaredMethod(
+                methodName, String.class, StrategyConfig.class, MarketIndicators.class);
+        method.setAccessible(true);
+        return (BigDecimal) method.invoke(service, "KRW-BTC", balancedConfig(), indicators);
+    }
+
+    private static MarketIndicators indicatorsWithAtrPct(BigDecimal atrPct) {
+        return new MarketIndicators(
+                new BigDecimal("100.00"), new BigDecimal("100.00"), new BigDecimal("99.00"),
+                null, atrPct, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, null, OffsetDateTime.now().minusMinutes(1));
+    }
+
+    private static MarketIndicators indicatorsAtPrice(BigDecimal price) {
+        return new MarketIndicators(
+                price, new BigDecimal("100.00"), new BigDecimal("99.00"),
+                null, null, null, null, null, null, null, null, null, null, null, null, null,
+                null, null, price, OffsetDateTime.now().minusMinutes(1));
+    }
+
     private AutoTradeAction invokeHandleSell(
             String market,
             Object position,

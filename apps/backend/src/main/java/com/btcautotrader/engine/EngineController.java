@@ -76,6 +76,35 @@ public class EngineController {
         return ResponseEntity.ok(statusResponse(running));
     }
 
+    /**
+     * Kill switch: stop the engine AND flatten every position, in that order.
+     *
+     * Plain /stop only halts decision-making; it leaves open positions with nothing evaluating their
+     * stop-loss. Stopping first means the tick cannot re-enter a market while the liquidation runs.
+     */
+    @PostMapping("/panic")
+    public ResponseEntity<Map<String, Object>> panic(Authentication authentication) {
+        tradingAccessService.requireEngineExecutionAllowed(authentication);
+        UserEntity user = TenantContext.callWithTenantDatabase(null, () -> currentUserService.requireUser(authentication));
+        String tenantDatabase = tradingAccessService.requireTenantDatabase(user);
+
+        AutoTradeResult result = TenantContext.callWithTenantDatabase(tenantDatabase, () -> {
+            engineService.stop();
+            return autoTradeService.liquidateAll("panic_exit");
+        });
+
+        long submitted = result.actions().stream()
+                .filter(action -> "SELL".equalsIgnoreCase(action.action()))
+                .count();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("running", false);
+        response.put("timestamp", OffsetDateTime.now().toString());
+        response.put("liquidationsSubmitted", submitted);
+        response.put("actions", result.actions());
+        return ResponseEntity.ok(response);
+    }
+
     @PostMapping("/tick")
     public ResponseEntity<AutoTradeResult> tick(
             Authentication authentication,

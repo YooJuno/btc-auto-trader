@@ -736,6 +736,80 @@ public class AutoTradeService {
         }
     }
 
+    /**
+     * Emergency liquidation: market-sell every non-KRW balance that has a tradeable KRW pair.
+     *
+     * Stopping the engine only stops new decisions - it leaves open positions with nothing watching the
+     * stop-loss. This is the "get me out" control that was missing entirely. It deliberately ignores the
+     * per-market order cooldown (an emergency should not be rate-limited by a comfort setting) but still
+     * refuses to stack a second SELL on top of one already in flight.
+     */
+    public AutoTradeResult liquidateAll(String reason) {
+        String exitReason = reason == null || reason.isBlank() ? "panic_exit" : reason.trim();
+        OffsetDateTime now = OffsetDateTime.now();
+        List<AutoTradeAction> actions = new ArrayList<>();
+
+        Map<String, AccountSnapshot> accounts;
+        try {
+            accounts = loadAccounts();
+        } catch (RuntimeException ex) {
+            AutoTradeAction action = new AutoTradeAction(
+                    SYSTEM_KEY, "ERROR", resolveSystemErrorReason(ex), null, null, null, null, null);
+            recordDecision(SYSTEM_KEY, action, null, null, null, null, null, null);
+            return new AutoTradeResult(now.toString(), List.of(action));
+        }
+
+        for (Map.Entry<String, AccountSnapshot> entry : accounts.entrySet()) {
+            String currency = entry.getKey();
+            if (currency == null || "KRW".equalsIgnoreCase(currency)) {
+                continue;
+            }
+            BigDecimal available = entry.getValue().balance();
+            if (available == null || available.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            String market = "KRW-" + currency.toUpperCase();
+            AutoTradeAction action;
+            try {
+                BigDecimal currentPrice = fetchCurrentPrice(market);
+                if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
+                    action = new AutoTradeAction(market, "SKIP", "price unavailable", null, available, null, null, null);
+                } else if (currentPrice.multiply(available).compareTo(resolveMinOrderKrw(market, "SELL")) < 0) {
+                    action = new AutoTradeAction(market, "SKIP", "below min order", currentPrice, available, null, null, null);
+                } else if (hasOpenRequest(market, "SELL")) {
+                    action = new AutoTradeAction(market, "SKIP", "pending", currentPrice, available, null, null, null);
+                } else {
+                    OrderRequest request = new OrderRequest(market, "SELL", "MARKET", null, available, null, null);
+                    OrderResponse response = orderService.create(request);
+                    recordSellEvent(market, exitReason, response);
+                    clearMarketRuntimeState(market);
+                    action = new AutoTradeAction(
+                            market, "SELL", exitReason, currentPrice, available, null,
+                            response.orderId(), response.requestStatus());
+                }
+            } catch (RuntimeException ex) {
+                action = new AutoTradeAction(
+                        market, "ERROR", truncate(ex.getMessage(), 200), null, available, null, null, null);
+            }
+            actions.add(action);
+            recordDecision(market, action, null, null, null, null, null, null);
+        }
+
+        return new AutoTradeResult(now.toString(), actions);
+    }
+
+    private void clearMarketRuntimeState(String market) {
+        String key = tenantScopedMarketKey(market);
+        if (key == null) {
+            return;
+        }
+        trailingHighByMarket.remove(key);
+        lastPartialTakeProfitAt.remove(key);
+        lastEntryAtByMarket.remove(key);
+        entryAtrPctByMarket.remove(key);
+    }
+
     private StrategyConfig resolveConfigForMarket(
             String market,
             StrategyConfig baseConfig,
