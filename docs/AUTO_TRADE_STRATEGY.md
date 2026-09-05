@@ -16,46 +16,69 @@ Ref: https://docs.upbit.com/kr/reference/%EB%B6%84minute-%EC%BA%94%EB%93%A4-1
 **Recommendation:** 1-minute default is okay for rapid reaction, but it is noisier.
 For stability, consider 5m or 15m as your production default.
 
-## 2) Strategy Logic (Balanced)
-**Trend-following with confirmation signals**
-- Compute `MA_SHORT` and `MA_LONG` on closing prices.
-- **Trend filter:** `MA_SHORT > MA_LONG` and price above `MA_LONG`.
-- **Slope filter (optional):** `MA_LONG` must be flat-to-up over recent candles.
-- **Overextension filter:** skip entries if price is too far above `MA_LONG`.
-- **Trend strength filter:** require ADX above a minimum threshold.
-- **Volume quality filter:** require current quote-volume ratio above baseline.
-- **Bollinger filter:** avoid entries when band is too tight or price is too overextended.
-- **Confirmation signals (need 2 of 3 by default):**
-  - RSI: `RSI >= RSI_BUY` and not overbought.
-  - MACD: MACD histogram > 0.
-  - Breakout: price breaks above recent high by a small buffer.
+## 2) Strategy Logic (as implemented)
 
-**Exit logic**
-- **Stop-loss:** price below `avg_buy_price * (1 - STOP_LOSS%)`.
-- **Trailing stop:** price drops below **entry 이후 최고가** * (1 - TRAILING_STOP%).
-- **Momentum reversal:** RSI below `RSI_SELL` and MACD histogram < 0.
-- **Trend break:** price below `MA_LONG`.
-- **Take-profit:** optional partial take-profit before full exit.
- - **Exit sizing:** non-stop exits can be partial; stop/trailing defaults to full exit.
+> This section describes what `UnifiedTrendSignalModel` and `AutoTradeService.handleSell` actually do.
+> Earlier revisions of this document described RSI/MACD "2 of 3 confirmations" and a Bollinger entry
+> filter that were never implemented; those claims have been removed rather than left as aspirations.
 
-**Suggested defaults (popular baseline)**
-- `MA_SHORT = 20`
-- `MA_LONG = 100`
-- `RSI_PERIOD = 14`
-- `RSI_BUY = 55`, `RSI_SELL = 45`, `RSI_OVERBOUGHT = 70`
+**Entry — trend-gated Donchian breakout (ALL conditions required)**
+- `MA_SHORT > MA_LONG` and price above `MA_LONG`
+- `MA_LONG` slope at or above the profile minimum
+- ADX at or above `signal.min-adx`
+- quote-volume ratio at or above `signal.min-volume-ratio`
+- price breaks above the `signal.breakout-lookback` high by `signal.breakout-pct`
+- higher-timeframe trend agrees (`signal.htf-confirm.*`)
+- market regime allows entries (`regime.filter.*`)
+
+`signal.max-extension-pct` defaults to **0 (disabled)**. Requiring price above the 20-bar high while
+also requiring it to stay close to `MA_LONG` are contradictory demands: strong breakouts get rejected
+and only weak ones near the MA are taken. Enable it only if you want that behaviour deliberately.
+
+RSI, MACD and Bollinger values are computed and written to the decision log for auditing, but the
+entry model does not gate on them.
+
+**Exit (evaluated in this order)**
+1. **Stop-loss** — price below `avg_buy_price * (1 - STOP_LOSS%)`. Full exit.
+2. **Trailing stop** — price below `post-entry high * (1 - TRAILING_STOP%)`, once armed. Full exit.
+3. **Partial take-profit** — price at or above `avg_buy_price * (1 + TAKE_PROFIT%)`, sells
+   `PARTIAL_TAKE_PROFIT%` of the position and lets the rest run. Rate-limited by
+   `risk.partial-take-profit-cooldown-minutes`.
+4. **Donchian exit** — price below the `signal.breakdown-lookback` low. Full exit.
+5. **Trend break** — price below `MA_LONG`. Sells `TREND_EXIT%`.
+6. **Momentum reversal** — RSI below `RSI_SELL` *and* MACD histogram negative. Sells `MOMENTUM_EXIT%`.
+
+### Exit geometry invariant (important)
+
+The trailing stop arms at `entry * (1 + ARM%)` and then sits at `high * (1 - TRAIL%)`. If `ARM% < TRAIL%`
+the stop is **below the entry price at the moment it arms**, so a position that runs up and comes back can
+only ever be closed for a loss — there is no path to banking a winner.
+
+`AutoTradeService.resolveConfiguredTrailingArmPct` therefore enforces:
+
+```
+ARM% >= TRAIL% + round-trip cost%
+```
+
+`AutoTradeServiceTest.trailingArmIsNeverNarrowerThanTheTrailingStop` pins this. Do not remove it.
+
+### Cost floor
+
+Upbit KRW spot charges 0.05% per side to both maker and taker, so a round trip costs at least 0.10%
+before slippage; the backtester models 0.15% per side. A strategy is only viable where the average gross
+move per round trip is several times that — which is why the default timeframe is **1 hour**, not 1-15
+minutes. At 15m the ATR and the transaction cost are the same order of magnitude.
+
+**Defaults (see `application.properties` for the authoritative list)**
+- `MA_SHORT = 5`, `MA_LONG = 55` on 1h candles
+- `RSI_PERIOD = 14`, `RSI_BUY = 53`, `RSI_SELL = 47`, `RSI_OVERBOUGHT = 68`
 - `MACD = (12, 26, 9)`
-- `BREAKOUT_LOOKBACK = 20`, `BREAKOUT_PCT = 0.3%`
-- `STOP_LOSS = 2.0%`
-- `TAKE_PROFIT = 4.0%` (1:2 risk/reward baseline)
-- `TRAILING_STOP = 2.0%`
-- `PARTIAL_TAKE_PROFIT = 50%` (sell half at take-profit, let rest run)
-- `STOP_EXIT = 100%` (full exit on stop/trailing)
-- `TREND_EXIT = 50%` (partial exit on trend break)
-- `MOMENTUM_EXIT = 50%` (partial exit on momentum reversal)
+- `BREAKOUT_LOOKBACK = 20`, `BREAKOUT_PCT = 0.05%`
+- ATR-derived stops: stop `2.6 x ATR`, trailing `3.0 x ATR`, arm `3.5 x ATR`
+- `PARTIAL_TAKE_PROFIT = 35%`, `STOP_EXIT = 100%`, `TREND_EXIT = 40%`, `MOMENTUM_EXIT = 25%`
 
-These align with commonly cited risk/reward conventions (1:2 to 1:3) and default
-indicator settings (MACD 12-26-9, RSI 70/30 overbought/oversold) used widely in
-technical analysis literature and broker education.
+Note that `STOP_EXIT` and friends are **position fractions**, not price levels. A value of 0 disables
+that exit; stop-loss and trailing stop ignore 0 and always liquidate in full.
 
 ## 2-1) Profile Selection (Aggressive/Balanced/Conservative)
 Profiles adjust confirmation strictness without changing your core MA settings.
