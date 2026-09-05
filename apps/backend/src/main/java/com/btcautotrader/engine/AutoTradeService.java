@@ -340,6 +340,7 @@ public class AutoTradeService {
         }
         try {
             restoreExitStateForCurrentTenant();
+        restoreDailyLossBaselineForCurrentTenant();
         } catch (RuntimeException ex) {
             // Retry on next tick if hydration fails due to transient DB errors.
             restoredStateTenants.remove(tenantKey);
@@ -399,6 +400,60 @@ public class AutoTradeService {
                 registerStopLossEvent(entry.getKey(), occurredAt);
             }
             lastStopLossAt.put(entry.getKey(), events.get(events.size() - 1));
+        }
+    }
+
+    /**
+     * Rebuilds today's equity baseline for the daily-loss guard.
+     *
+     * The baseline lived only in memory, so a restart re-seeded it from the CURRENT (already drawn down)
+     * equity and cleared the circuit breaker — a bot that had hit its daily limit resumed trading, and a
+     * crash loop could bypass the limit indefinitely. It is written into every decision's details, so the
+     * first decision recorded today carries the correct value.
+     */
+    private void restoreDailyLossBaselineForCurrentTenant() {
+        if (tradeDecisionRepository == null || dailyLossLimitPct <= 0) {
+            return;
+        }
+        String tenantKey = currentTenantKey();
+        if (dailyLossBaselinesByTenant.containsKey(tenantKey)) {
+            return;
+        }
+
+        LocalDate today = LocalDate.now();
+        OffsetDateTime dayStart = today.atStartOfDay().atOffset(OffsetDateTime.now().getOffset());
+        List<TradeDecisionEntity> todays = tradeDecisionRepository
+                .findByActionInAndExecutedAtGreaterThanEqualAndExecutedAtLessThanOrderByExecutedAtAsc(
+                        List.of("BUY", "SELL", "SKIP", "ERROR"),
+                        dayStart,
+                        dayStart.plusDays(1)
+                );
+
+        for (TradeDecisionEntity decision : todays) {
+            BigDecimal baseline = readDailyLossBaseline(decision, today);
+            if (baseline != null) {
+                dailyLossBaselinesByTenant.put(tenantKey, new DailyLossBaseline(today, baseline));
+                log.info("Restored daily-loss baseline {} for tenant {}", baseline, tenantKey);
+                return;
+            }
+        }
+    }
+
+    private BigDecimal readDailyLossBaseline(TradeDecisionEntity decision, LocalDate today) {
+        if (decision == null || decision.getDetails() == null || decision.getDetails().isBlank()) {
+            return null;
+        }
+        try {
+            Map<String, Object> parsed = tradeDecisionService.parseDetails(decision.getDetails());
+            Object date = parsed.get("dailyLossBaselineDate");
+            Object value = parsed.get("dailyLossBaselineKrw");
+            if (date == null || value == null || !today.toString().equals(String.valueOf(date))) {
+                return null;
+            }
+            BigDecimal baseline = new BigDecimal(String.valueOf(value));
+            return baseline.compareTo(BigDecimal.ZERO) > 0 ? baseline : null;
+        } catch (RuntimeException ex) {
+            return null;
         }
     }
 
@@ -3024,6 +3079,12 @@ public class AutoTradeService {
             details.put("feeRate", feeRate);
             details.put("slippagePct", slippagePct);
             details.put("tradeCostRate", tradeCostRate);
+            // Persist the day's equity baseline so the daily-loss circuit breaker survives a restart.
+            DailyLossBaseline persistedBaseline = dailyLossBaselinesByTenant.get(currentTenantKey());
+            if (persistedBaseline != null && persistedBaseline.totalAssetKrw() != null) {
+                details.put("dailyLossBaselineDate", persistedBaseline.date().toString());
+                details.put("dailyLossBaselineKrw", persistedBaseline.totalAssetKrw());
+            }
             details.put("orderChanceCacheMinutes", orderChanceCacheMinutes);
             details.put("reentryCooldownMinutes", reentryCooldownMinutes);
             details.put("stopLossGuardLookbackMinutes", stopLossGuardLookbackMinutes);
