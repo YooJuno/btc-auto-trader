@@ -5,6 +5,7 @@ import com.auth0.jwt.algorithms.Algorithm;
 import com.btcautotrader.auth.UserExchangeCredentialService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -26,6 +27,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.UUID;
 
 @Service
@@ -40,6 +43,16 @@ public class UpbitService {
     private static final String UPBIT_ORDER_CHANCE_URL = "https://api.upbit.com/v1/orders/chance";
     private static final String UPBIT_ORDER_DETAIL_URL = "https://api.upbit.com/v1/order";
 
+    // Public market data is identical for every tenant and every user, but each tenant's tick fetched it
+    // independently. With N tenants x M markets that multiplies the IP-scoped Upbit budget by N for no
+    // information gain — the audit put the ceiling at roughly six market-slots for a whole deployment.
+    // These caches are deliberately short: at a 1h signal timeframe a few seconds of staleness is
+    // invisible, and use-closed-candle means the newest bar is discarded anyway.
+    private final Map<String, CachedResponse<List<Map<String, Object>>>> candleCache = new ConcurrentHashMap<>();
+    private final AtomicReference<CachedResponse<List<Map<String, Object>>>> marketsCache = new AtomicReference<>();
+    private final long candleCacheMs;
+    private final long marketsCacheMs;
+
     private final RestTemplate restTemplate;
     private final UserExchangeCredentialService userExchangeCredentialService;
     private final UpbitRateLimiter rateLimiter;
@@ -47,8 +60,12 @@ public class UpbitService {
     public UpbitService(
             RestTemplateBuilder restTemplateBuilder,
             UserExchangeCredentialService userExchangeCredentialService,
-            UpbitRateLimiter rateLimiter
+            UpbitRateLimiter rateLimiter,
+            @Value("${upbit.cache.candles-ms:15000}") long candleCacheMs,
+            @Value("${upbit.cache.markets-ms:600000}") long marketsCacheMs
     ) {
+        this.candleCacheMs = Math.max(0, candleCacheMs);
+        this.marketsCacheMs = Math.max(0, marketsCacheMs);
         this.restTemplate = restTemplateBuilder
                 .setConnectTimeout(Duration.ofSeconds(5))
                 .setReadTimeout(Duration.ofSeconds(10))
@@ -113,6 +130,10 @@ public class UpbitService {
     }
 
     public List<Map<String, Object>> fetchMarkets() {
+        CachedResponse<List<Map<String, Object>>> cached = marketsCache.get();
+        if (cached != null && cached.isFresh(marketsCacheMs)) {
+            return cached.value();
+        }
         rateLimiter.acquire("markets");
         String url = UriComponentsBuilder.fromHttpUrl(UPBIT_MARKETS_URL)
                 .queryParam("isDetails", true)
@@ -120,15 +141,24 @@ public class UpbitService {
 
         ResponseEntity<List> response = restTemplate.getForEntity(url, List.class);
         List<Map<String, Object>> body = response.getBody();
-        return body == null ? List.of() : body;
+        List<Map<String, Object>> markets = body == null ? List.of() : body;
+        if (marketsCacheMs > 0 && !markets.isEmpty()) {
+            marketsCache.set(new CachedResponse<>(markets, System.currentTimeMillis()));
+        }
+        return markets;
     }
 
     public List<Map<String, Object>> fetchMinuteCandles(String market, int unit, int count) {
         if (unit <= 0) {
             throw new IllegalArgumentException("unit must be positive");
         }
-        rateLimiter.acquire("candles");
         int safeCount = Math.max(1, Math.min(count, 200));
+        String cacheKey = "m|" + market + "|" + unit + "|" + safeCount;
+        List<Map<String, Object>> hit = readCandleCache(cacheKey);
+        if (hit != null) {
+            return hit;
+        }
+        rateLimiter.acquire("candles");
         String url = UriComponentsBuilder.fromHttpUrl(UPBIT_CANDLES_MINUTE_URL + "/" + unit)
                 .queryParam("market", market)
                 .queryParam("count", safeCount)
@@ -136,7 +166,7 @@ public class UpbitService {
 
         ResponseEntity<List> response = restTemplate.getForEntity(url, List.class);
         List<Map<String, Object>> body = response.getBody();
-        return body == null ? List.of() : body;
+        return writeCandleCache(cacheKey, body == null ? List.of() : body);
     }
 
     /**
@@ -144,8 +174,13 @@ public class UpbitService {
      * 240, so a 30-day momentum lookback or a 100-day regime MA has to come from here.
      */
     public List<Map<String, Object>> fetchDayCandles(String market, int count) {
-        rateLimiter.acquire("candles-day");
         int safeCount = Math.max(1, Math.min(count, 200));
+        String cacheKey = "d|" + market + "|" + safeCount;
+        List<Map<String, Object>> hit = readCandleCache(cacheKey);
+        if (hit != null) {
+            return hit;
+        }
+        rateLimiter.acquire("candles-day");
         String url = UriComponentsBuilder.fromHttpUrl(UPBIT_CANDLES_DAY_URL)
                 .queryParam("market", market)
                 .queryParam("count", safeCount)
@@ -153,7 +188,7 @@ public class UpbitService {
 
         ResponseEntity<List> response = restTemplate.getForEntity(url, List.class);
         List<Map<String, Object>> body = response.getBody();
-        return body == null ? List.of() : body;
+        return writeCandleCache(cacheKey, body == null ? List.of() : body);
     }
 
     public Map<String, Map<String, Object>> fetchTickers(List<String> markets) {
@@ -345,6 +380,27 @@ public class UpbitService {
 
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private List<Map<String, Object>> readCandleCache(String key) {
+        if (candleCacheMs <= 0) {
+            return null;
+        }
+        CachedResponse<List<Map<String, Object>>> cached = candleCache.get(key);
+        return cached != null && cached.isFresh(candleCacheMs) ? cached.value() : null;
+    }
+
+    private List<Map<String, Object>> writeCandleCache(String key, List<Map<String, Object>> value) {
+        if (candleCacheMs > 0 && !value.isEmpty()) {
+            candleCache.put(key, new CachedResponse<>(value, System.currentTimeMillis()));
+        }
+        return value;
+    }
+
+    private record CachedResponse<T>(T value, long fetchedAtMs) {
+        boolean isFresh(long ttlMs) {
+            return System.currentTimeMillis() - fetchedAtMs < ttlMs;
+        }
     }
 
     private UpbitAuthCredentials resolveCredentialsForCurrentTenant() {
