@@ -16,6 +16,7 @@ import {
   normalizeRatioPresets,
 } from '../utils/tradingUi.js'
 import {
+  panicExitRequest,
   saveMarketOverridesRequest,
   startEngineRequest,
   stopEngineRequest,
@@ -206,6 +207,8 @@ export function useTradingWorkspace({
 
   const [orderHistory, setOrderHistory] = useState([])
   const [decisionHistory, setDecisionHistory] = useState([])
+  const [decisionFeed, setDecisionFeed] = useState([])
+  const [panicBusy, setPanicBusy] = useState(false)
   const [summaryError, setSummaryError] = useState(null)
   const [orderHistoryError, setOrderHistoryError] = useState(null)
   const [decisionHistoryError, setDecisionHistoryError] = useState(null)
@@ -319,8 +322,11 @@ export function useTradingWorkspace({
 
   const fetchDecisionHistory = useCallback(async () => {
     try {
+      // includeSkips=true: the SKIP rows ARE the answer to "the engine is on, why has nothing
+      // happened for two hours". They were being discarded server-side by the query parameter and
+      // again client-side by the BUY/SELL filter below.
       const data = await requestJson(
-        '/api/engine/decisions?limit=30&includeSkips=false',
+        '/api/engine/decisions?limit=120&includeSkips=true',
         {},
         '의사결정 로그 조회 실패'
       )
@@ -329,6 +335,7 @@ export function useTradingWorkspace({
         const action = String(decision?.action ?? '').toUpperCase()
         return action === 'BUY' || action === 'SELL'
       })
+      setDecisionFeed(allItems)
       setDecisionHistory(tradeOnlyItems)
       setDecisionHistoryError(null)
     } catch (err) {
@@ -465,6 +472,9 @@ export function useTradingWorkspace({
 
   const connectionClass = serverConnected === null ? 'checking' : serverConnected ? 'connected' : 'disconnected'
   const connectionLabel = serverConnected === null ? '확인중' : serverConnected ? '연결됨' : '끊김'
+  // engineStatus stays null until a status response actually arrives. Rendering that as OFF showed a
+  // live engine as stopped and offered to "start" it.
+  const engineKnown = engineStatus !== null
   const engineClass = engineStatus ? 'ok' : 'error'
   const marketRowsDirty = useMemo(
     () => buildMarketOverrideSignature(marketRows) !== marketRowsBaseline,
@@ -707,11 +717,35 @@ export function useTradingWorkspace({
     }
   }, [])
 
+  const handlePanicExit = useCallback(async () => {
+    setPanicBusy(true)
+    setEngineError(null)
+    try {
+      const result = await panicExitRequest()
+      setEngineStatus(false)
+      const submitted = Number(result?.liquidationsSubmitted ?? 0)
+      setManualTradeNotice(
+        submitted > 0
+          ? `긴급 청산: ${submitted}건 시장가 매도 주문을 전송했습니다.`
+          : '긴급 청산: 엔진을 중지했습니다. 청산할 포지션이 없습니다.'
+      )
+      await Promise.all([fetchSummary(true), fetchOrderHistory(), fetchDecisionHistory()])
+    } catch (err) {
+      setEngineError(err?.message ?? '긴급 청산 실패')
+    } finally {
+      setPanicBusy(false)
+    }
+  }, [fetchDecisionHistory, fetchOrderHistory, fetchSummary])
+
   return {
     loading,
     engineStatus,
+    engineKnown,
     engineBusy,
     engineError,
+    decisionFeed,
+    panicBusy,
+    handlePanicExit,
     strategy,
     strategyError,
     ratioError,

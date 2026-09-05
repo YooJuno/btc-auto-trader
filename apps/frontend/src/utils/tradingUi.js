@@ -789,6 +789,18 @@ export const formatDateTime = (value) => {
   return date.toLocaleString('ko-KR', { hour12: false })
 }
 
+// Time-only form for the decision feed, where the date is almost always today and the column is narrow.
+export const formatTime = (value) => {
+  if (!value) {
+    return '-'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return '-'
+  }
+  return date.toLocaleTimeString('ko-KR', { hour12: false })
+}
+
 export const truncateText = (value, max) => {
   if (!value) {
     return '-'

@@ -1,4 +1,13 @@
 import { memo } from 'react'
+import { formatOrderStatus } from '../../utils/tradingUi.js'
+
+// Only these states represent a real fill, so only these may carry a realised-P&L figure.
+const FILLED_TOKENS = new Set(['FILLED', 'DONE'])
+
+const isFilled = (order) => {
+  const status = String(formatOrderStatus(order?.requestStatus, order?.state) ?? '').toUpperCase()
+  return [...FILLED_TOKENS].some((token) => status.startsWith(token))
+}
 
 const OrderHistoryRow = memo(function OrderHistoryRow({
   order,
@@ -7,15 +16,35 @@ const OrderHistoryRow = memo(function OrderHistoryRow({
   pnlClass,
 }) {
   const decision = order.decision
-  const profitClass = pnlClass(order.tradeProfit)
+  const filled = isFilled(order)
+  const status = formatOrderStatus(order?.requestStatus, order?.state)
+  const side = String(order.side ?? '').toUpperCase()
 
   return (
     <tr>
       <td className="mono small">{formatDateTime(order.requestedAt)}</td>
-      <td>{order.market}</td>
-      <td className={order.side === 'BUY' ? 'positive' : 'negative'}>{order.side}</td>
-      <td className="mono small">{decision?.reason ?? '-'}</td>
-      <td className={`mono ${profitClass}`}>{formatKRW(order.tradeProfit)}</td>
+      <td className="mono">{order.market}</td>
+      <td>
+        {/* Side is a category, not a P&L value. Colouring it with the same classes the P&L column uses
+            made a green cell mean "buy" in one column and "gain" in the next. */}
+        <span className={`side-tag ${side === 'BUY' ? 'side-tag--buy' : 'side-tag--sell'}`}>
+          {side === 'BUY' ? '매수' : '매도'}
+        </span>
+      </td>
+      <td className="small" title={order.errorMessage ?? undefined}>
+        {status}
+      </td>
+      <td className="num">{order.funds ? formatKRW(order.funds) : '-'}</td>
+      <td className="mono small" title={decision?.reason ?? undefined}>
+        {decision?.reason ?? '-'}
+      </td>
+      {/* A rejected or cancelled order has no realised P&L. The previous version ran every row through a
+          client-side FIFO regardless of status, so failed orders produced invented profit numbers. */}
+      <td className={`num ${filled ? pnlClass(order.tradeProfit) : ''}`}>
+        {filled && order.tradeProfit !== null && order.tradeProfit !== undefined
+          ? formatKRW(order.tradeProfit)
+          : '-'}
+      </td>
     </tr>
   )
 })
@@ -28,26 +57,25 @@ function OrderHistoryCard({
   pnlClass,
 }) {
   return (
-    <article className="table-card card--elevated order-card">
+    <section className="table-card order-card">
       <div className="table-header">
-        <div>
-          <h2>최근 주문 로그</h2>
-          <p className="sub">매매 사유와 거래별 수익 추정치를 간단히 표시합니다.</p>
-        </div>
+        <h2>주문 내역</h2>
       </div>
       {feedError && <p className="status-error">{feedError}</p>}
       {mergedOrderHistory.length === 0 ? (
-        <div className="empty-state">주문 로그가 없습니다.</div>
+        <div className="empty-state">주문 내역이 없습니다.</div>
       ) : (
         <div className="table-wrapper">
           <table>
             <thead>
               <tr>
-                <th>시간</th>
+                <th>시각</th>
                 <th>마켓</th>
-                <th>사이드</th>
+                <th>구분</th>
+                <th>상태</th>
+                <th className="num">금액</th>
                 <th>사유</th>
-                <th>수익</th>
+                <th className="num">실현손익</th>
               </tr>
             </thead>
             <tbody>
@@ -64,7 +92,7 @@ function OrderHistoryCard({
           </table>
         </div>
       )}
-    </article>
+    </section>
   )
 }
 

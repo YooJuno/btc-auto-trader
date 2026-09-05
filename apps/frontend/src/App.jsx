@@ -2,7 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import './App.css'
 import DashboardRoute from './routes/DashboardRoute.jsx'
 import AppHeader from './components/layout/AppHeader.jsx'
-import PageContextBanner from './components/layout/PageContextBanner.jsx'
 import ManualTradeModal from './components/trade/ManualTradeModal.jsx'
 import { useDeviceUiPreferences } from './hooks/useDeviceUiPreferences.js'
 import { useAuthSession } from './hooks/useAuthSession.js'
@@ -21,6 +20,7 @@ import {
   formatDateTime,
   formatKRW,
   formatPercent,
+  formatTime,
   pnlClass,
   resolveAppPath,
   resolveAppRoute,
@@ -36,6 +36,7 @@ const DASHBOARD_FORMATTERS = {
   formatCoin,
   formatPercent,
   formatDateTime,
+  formatTime,
   pnlClass,
 }
 const MANUAL_TRADE_FORMATTERS = {
@@ -229,8 +230,12 @@ function App() {
   const {
     loading,
     engineStatus,
+    engineKnown,
     engineBusy,
     engineError,
+    decisionFeed,
+    panicBusy,
+    handlePanicExit,
     strategy,
     strategyError,
     ratioError,
@@ -301,6 +306,15 @@ function App() {
     pollingIntervalMs,
     syncUserMarkets,
   })
+
+  const handlePanicConfirm = useCallback(() => {
+    const confirmed = window.confirm(
+      '긴급 청산\n\n엔진을 중지하고 보유 코인을 전량 시장가로 매도합니다.\n시장가 주문이므로 슬리피지가 발생할 수 있으며 되돌릴 수 없습니다.\n\n실행하시겠습니까?'
+    )
+    if (confirmed) {
+      handlePanicExit()
+    }
+  }, [handlePanicExit])
 
   const handleEngineToggle = useCallback(() => {
     if (engineStatus) {
@@ -538,7 +552,11 @@ function App() {
         engineError={engineError}
         engineBusy={engineBusy}
         engineStatus={engineStatus}
+        engineKnown={engineKnown}
         onEngineToggle={handleEngineToggle}
+        onPanic={handlePanicConfirm}
+        panicBusy={panicBusy}
+        hasOpenPositions={positions.length > 0}
         updatedAt={updatedAt}
         authUser={authUser}
         connectionClass={connectionClass}
@@ -547,8 +565,6 @@ function App() {
         canAccessAdmin={authenticated && canAccessAdmin}
         onLogout={handleLogout}
       />
-
-      <PageContextBanner activeRoute={effectiveRoute} />
 
       {effectiveRoute === ADMIN_USERS_ROUTE && authenticated && canAccessAdmin ? (
         <Suspense fallback={routeLoadingFallback}>
@@ -602,6 +618,7 @@ function App() {
           manualTradeNotice={manualTradeNotice}
           mergedOrderHistory={mergedOrderHistory}
           feedError={feedError}
+          decisionFeed={decisionFeed}
           onOpenManualTrade={openManualTrade}
           formatters={DASHBOARD_FORMATTERS}
         />

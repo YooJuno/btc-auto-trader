@@ -11,6 +11,11 @@ export async function stopEngineRequest() {
   return Boolean(data?.running)
 }
 
+// Stops the engine and market-sells every position. Backed by POST /api/engine/panic.
+export async function panicExitRequest() {
+  return requestJson('/api/engine/panic', { method: 'POST' }, '긴급 청산 실패')
+}
+
 export async function saveMarketOverridesRequest(rows) {
   const payload = buildMarketOverridePayload(rows)
   return requestJson('/api/strategy/market-overrides', {
