@@ -307,6 +307,21 @@ function App() {
     syncUserMarkets,
   })
 
+  // Chart the market the engine is actually working: the largest open position, else the first
+  // configured market. userSettings.markets is the same list the engine iterates.
+  const chartMarket = useMemo(() => {
+    if (positions.length > 0 && positions[0]?.market) {
+      return positions[0].market
+    }
+    const configured = Array.isArray(userSettings?.markets) ? userSettings.markets.filter(Boolean) : []
+    return configured[0] ?? null
+  }, [positions, userSettings])
+
+  const chartPosition = useMemo(
+    () => positions.find((item) => item?.market === chartMarket) ?? null,
+    [positions, chartMarket]
+  )
+
   const handlePanicConfirm = useCallback(() => {
     const confirmed = window.confirm(
       '긴급 청산\n\n엔진을 중지하고 보유 코인을 전량 시장가로 매도합니다.\n시장가 주문이므로 슬리피지가 발생할 수 있으며 되돌릴 수 없습니다.\n\n실행하시겠습니까?'
@@ -619,6 +634,8 @@ function App() {
           mergedOrderHistory={mergedOrderHistory}
           feedError={feedError}
           decisionFeed={decisionFeed}
+          chartMarket={chartMarket}
+          chartAvgBuyPrice={chartPosition?.avgBuyPrice}
           onOpenManualTrade={openManualTrade}
           formatters={DASHBOARD_FORMATTERS}
         />

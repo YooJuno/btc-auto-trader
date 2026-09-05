@@ -29,9 +29,10 @@ function ManualTradeModal({
   formatters,
 }) {
   const { formatCoin, formatKRW, toInputValue } = formatters
-  // The confirmation is bound to the exact ticket it was given for, so changing market, side or order
-  // type invalidates it automatically — no effect, and no way to confirm one order and send another.
-  const ticketKey = `${market}|${side}|${type}`
+  // The confirmation is bound to the exact ticket it was given for — including the amount. Keying it on
+  // market/side/type alone would let someone confirm one size, edit the field, and submit a different
+  // order against a stale confirmation. Any edit invalidates it, and no effect is needed to reset it.
+  const ticketKey = `${market}|${side}|${type}|${price}|${volume}|${funds}`
   const [confirmedTicket, setConfirmedTicket] = useState(null)
   const confirming = open && confirmedTicket === ticketKey
 

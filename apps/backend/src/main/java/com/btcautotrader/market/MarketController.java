@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
@@ -18,6 +19,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/market")
 public class MarketController {
+    private static final List<Integer> ALLOWED_CANDLE_UNITS = List.of(1, 3, 5, 10, 15, 30, 60, 240);
+
     private final UpbitService upbitService;
 
     public MarketController(UpbitService upbitService) {
@@ -50,6 +53,56 @@ public class MarketController {
         response.put("market", normalizedMarket);
         response.put("ticker", ticker);
 
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Public OHLCV for charting. The console had no visualisation of any kind, so an operator could not
+     * see price action, where their average buy sits, or where the engine entered and exited.
+     * Upbit minute candles support units 1/3/5/10/15/30/60/240 only.
+     */
+    @GetMapping("/candles")
+    public ResponseEntity<Map<String, Object>> getCandles(
+            @RequestParam(name = "market") String market,
+            @RequestParam(name = "unit", defaultValue = "60") int unit,
+            @RequestParam(name = "count", defaultValue = "200") int count
+    ) {
+        String normalizedMarket = normalizeMarket(market, null);
+        if (normalizedMarket == null) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "market is required");
+            return ResponseEntity.badRequest().body(error);
+        }
+        if (!ALLOWED_CANDLE_UNITS.contains(unit)) {
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "unsupported unit");
+            error.put("allowed", ALLOWED_CANDLE_UNITS);
+            return ResponseEntity.badRequest().body(error);
+        }
+
+        int normalizedCount = Math.max(1, Math.min(count, 400));
+        List<Map<String, Object>> raw = upbitService.fetchMinuteCandles(normalizedMarket, unit, normalizedCount);
+
+        List<Map<String, Object>> candles = new ArrayList<>();
+        for (Map<String, Object> item : raw == null ? List.<Map<String, Object>>of() : raw) {
+            Map<String, Object> candle = new HashMap<>();
+            // UTC so the client can parse it unambiguously; display timezone is a client concern.
+            candle.put("time", item.get("candle_date_time_utc"));
+            candle.put("open", item.get("opening_price"));
+            candle.put("high", item.get("high_price"));
+            candle.put("low", item.get("low_price"));
+            candle.put("close", item.get("trade_price"));
+            candle.put("value", item.get("candle_acc_trade_price"));
+            candles.add(candle);
+        }
+        // Upbit returns newest-first; charts want oldest-first.
+        Collections.reverse(candles);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("queriedAt", OffsetDateTime.now().toString());
+        response.put("market", normalizedMarket);
+        response.put("unit", unit);
+        response.put("candles", candles);
         return ResponseEntity.ok(response);
     }
 
