@@ -523,12 +523,10 @@ public class AutoTradeService {
                 BigDecimal marketMaxOrderKrw = resolveMarketMaxOrderKrw(market, marketConfig, runtimeOverrides);
                 boolean tradePaused = isTradePaused(market, runtimeOverrides);
 
-                if (isBackoffActive(market, now)) {
-                    AutoTradeAction action = new AutoTradeAction(market, "SKIP", "backoff", null, null, null, null, null);
-                    actions.add(action);
-                    recordDecision(market, action, marketConfig, profile, null, tuning, regime, marketMaxOrderKrw);
-                    continue;
-                }
+                // Backoff gates ENTRIES only. It used to short-circuit the market before the position was
+                // even inspected, so a handful of transient Upbit errors (the delay escalates to 300s) left
+                // an open position with no stop-loss evaluation for up to five minutes.
+                boolean backoffActive = isBackoffActive(market, now);
 
                 MarketIndicators indicators = null;
                 try {
@@ -551,6 +549,21 @@ public class AutoTradeService {
                             trailingHighByMarket.remove(tenantMarketKey);
                             lastEntryAtByMarket.remove(tenantMarketKey);
                             entryAtrPctByMarket.remove(tenantMarketKey);
+                        }
+                        if (backoffActive) {
+                            AutoTradeAction action = new AutoTradeAction(
+                                    market,
+                                    "SKIP",
+                                    "backoff",
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    null
+                            );
+                            actions.add(action);
+                            recordDecision(market, action, marketConfig, profile, null, tuning, regime, marketMaxOrderKrw);
+                            continue;
                         }
                         if (dailyLossStatus.active()) {
                             AutoTradeAction action = new AutoTradeAction(
@@ -839,7 +852,10 @@ public class AutoTradeService {
         minAdxThreshold = clamp(minAdxThreshold, 5.0, 60.0);
         minVolumeRatioThreshold = clamp(minVolumeRatioThreshold, 0.1, 3.0);
         breakout = clamp(breakout, 0.05, 3.0);
-        maxExtension = clamp(maxExtension, 0.2, 5.0);
+        // 0 disables the overextension filter entirely. It must stay reachable: requiring
+        // price > 20-bar high AND price <= MA_long x (1 + maxExtension) are contradictory demands, and
+        // clamping the floor to 0.2 made the filter impossible to switch off.
+        maxExtension = maxExtension <= 0 ? 0.0 : clamp(maxExtension, 0.2, 5.0);
         minSlope = clamp(minSlope, -0.5, 1.0);
         confirmations = clamp(confirmations, 1, 3);
 
@@ -951,16 +967,68 @@ public class AutoTradeService {
             trailingStopThreshold = entryTrailingHigh.multiply(percentFactor(-trailingStopPct.doubleValue()));
         }
 
+        // Protective exits always liquidate. stopExitPct is a position fraction, and a non-positive value
+        // used to make submitSellByPct return "<reason>_disabled" — silently turning the stop-loss off for
+        // the market. A stop that can be switched off by a sizing field is not a stop.
+        double protectiveExitPct = config.stopExitPct() > 0 ? config.stopExitPct() : 100.0;
+
         if (currentPrice.compareTo(stopLossThreshold) <= 0) {
-            return submitSellByPct(market, available, currentPrice, config.stopExitPct(), "stop_loss", true, minTotal);
+            return submitSellByPct(market, available, currentPrice, protectiveExitPct, "stop_loss", true, minTotal);
         }
         if (trailingStopThreshold != null && currentPrice.compareTo(trailingStopThreshold) <= 0) {
-            return submitSellByPct(market, available, currentPrice, config.stopExitPct(), "trailing_stop", true, minTotal);
+            return submitSellByPct(market, available, currentPrice, protectiveExitPct, "trailing_stop", true, minTotal);
         }
+
+        // Take-profit: bank a slice at the configured target and let the remainder ride the trailing stop.
+        // takeProfitPct previously only fed the trailing-arm calculation, where MAX_TRAILING_ARM_PCT capped
+        // it at 1.2 — so any value above 1.2% was inert.
+        if (config.takeProfitPct() > 0) {
+            BigDecimal takeProfitThreshold = avgBuyPrice.multiply(percentFactor(config.takeProfitPct()));
+            if (currentPrice.compareTo(takeProfitThreshold) >= 0
+                    && canTakePartialProfit(market, OffsetDateTime.now())) {
+                AutoTradeAction partial = attemptPartialTakeProfit(
+                        market,
+                        available,
+                        currentPrice,
+                        config.partialTakeProfitPct(),
+                        minTotal
+                );
+                if (partial != null) {
+                    return partial;
+                }
+            }
+        }
+
         if (indicators != null
                 && indicators.breakdownLevel() != null
                 && currentPrice.compareTo(indicators.breakdownLevel()) <= 0) {
             return submitSellByPct(market, available, currentPrice, 100.0, "donchian_exit", false, minTotal);
+        }
+
+        // Trend break: price closed back under the slow MA that justified the entry.
+        if (config.trendExitPct() > 0
+                && indicators != null
+                && indicators.maLong() != null
+                && currentPrice.compareTo(indicators.maLong()) < 0) {
+            return submitSellByPct(market, available, currentPrice, config.trendExitPct(), "trend_break", false, minTotal);
+        }
+
+        // Momentum reversal: RSI rolled under its sell threshold and MACD histogram turned negative.
+        if (config.momentumExitPct() > 0
+                && indicators != null
+                && indicators.rsi() != null
+                && indicators.macdHistogram() != null
+                && indicators.rsi().doubleValue() < tuning.rsiSellThreshold()
+                && indicators.macdHistogram().compareTo(BigDecimal.ZERO) < 0) {
+            return submitSellByPct(
+                    market,
+                    available,
+                    currentPrice,
+                    config.momentumExitPct(),
+                    "momentum_reversal",
+                    false,
+                    minTotal
+            );
         }
 
         return new AutoTradeAction(market, "SKIP", "no signal", currentPrice, available, null, null, null);
@@ -1008,6 +1076,10 @@ public class AutoTradeService {
                 regimeSizeMultiplier
         );
         orderFunds = applyCostBuffer(orderFunds);
+        // Every other sizing stage only shrinks, but the regime multiplier (default risk-on 1.20) can grow
+        // the order past the cap it started from. Re-apply the hard limits so the user's per-market cap and
+        // the available KRW balance always have the last word.
+        orderFunds = min(orderFunds, min(cash, marketMaxOrderKrw));
         if (marketMaxOrderKrw != null
                 && marketMaxOrderKrw.compareTo(BigDecimal.ZERO) > 0
                 && currentPositionValueKrw != null
@@ -1577,11 +1649,20 @@ public class AutoTradeService {
         );
     }
 
+    /**
+     * The trailing stop must only arm once it can actually lock in a gain.
+     *
+     * With arm = 1.5xATR and trail = 1.8xATR (the previous defaults) the stop armed at
+     * entry x (1 + 1.5xATR) and immediately sat at high x (1 - 1.8xATR), i.e. ~0.3xATR BELOW entry —
+     * so the most common outcome ("ran up, came back") was a guaranteed loss, and there was no path
+     * to banking a winner at all. Enforce arm >= trail + round-trip cost in code so a config change
+     * cannot reintroduce the inversion.
+     */
     private BigDecimal resolveConfiguredTrailingArmPct(String market, StrategyConfig config, MarketIndicators indicators) {
         if (config == null) {
             return BigDecimal.valueOf(MAX_TRAILING_ARM_PCT);
         }
-        return resolveAtrBackedPct(
+        BigDecimal armPct = resolveAtrBackedPct(
                 market,
                 indicators,
                 atrTrailingArmMultiplier,
@@ -1589,6 +1670,13 @@ public class AutoTradeService {
                 BigDecimal.valueOf(0.2),
                 BigDecimal.valueOf(20.0)
         );
+        BigDecimal trailPct = resolveConfiguredTrailingStopPct(market, config, indicators);
+        if (armPct == null || trailPct == null || trailPct.compareTo(BigDecimal.ZERO) <= 0) {
+            return armPct;
+        }
+        BigDecimal roundTripCostPct = tradeCostRate.multiply(BigDecimal.valueOf(2)).multiply(HUNDRED);
+        BigDecimal minimumArmPct = trailPct.add(roundTripCostPct);
+        return armPct.compareTo(minimumArmPct) < 0 ? minimumArmPct : armPct;
     }
 
     private BigDecimal resolveAtrStopLossPct(String market, StrategyConfig config, MarketIndicators indicators) {
