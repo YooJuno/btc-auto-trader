@@ -347,6 +347,7 @@ export function useTradingWorkspace({
 
   // Latest-value refs so the automatic refresh can check for unsaved edits without taking marketRows as
   // a dependency (which would rebuild the callback on every keystroke).
+  const pollInFlightRef = useRef({})
   const marketRowsRef = useRef([])
   const marketRowsBaselineRef = useRef('')
 
@@ -436,15 +437,28 @@ export function useTradingWorkspace({
       fetchDecisionHistory()
     }
 
-    const summaryTimer = setInterval(() => fetchSummary(true), pollingIntervalMs)
-    const engineTimer = setInterval(() => fetchEngineStatus(), pollingIntervalMs)
+    // Skip a tick while the previous one is still in flight. The interval floor is 2s, so a slow
+    // backend or a slow Upbit call used to queue requests faster than they completed, and a late
+    // response could overwrite a newer one — showing a stale portfolio as current.
+    const poll = (key, run) => () => {
+      if (pollInFlightRef.current[key]) {
+        return
+      }
+      pollInFlightRef.current[key] = true
+      Promise.resolve(run()).finally(() => {
+        pollInFlightRef.current[key] = false
+      })
+    }
+
+    const summaryTimer = setInterval(poll('summary', () => fetchSummary(true)), pollingIntervalMs)
+    const engineTimer = setInterval(poll('engine', () => fetchEngineStatus()), pollingIntervalMs)
     // The feed is history, not live state: at the 2s floor a 120-row decision payload every tick would
     // hammer the backend and re-render the list for nothing. Poll it on its own slower cadence.
     const feedTimer = isDashboardRoute
-      ? setInterval(() => {
-        fetchOrderHistory()
-        fetchDecisionHistory()
-      }, Math.max(pollingIntervalMs, FEED_POLL_MIN_MS))
+      ? setInterval(
+        poll('feed', () => Promise.all([fetchOrderHistory(), fetchDecisionHistory()])),
+        Math.max(pollingIntervalMs, FEED_POLL_MIN_MS)
+      )
       : null
 
     return () => {
@@ -453,6 +467,7 @@ export function useTradingWorkspace({
       if (feedTimer) {
         clearInterval(feedTimer)
       }
+      pollInFlightRef.current = {}
     }
   }, [
     activeRoute,
