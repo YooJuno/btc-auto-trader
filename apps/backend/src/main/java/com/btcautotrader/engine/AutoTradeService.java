@@ -108,6 +108,7 @@ public class AutoTradeService {
     private final double atrTrailingStopMultiplier;
     private final double atrTrailingArmMultiplier;
     private final boolean atrRiskSizingEnabled;
+    private final boolean atrExitThresholdsEnabled;
     private final long partialTakeProfitCooldownMinutes;
     private final long stopLossCooldownMinutes;
     private final long reentryCooldownMinutes;
@@ -212,6 +213,7 @@ public class AutoTradeService {
             @Value("${risk.atr-trailing-stop-multiplier:1.8}") double atrTrailingStopMultiplier,
             @Value("${risk.atr-trailing-arm-multiplier:1.5}") double atrTrailingArmMultiplier,
             @Value("${risk.atr-risk-sizing-enabled:true}") boolean atrRiskSizingEnabled,
+            @Value("${risk.atr-exit-thresholds-enabled:true}") boolean atrExitThresholdsEnabled,
             @Value("${risk.partial-take-profit-cooldown-minutes:120}") long partialTakeProfitCooldownMinutes,
             @Value("${risk.stop-loss-cooldown-minutes:30}") long stopLossCooldownMinutes,
             @Value("${risk.reentry-cooldown-minutes:15}") long reentryCooldownMinutes,
@@ -304,6 +306,7 @@ public class AutoTradeService {
         this.atrTrailingStopMultiplier = clamp(atrTrailingStopMultiplier, 0.1, 12.0);
         this.atrTrailingArmMultiplier = clamp(atrTrailingArmMultiplier, 0.1, 10.0);
         this.atrRiskSizingEnabled = atrRiskSizingEnabled;
+        this.atrExitThresholdsEnabled = atrExitThresholdsEnabled;
         this.partialTakeProfitCooldownMinutes = partialTakeProfitCooldownMinutes;
         this.stopLossCooldownMinutes = stopLossCooldownMinutes;
         this.reentryCooldownMinutes = reentryCooldownMinutes;
@@ -1874,6 +1877,14 @@ public class AutoTradeService {
         return resolveConfiguredStopLossPct(market, config, indicators);
     }
 
+    /**
+     * ATR-derived exit threshold, falling back to the configured percentage.
+     *
+     * When ATR is available this REPLACES the user's configured stop-loss / trailing percentages, and
+     * ATR is available essentially always — so the per-market 손절 % / 트레일링 % fields in the settings
+     * UI had no effect and no flag existed to restore them (atr-risk-sizing-enabled gates position
+     * sizing, not these thresholds). risk.atr-exit-thresholds-enabled makes that a choice.
+     */
     private BigDecimal resolveAtrBackedPct(
             String market,
             MarketIndicators indicators,
@@ -1882,6 +1893,9 @@ public class AutoTradeService {
             BigDecimal minPct,
             BigDecimal maxPct
     ) {
+        if (!atrExitThresholdsEnabled) {
+            return fallback;
+        }
         BigDecimal atrPct = resolveAtrPctForMarket(market, indicators);
         if (atrPct == null || atrPct.compareTo(BigDecimal.ZERO) <= 0 || multiplier <= 0) {
             return fallback;
@@ -3128,6 +3142,7 @@ public class AutoTradeService {
             details.put("atrTrailingStopMultiplier", atrTrailingStopMultiplier);
             details.put("atrTrailingArmMultiplier", atrTrailingArmMultiplier);
             details.put("atrRiskSizingEnabled", atrRiskSizingEnabled);
+            details.put("atrExitThresholdsEnabled", atrExitThresholdsEnabled);
             details.put("entryTrailingHigh", entryTrailingHigh);
             if (indicators != null) {
                 details.put("windowTrailingHigh", indicators.trailingHigh());

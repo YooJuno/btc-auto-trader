@@ -136,6 +136,7 @@ class AutoTradeServiceTest {
                 2.5,
                 1.0,
                 false,
+                true,
                 0L,
                 0L,
                 0L,

@@ -1175,6 +1175,9 @@ def resolve_entry_atr_pct(state, indicators):
 
 def resolve_atr_backed_pct(state, indicators, params, multiplier_key, fallback_key, min_pct=0.2, max_pct=30.0):
     fallback = max(0.0, to_float(params.get(fallback_key), 0.0))
+    # Parity with AutoTradeService.resolveAtrBackedPct.
+    if not params.get("atr_exit_thresholds_enabled", True):
+        return fallback
     atr_pct = resolve_entry_atr_pct(state, indicators)
     multiplier = max(0.0, to_float(params.get(multiplier_key), 0.0))
     if atr_pct is None or multiplier <= 0:
@@ -1709,9 +1712,21 @@ def backtest_buy_and_hold(candles, params, unit):
     return build_metrics(initial_cash, final_value, equity_curve, trades, unit, len(candles), len(candles))
 
 
+# Below this many closed trades a result is noise, not evidence. The optimizer used to happily rank a
+# configuration that made two trades above one that made forty, which is how a 7-day window and an
+# hourly re-run turned into a machine for fitting noise.
+MIN_TRADES_FOR_SCORING = 20
+
+
 def score_metrics(metrics):
     if not metrics:
         return -1e18
+
+    sell_trades = metrics.get("sell_trades", 0) or 0
+    if sell_trades < MIN_TRADES_FOR_SCORING:
+        # Rank by sample size so a longer/denser run still beats an under-sampled one, but never let an
+        # under-sampled result outscore a properly-sampled one.
+        return -1e9 + sell_trades
 
     score = metrics["roi_pct"] - (0.6 * metrics["max_drawdown_pct"])
 
@@ -1723,8 +1738,11 @@ def score_metrics(metrics):
     if profit_factor is not None:
         score += min(profit_factor, 4.0) * 0.4
 
+    # The old band (0.2-5.0/day) assumed an intraday strategy. At the 1h signal timeframe a trend system
+    # correctly trades ~10-25 times a year per asset, i.e. ~0.03/day - the previous floor penalised the
+    # exact behaviour the strategy is supposed to have.
     trades_per_day = metrics.get("trades_per_day", 0.0)
-    if trades_per_day < 0.2 or trades_per_day > 5.0:
+    if trades_per_day < 0.02 or trades_per_day > 3.0:
         score -= 2.0
 
     return score
@@ -1773,6 +1791,7 @@ def make_params(timeframe_unit, profile="BALANCED"):
         "atr_trailing_stop_multiplier": 3.0,
         "atr_trailing_arm_multiplier": 3.5,
         "atr_risk_sizing_enabled": True,
+        "atr_exit_thresholds_enabled": True,
         "stop_loss_pct": 1.024,
         "take_profit_pct": 1.44,
         "trailing_stop_pct": 0.675,
@@ -1824,21 +1843,11 @@ def make_params(timeframe_unit, profile="BALANCED"):
 
 
 def build_optimization_grid(base_params):
-    return {
+    grid = {
         "take_profit_pct": [
             round(base_params["take_profit_pct"] * 0.8, 4),
             base_params["take_profit_pct"],
             round(base_params["take_profit_pct"] * 1.2, 4),
-        ],
-        "stop_loss_pct": [
-            round(base_params["stop_loss_pct"] * 0.8, 4),
-            base_params["stop_loss_pct"],
-            round(base_params["stop_loss_pct"] * 1.2, 4),
-        ],
-        "trailing_stop_pct": [
-            round(base_params["trailing_stop_pct"] * 0.75, 4),
-            base_params["trailing_stop_pct"],
-            round(base_params["trailing_stop_pct"] * 1.25, 4),
         ],
         "min_adx": [
             max(5.0, base_params["min_adx"] - 4.0),
@@ -1851,6 +1860,35 @@ def build_optimization_grid(base_params):
             round(base_params["min_volume_ratio"] + 0.2, 4),
         ],
     }
+
+    # stop_loss_pct and trailing_stop_pct only reach the engine when ATR-derived thresholds are off;
+    # otherwise ATR x multiplier replaces them and every combination along these axes is an identical
+    # backtest. Including them regardless meant 2 of 5 dimensions were no-ops, so most of the sampled
+    # grid re-ran the same configuration and the effective search was 9x smaller than it looked.
+    if not base_params.get("atr_exit_thresholds_enabled", True):
+        grid["stop_loss_pct"] = [
+            round(base_params["stop_loss_pct"] * 0.8, 4),
+            base_params["stop_loss_pct"],
+            round(base_params["stop_loss_pct"] * 1.2, 4),
+        ]
+        grid["trailing_stop_pct"] = [
+            round(base_params["trailing_stop_pct"] * 0.75, 4),
+            base_params["trailing_stop_pct"],
+            round(base_params["trailing_stop_pct"] * 1.25, 4),
+        ]
+    else:
+        grid["atr_stop_loss_multiplier"] = [
+            round(base_params["atr_stop_loss_multiplier"] * 0.8, 4),
+            base_params["atr_stop_loss_multiplier"],
+            round(base_params["atr_stop_loss_multiplier"] * 1.2, 4),
+        ]
+        grid["atr_trailing_stop_multiplier"] = [
+            round(base_params["atr_trailing_stop_multiplier"] * 0.8, 4),
+            base_params["atr_trailing_stop_multiplier"],
+            round(base_params["atr_trailing_stop_multiplier"] * 1.2, 4),
+        ]
+
+    return grid
 
 
 def iter_param_sets(base_params, max_combos):
