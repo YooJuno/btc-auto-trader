@@ -1087,7 +1087,82 @@ class UnifiedTrendSignalModel(TradeSignalModel):
         return buy_signal_proceed("trend_breakout")
 
 
+class VolatilityContractionBreakoutModel(TradeSignalModel):
+    """Parity with VolatilityContractionBreakoutModel.java.
+
+    Trend gate + Bollinger contraction + break + volume, with NO overextension cap. The cap and the
+    breakout requirement contradict each other, which is what made the original model take only the
+    weakest breaks.
+    """
+
+    def evaluate_buy(self, indicators, tuning, params):
+        if indicators is None or tuning is None:
+            return buy_signal_skip("insufficient candles")
+
+        price = indicators.get("current_price")
+        ma_short = indicators.get("ma_short")
+        ma_long = indicators.get("ma_long")
+        if price is None or ma_short is None or ma_long is None:
+            return buy_signal_skip("insufficient candles")
+
+        if ma_short <= ma_long or price <= ma_long:
+            return buy_signal_skip("no trend")
+
+        min_slope = tuning.get("min_ma_long_slope_pct", 0.0)
+        ma_long_slope = indicators.get("ma_long_slope")
+        if min_slope > 0:
+            if ma_long_slope is None:
+                return buy_signal_skip("no trend slope")
+            if ma_long_slope < min_slope:
+                return buy_signal_skip("trend weakening")
+
+        squeeze_max = to_float(params.get("squeeze_max_bandwidth_pct"), 0.0)
+        if squeeze_max > 0:
+            bollinger = indicators.get("bollinger") or {}
+            bandwidth = bollinger.get("bandwidth_pct")
+            if bandwidth is None:
+                return buy_signal_skip("no bandwidth")
+            if bandwidth > squeeze_max:
+                return buy_signal_skip("no_squeeze")
+
+        min_adx = tuning.get("min_adx", 0.0)
+        adx = indicators.get("adx")
+        if min_adx > 0 and adx is not None and adx < min_adx:
+            return buy_signal_skip("weak_trend")
+
+        min_volume_ratio = tuning.get("min_volume_ratio", 0.0)
+        volume_ratio = indicators.get("volume_ratio")
+        if min_volume_ratio > 0:
+            if volume_ratio is None:
+                return buy_signal_skip("no volume")
+            if volume_ratio < min_volume_ratio:
+                return buy_signal_skip("low_volume")
+
+        breakout_level = indicators.get("breakout_level")
+        if breakout_level is None or price <= breakout_level:
+            return buy_signal_skip("no breakout")
+
+        rsi = indicators.get("rsi")
+        rsi_over = tuning.get("rsi_over", 0.0)
+        if rsi is not None and rsi_over > 0 and rsi >= rsi_over:
+            return buy_signal_skip("overbought")
+
+        return buy_signal_proceed("squeeze_breakout")
+
+
 UNIFIED_SIGNAL_MODEL = UnifiedTrendSignalModel()
+SQUEEZE_SIGNAL_MODEL = VolatilityContractionBreakoutModel()
+
+# Mirrors the registry in AutoTradeService; keys match the signal.model setting.
+SIGNAL_MODELS = {
+    "trend_breakout": UNIFIED_SIGNAL_MODEL,
+    "squeeze_breakout": SQUEEZE_SIGNAL_MODEL,
+}
+
+
+def resolve_signal_model(params):
+    name = str((params or {}).get("signal_model") or "trend_breakout")
+    return SIGNAL_MODELS.get(name, UNIFIED_SIGNAL_MODEL)
 
 
 def resolve_entry_atr_pct(state, indicators):
@@ -1608,7 +1683,7 @@ def backtest_strategy_with_model(candles, params, unit, signal_model):
 
 
 def backtest_strategy(candles, params, unit):
-    return backtest_strategy_with_model(candles, params, unit, UNIFIED_SIGNAL_MODEL)
+    return backtest_strategy_with_model(candles, params, unit, resolve_signal_model(params))
 
 
 def backtest_buy_and_hold(candles, params, unit):
@@ -1669,6 +1744,8 @@ def make_params(timeframe_unit, profile="BALANCED"):
         "max_order_krw": 30_000.0,
         "min_order_krw": 5_000.0,
         "trade_cost_rate": 0.0015,
+        "signal_model": "trend_breakout",
+        "squeeze_max_bandwidth_pct": 2.5,
         "ma_short": 5,
         "ma_long": 55,
         "rsi_period": 14,

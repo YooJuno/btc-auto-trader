@@ -274,6 +274,69 @@ class TradeSignalModelTest(unittest.TestCase):
         self.assertEqual(intent["reason"], "stop_loss")
         self.assertEqual(intent["pct"], 100.0)
 
+    def test_squeeze_model_requires_a_contracted_band(self):
+        """Parity with VolatilityContractionBreakoutModelTest.skipsWhenVolatilityHasNotContracted."""
+        params = backtest.make_params(60, "BALANCED")
+        params["squeeze_max_bandwidth_pct"] = 2.5
+        tuning = backtest.resolve_signal_tuning(params)
+
+        wide = self._squeeze_indicators(bandwidth_pct=6.0)
+        decision = backtest.SQUEEZE_SIGNAL_MODEL.evaluate_buy(wide, tuning, params)
+
+        self.assertEqual(decision["kind"], "SKIP")
+        self.assertEqual(decision["reason"], "no_squeeze")
+
+    def test_squeeze_model_enters_on_expansion(self):
+        params = backtest.make_params(60, "BALANCED")
+        params["squeeze_max_bandwidth_pct"] = 2.5
+        tuning = backtest.resolve_signal_tuning(params)
+
+        decision = backtest.SQUEEZE_SIGNAL_MODEL.evaluate_buy(
+            self._squeeze_indicators(bandwidth_pct=1.2), tuning, params
+        )
+
+        self.assertEqual(decision["kind"], "BUY")
+        self.assertEqual(decision["reason"], "squeeze_breakout")
+
+    def test_squeeze_model_has_no_overextension_cap(self):
+        """The difference from trend_breakout: a break far from MA_LONG is the setup, not a veto."""
+        params = backtest.make_params(60, "BALANCED")
+        params["squeeze_max_bandwidth_pct"] = 2.5
+        params["max_extension_pct"] = 1.5
+        tuning = backtest.resolve_signal_tuning(params)
+        far = self._squeeze_indicators(bandwidth_pct=1.2, price=140.0, ma_long=99.0, breakout_level=130.0)
+
+        self.assertEqual(
+            backtest.UNIFIED_SIGNAL_MODEL.evaluate_buy(far, tuning, params)["reason"], "overextended"
+        )
+        self.assertEqual(backtest.SQUEEZE_SIGNAL_MODEL.evaluate_buy(far, tuning, params)["kind"], "BUY")
+
+    def test_resolve_signal_model_matches_the_registry_keys(self):
+        self.assertIs(
+            backtest.resolve_signal_model({"signal_model": "squeeze_breakout"}),
+            backtest.SQUEEZE_SIGNAL_MODEL,
+        )
+        self.assertIs(
+            backtest.resolve_signal_model({"signal_model": "trend_breakout"}),
+            backtest.UNIFIED_SIGNAL_MODEL,
+        )
+        # Unknown names fall back rather than trading nothing.
+        self.assertIs(backtest.resolve_signal_model({"signal_model": "nope"}), backtest.UNIFIED_SIGNAL_MODEL)
+
+    @staticmethod
+    def _squeeze_indicators(bandwidth_pct, price=101.0, ma_long=99.0, breakout_level=100.5):
+        return {
+            "current_price": price,
+            "ma_short": 100.5 if price == 101.0 else 120.0,
+            "ma_long": ma_long,
+            "ma_long_slope": 0.2,
+            "adx": 22.0,
+            "volume_ratio": 1.6,
+            "rsi": 56.0,
+            "breakout_level": breakout_level,
+            "bollinger": {"bandwidth_pct": bandwidth_pct},
+        }
+
     def test_choose_sell_intent_uses_donchian_exit(self):
         params = backtest.make_params(15, "BALANCED")
 
