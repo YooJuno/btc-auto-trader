@@ -217,6 +217,7 @@ export function useTradingWorkspace({
   const [decisionHistory, setDecisionHistory] = useState([])
   const [decisionFeed, setDecisionFeed] = useState([])
   const [panicBusy, setPanicBusy] = useState(false)
+  const [tradingMode, setTradingMode] = useState(null)
   const [summaryError, setSummaryError] = useState(null)
   const [orderHistoryError, setOrderHistoryError] = useState(null)
   const [decisionHistoryError, setDecisionHistoryError] = useState(null)
@@ -291,6 +292,7 @@ export function useTradingWorkspace({
     try {
       const data = await requestJson('/api/engine/status', {}, '엔진 상태 조회 실패')
       setEngineStatus(Boolean(data?.running))
+      setTradingMode(data?.tradingMode === 'PAPER' ? 'PAPER' : 'LIVE')
       setEngineError(null)
     } catch (err) {
       setEngineError(err?.message ?? '엔진 상태 조회 실패')
@@ -785,6 +787,7 @@ export function useTradingWorkspace({
     engineKnown,
     engineBusy,
     engineError,
+    tradingMode,
     decisionFeed,
     panicBusy,
     handlePanicExit,

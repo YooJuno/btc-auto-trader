@@ -233,6 +233,7 @@ function App() {
     engineKnown,
     engineBusy,
     engineError,
+    tradingMode,
     decisionFeed,
     panicBusy,
     handlePanicExit,
@@ -575,6 +576,7 @@ function App() {
         engineBusy={engineBusy}
         engineStatus={engineStatus}
         engineKnown={engineKnown}
+        tradingMode={tradingMode}
         onEngineToggle={handleEngineToggle}
         onPanic={handlePanicConfirm}
         panicBusy={panicBusy}

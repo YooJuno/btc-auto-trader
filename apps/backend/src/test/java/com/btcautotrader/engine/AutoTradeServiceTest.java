@@ -1,6 +1,7 @@
 package com.btcautotrader.engine;
 
 import com.btcautotrader.auth.TradingAccessService;
+import com.btcautotrader.paper.TradingAccountService;
 import com.btcautotrader.order.OrderRepository;
 import com.btcautotrader.order.OrderResponse;
 import com.btcautotrader.order.OrderService;
@@ -87,6 +88,9 @@ class AutoTradeServiceTest {
     @Mock
     private UniverseSelectionService universeSelectionService;
 
+    @Mock
+    private TradingAccountService tradingAccountService;
+
     private AutoTradeService service;
 
     @BeforeEach
@@ -109,7 +113,7 @@ class AutoTradeServiceTest {
 
     @Test
     void runOnce_doesNotScaleInWhenPositionAlreadyExists() {
-        when(upbitService.fetchAccounts()).thenReturn(accountsWithBtcPosition());
+        when(tradingAccountService.fetchAccounts()).thenReturn(accountsWithBtcPosition());
         when(upbitService.fetchTickers(anyList())).thenReturn(Map.of());
 
         AutoTradeResult result = service.runOnce();
@@ -128,7 +132,7 @@ class AutoTradeServiceTest {
     @Test
     void runOnce_tradesAcrossMultipleConfiguredMarketsWithoutOverspendingCash() {
         when(strategyService.configuredMarkets(7L)).thenReturn(List.of("KRW-BTC", "KRW-ETH"));
-        when(upbitService.fetchAccounts()).thenReturn(accountsWithKrwOnly("30000"));
+        when(tradingAccountService.fetchAccounts()).thenReturn(accountsWithKrwOnly("30000"));
         when(upbitService.fetchMinuteCandles(eq("KRW-ETH"), eq(1), anyInt())).thenReturn(bullishCandles());
         when(upbitService.fetchOrderChance("KRW-ETH")).thenReturn(Map.of());
         when(orderService.create(any())).thenReturn(orderResponse("btc-order", "KRW-BTC"));
@@ -157,7 +161,7 @@ class AutoTradeServiceTest {
                         Map.of()
                 )
         );
-        when(upbitService.fetchAccounts()).thenReturn(accountsWithKrwOnly("100000"));
+        when(tradingAccountService.fetchAccounts()).thenReturn(accountsWithKrwOnly("100000"));
 
         AutoTradeResult result = service.runOnce(7L);
 
@@ -336,6 +340,7 @@ class AutoTradeServiceTest {
                 tradeDecisionRepository,
                 tradeDecisionService,
                 universeSelectionService,
+                tradingAccountService,
                 new BigDecimal("5000"),
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,

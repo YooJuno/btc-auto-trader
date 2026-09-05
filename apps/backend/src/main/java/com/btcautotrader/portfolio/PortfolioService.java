@@ -1,5 +1,6 @@
 package com.btcautotrader.portfolio;
 
+import com.btcautotrader.paper.TradingAccountService;
 import com.btcautotrader.upbit.UpbitService;
 import org.springframework.stereotype.Service;
 
@@ -13,13 +14,15 @@ import java.util.Map;
 @Service
 public class PortfolioService {
     private final UpbitService upbitService;
+    private final TradingAccountService tradingAccountService;
 
-    public PortfolioService(UpbitService upbitService) {
+    public PortfolioService(UpbitService upbitService, TradingAccountService tradingAccountService) {
         this.upbitService = upbitService;
+        this.tradingAccountService = tradingAccountService;
     }
 
     public PortfolioSummary getSummary() {
-        List<Map<String, Object>> accounts = upbitService.fetchAccounts();
+        List<Map<String, Object>> accounts = tradingAccountService.fetchAccounts();
         CashBalance cash = null;
         List<Position> rawPositions = new ArrayList<>();
         List<String> markets = new ArrayList<>();

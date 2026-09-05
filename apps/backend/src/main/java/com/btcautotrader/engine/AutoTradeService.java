@@ -4,6 +4,7 @@ import com.btcautotrader.order.OrderRepository;
 import com.btcautotrader.order.OrderRequest;
 import com.btcautotrader.order.OrderResponse;
 import com.btcautotrader.order.OrderService;
+import com.btcautotrader.paper.TradingAccountService;
 import com.btcautotrader.auth.TradingAccessService;
 import com.btcautotrader.strategy.StrategyConfig;
 import com.btcautotrader.strategy.StrategyMarketOverrides;
@@ -63,6 +64,7 @@ public class AutoTradeService {
     private final TradeDecisionRepository tradeDecisionRepository;
     private final TradeDecisionService tradeDecisionService;
     private final UniverseSelectionService universeSelectionService;
+    private final TradingAccountService tradingAccountService;
     /**
      * Entry-model registry. resolveSignalModel used to ignore its argument and return one hardcoded
      * instance, so the pluggability hook existed in name only.
@@ -181,6 +183,7 @@ public class AutoTradeService {
             TradeDecisionRepository tradeDecisionRepository,
             TradeDecisionService tradeDecisionService,
             UniverseSelectionService universeSelectionService,
+            TradingAccountService tradingAccountService,
             @Value("${trading.min-krw:5000}") BigDecimal minOrderKrw,
             @Value("${trading.fee-rate:0.0005}") BigDecimal feeRate,
             @Value("${trading.slippage-pct:0.001}") BigDecimal slippagePct,
@@ -270,6 +273,7 @@ public class AutoTradeService {
         this.tradeDecisionRepository = tradeDecisionRepository;
         this.tradeDecisionService = tradeDecisionService;
         this.universeSelectionService = universeSelectionService;
+        this.tradingAccountService = tradingAccountService;
         this.minOrderKrw = minOrderKrw;
         this.feeRate = normalizeRate(feeRate);
         this.slippagePct = normalizeRate(slippagePct);
@@ -1854,7 +1858,7 @@ public class AutoTradeService {
     }
 
     private Map<String, AccountSnapshot> loadAccounts() {
-        List<Map<String, Object>> accounts = upbitService.fetchAccounts();
+        List<Map<String, Object>> accounts = tradingAccountService.fetchAccounts();
         Map<String, AccountSnapshot> byCurrency = new HashMap<>();
         for (Map<String, Object> account : accounts) {
             String currency = asString(account.get("currency"));

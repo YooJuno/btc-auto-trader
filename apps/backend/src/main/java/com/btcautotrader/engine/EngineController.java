@@ -3,6 +3,7 @@ package com.btcautotrader.engine;
 import com.btcautotrader.auth.TradingAccessService;
 import com.btcautotrader.auth.CurrentUserService;
 import com.btcautotrader.auth.UserEntity;
+import com.btcautotrader.paper.TradingAccountService;
 import com.btcautotrader.tenant.TenantContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -26,14 +27,17 @@ public class EngineController {
     private final TradeDecisionService tradeDecisionService;
     private final TradingAccessService tradingAccessService;
     private final CurrentUserService currentUserService;
+    private final TradingAccountService tradingAccountService;
 
     public EngineController(
             EngineService engineService,
             AutoTradeService autoTradeService,
             TradeDecisionService tradeDecisionService,
             TradingAccessService tradingAccessService,
-            CurrentUserService currentUserService
+            CurrentUserService currentUserService,
+            TradingAccountService tradingAccountService
     ) {
+        this.tradingAccountService = tradingAccountService;
         this.engineService = engineService;
         this.autoTradeService = autoTradeService;
         this.tradeDecisionService = tradeDecisionService;
@@ -144,6 +148,9 @@ public class EngineController {
     private Map<String, Object> statusResponse(boolean running) {
         Map<String, Object> response = new HashMap<>();
         response.put("running", running);
+        // Rides on the status poll the dashboard already makes, so the UI can never be uncertain about
+        // whether it is showing real money.
+        response.put("tradingMode", tradingAccountService.isPaperMode() ? "PAPER" : "LIVE");
         response.put("timestamp", OffsetDateTime.now().toString());
         return response;
     }

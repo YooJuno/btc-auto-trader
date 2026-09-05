@@ -125,6 +125,15 @@ CREATE TABLE engine_state (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- 모의매매(Paper Trading) 잔고. 실계좌와 같은 형태로 유지해 엔진이 분기 없이 동작합니다.
+CREATE TABLE paper_accounts (
+  currency      VARCHAR(20) PRIMARY KEY,
+  balance       NUMERIC(38, 18) NOT NULL DEFAULT 0,
+  locked        NUMERIC(38, 18) NOT NULL DEFAULT 0,
+  avg_buy_price NUMERIC(38, 18) NOT NULL DEFAULT 0,
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- NOTE: 신원(identity) 테이블은 의도적으로 여기에 없습니다.
 -- app_users / user_exchange_credentials / user_settings 는 시스템 DB에만 존재하며,
 -- 테넌트 DB 는 거래 데이터만 보관합니다. 관련 서비스는 TenantContext.callWithTenantDatabase(null, ...)

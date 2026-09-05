@@ -23,6 +23,7 @@ function AppHeader({
   engineBusy,
   engineStatus,
   engineKnown,
+  tradingMode,
   onEngineToggle,
   onPanic,
   panicBusy,
@@ -51,6 +52,12 @@ function AppHeader({
     <>
       <header className="topbar">
         <span className="topbar__brand">BTC AUTO TRADER</span>
+        {/* Which money is at stake is the one thing this bar must never leave ambiguous. */}
+        {tradingMode && (
+          <span className={`mode-badge ${tradingMode === 'PAPER' ? 'mode-badge--paper' : 'mode-badge--live'}`}>
+            {tradingMode === 'PAPER' ? '모의' : '실계좌'}
+          </span>
+        )}
 
         <nav className="topbar__nav" aria-label="페이지 이동">
           {TABS.map((tab) => {

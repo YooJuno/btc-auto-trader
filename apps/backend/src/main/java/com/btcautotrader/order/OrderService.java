@@ -2,6 +2,7 @@ package com.btcautotrader.order;
 
 import com.btcautotrader.upbit.UpbitApiException;
 import com.btcautotrader.upbit.UpbitOrderResponse;
+import com.btcautotrader.paper.PaperTradingService;
 import com.btcautotrader.upbit.UpbitService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,8 +30,15 @@ public class OrderService {
     private final UpbitService upbitService;
     private final OrderRepository orderRepository;
     private final ObjectMapper objectMapper;
+    private final PaperTradingService paperTradingService;
 
-    public OrderService(UpbitService upbitService, OrderRepository orderRepository, ObjectMapper objectMapper) {
+    public OrderService(
+            UpbitService upbitService,
+            OrderRepository orderRepository,
+            ObjectMapper objectMapper,
+            PaperTradingService paperTradingService
+    ) {
+        this.paperTradingService = paperTradingService;
         this.upbitService = upbitService;
         this.orderRepository = orderRepository;
         this.objectMapper = objectMapper;
@@ -73,6 +81,13 @@ public class OrderService {
             return toResponse(found);
         }
 
+        // Paper mode intercepts here, after the order row exists, so a simulated fill lands in the same
+        // orders table with the same statuses. Order history, realised P&L, the decision join and the
+        // reconciler therefore all work unchanged, and nothing downstream needs to know the mode.
+        if (paperTradingService.isPaperMode()) {
+            return fillAsPaper(entity, request, payload);
+        }
+
         try {
             UpbitOrderResponse response = upbitService.createOrder(payload.body(), payload.queryString());
             if (response == null) {
@@ -113,6 +128,54 @@ public class OrderService {
             entity.setErrorMessage(truncate(resolveErrorMessage(ex), 2000));
             orderRepository.save(entity);
             throw ex;
+        }
+    }
+
+    private OrderResponse fillAsPaper(OrderEntity entity, OrderRequest request, UpbitPayload payload) {
+        PaperTradingService.PaperFill fill = paperTradingService.execute(
+                request.market(),
+                request.side(),
+                request.type(),
+                request.price(),
+                request.volume(),
+                request.funds()
+        );
+
+        entity.setExternalId("paper-" + entity.getClientOrderId());
+        entity.setCreatedAt(OffsetDateTime.now());
+        if (!fill.filled()) {
+            // Recorded as a real rejection would be. Silently dropping unaffordable orders would make a
+            // paper run look better than the strategy is.
+            entity.setState("cancel");
+            entity.setStatus(OrderStatus.FAILED);
+            entity.setErrorMessage("paper: " + fill.reason());
+            orderRepository.save(entity);
+            return toResponse(entity);
+        }
+
+        entity.setState("done");
+        entity.setStatus(OrderStatus.FILLED);
+        entity.setPrice(fill.price());
+        entity.setVolume(fill.quantity());
+        entity.setFunds(fill.funds());
+        entity.setRawResponse(safeSerializePaper(fill, payload));
+        orderRepository.save(entity);
+        return toResponse(entity);
+    }
+
+    private String safeSerializePaper(PaperTradingService.PaperFill fill, UpbitPayload payload) {
+        try {
+            Map<String, Object> raw = new LinkedHashMap<>();
+            raw.put("simulated", true);
+            raw.put("reason", fill.reason());
+            raw.put("price", fill.price());
+            raw.put("volume", fill.quantity());
+            raw.put("funds", fill.funds());
+            raw.put("fee", fill.fee());
+            raw.put("request", payload.queryString());
+            return objectMapper.writeValueAsString(raw);
+        } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException ex) {
+            return null;
         }
     }
 

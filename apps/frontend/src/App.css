@@ -99,6 +99,28 @@
   border-color: var(--border-strong);
 }
 
+.mode-badge {
+  font-size: var(--t-label);
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--r2);
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+/* Live money gets the alarm colour; paper is deliberately quiet. */
+.mode-badge--live {
+  color: var(--up);
+  border-color: var(--up);
+  background: var(--up-dim);
+}
+
+.mode-badge--paper {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
 /* ---------- engine control ---------- */
 
 .engine-control {
