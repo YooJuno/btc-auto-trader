@@ -48,7 +48,7 @@ export const resolveAppPath = (route) => {
   return '/'
 }
 
-export const createEmptyRatioFields = () => ({
+const createEmptyRatioFields = () => ({
   takeProfitPct: '',
   stopLossPct: '',
   trailingStopPct: '',
@@ -58,7 +58,7 @@ export const createEmptyRatioFields = () => ({
   momentumExitPct: '',
 })
 
-export const normalizeRatioInputOrNull = (market, field, value) => {
+const normalizeRatioInputOrNull = (market, field, value) => {
   const raw = `${value ?? ''}`.trim()
   if (raw === '') {
     return null
@@ -701,7 +701,7 @@ export const updateUiPrefsSectionValue = (source, scope, key, value) => {
   return buildUiPrefsPayload(next)
 }
 
-export const isPlainObject = (value) => {
+const isPlainObject = (value) => {
   if (value === null || typeof value !== 'object') {
     return false
   }
@@ -719,7 +719,7 @@ export const normalizeProfileValue = (value) => {
   return PROFILE_VALUES.includes(normalized) ? normalized : ''
 }
 
-export const normalizePresetCode = (value) => {
+const normalizePresetCode = (value) => {
   if (value === null || value === undefined) {
     return ''
   }
@@ -771,12 +771,6 @@ export const formatPercent = (value) => {
   return `${(Number(value) * 100).toFixed(2)}%`
 }
 
-export const formatFixed = (value, digits) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) {
-    return '-'
-  }
-  return Number(value).toFixed(digits)
-}
 
 export const formatDateTime = (value) => {
   if (!value) {
@@ -801,15 +795,6 @@ export const formatTime = (value) => {
   return date.toLocaleTimeString('ko-KR', { hour12: false })
 }
 
-export const truncateText = (value, max) => {
-  if (!value) {
-    return '-'
-  }
-  if (value.length <= max) {
-    return value
-  }
-  return `${value.slice(0, max)}...`
-}
 
 export const pnlClass = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
