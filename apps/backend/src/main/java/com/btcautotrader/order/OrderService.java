@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
@@ -140,7 +141,7 @@ public class OrderService {
 
         if (ordType.equals("limit")) {
             body.put("volume", toPlain(request.volume()));
-            body.put("price", toPlain(request.price()));
+            body.put("price", toPlain(alignToTickSize(request.market(), request.price())));
         } else if (ordType.equals("price")) {
             body.put("price", toPlain(request.funds()));
         } else if (ordType.equals("market")) {
@@ -169,6 +170,42 @@ public class OrderService {
 
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Snaps a KRW limit price onto Upbit's tick grid.
+     *
+     * Upbit rejects limit orders whose price is not a multiple of the tick size for its band, and nothing
+     * here enforced that — the manual ticket even offers step="0.1", so any price a user typed for a
+     * large-cap was rejected by the exchange. Mirrors Upbit's published KRW tick table; non-KRW quotes are
+     * left untouched because their rules differ.
+     */
+    static BigDecimal alignToTickSize(String market, BigDecimal price) {
+        if (price == null || market == null || !market.toUpperCase(Locale.ROOT).startsWith("KRW-")) {
+            return price;
+        }
+        if (price.compareTo(BigDecimal.ZERO) <= 0) {
+            return price;
+        }
+        BigDecimal tick = krwTickSize(price);
+        // Floor onto the grid: for a bid this never pays more than asked, and for an ask it never
+        // undercuts by more than one tick.
+        BigDecimal aligned = price.divide(tick, 0, RoundingMode.DOWN).multiply(tick);
+        return aligned.compareTo(BigDecimal.ZERO) <= 0 ? tick : aligned.stripTrailingZeros();
+    }
+
+    private static BigDecimal krwTickSize(BigDecimal price) {
+        if (price.compareTo(new BigDecimal("2000000")) >= 0) return new BigDecimal("1000");
+        if (price.compareTo(new BigDecimal("1000000")) >= 0) return new BigDecimal("1000");
+        if (price.compareTo(new BigDecimal("500000")) >= 0) return new BigDecimal("500");
+        if (price.compareTo(new BigDecimal("100000")) >= 0) return new BigDecimal("100");
+        if (price.compareTo(new BigDecimal("10000")) >= 0) return new BigDecimal("50");
+        if (price.compareTo(new BigDecimal("1000")) >= 0) return new BigDecimal("10");
+        if (price.compareTo(new BigDecimal("100")) >= 0) return BigDecimal.ONE;
+        if (price.compareTo(BigDecimal.TEN) >= 0) return new BigDecimal("0.1");
+        if (price.compareTo(BigDecimal.ONE) >= 0) return new BigDecimal("0.01");
+        if (price.compareTo(new BigDecimal("0.1")) >= 0) return new BigDecimal("0.001");
+        return new BigDecimal("0.0001");
     }
 
     private static String toPlain(BigDecimal value) {

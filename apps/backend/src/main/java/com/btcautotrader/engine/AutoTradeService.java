@@ -1075,6 +1075,18 @@ public class AutoTradeService {
         });
     }
 
+    /**
+     * Upbit takes at most 8 decimal places for volume. available.multiply(fraction) carries the balance's
+     * scale plus the fraction's, so a partial exit produced up to 16 and the order was rejected on
+     * format. Rounds DOWN so a rounding step can never try to sell more than is held.
+     */
+    private static BigDecimal normalizeVolume(BigDecimal volume) {
+        if (volume == null) {
+            return null;
+        }
+        return volume.setScale(8, RoundingMode.DOWN);
+    }
+
     private static BigDecimal maxPositive(BigDecimal... values) {
         if (values == null || values.length == 0) {
             return null;
@@ -1644,8 +1656,9 @@ public class AutoTradeService {
         entryAtrPctByMarket.put(key, indicators.atrPct());
     }
 
-    private AutoTradeAction submitSell(String market, BigDecimal volume, String reason) {
-        if (volume.compareTo(BigDecimal.ZERO) <= 0) {
+    private AutoTradeAction submitSell(String market, BigDecimal rawVolume, String reason) {
+        BigDecimal volume = normalizeVolume(rawVolume);
+        if (volume == null || volume.compareTo(BigDecimal.ZERO) <= 0) {
             return new AutoTradeAction(market, "SKIP", "no volume", null, volume, null, null, null);
         }
 
@@ -1692,7 +1705,7 @@ public class AutoTradeService {
         }
 
         BigDecimal fraction = BigDecimal.valueOf(pct).divide(HUNDRED, 8, RoundingMode.HALF_UP);
-        BigDecimal volume = available.multiply(fraction);
+        BigDecimal volume = normalizeVolume(available.multiply(fraction));
         if (volume.compareTo(BigDecimal.ZERO) <= 0) {
             return new AutoTradeAction(market, "SKIP", "no volume", null, available, null, null, null);
         }
@@ -2930,7 +2943,7 @@ public class AutoTradeService {
         OffsetDateTime now = OffsetDateTime.now();
         BigDecimal fraction = BigDecimal.valueOf(partialTakeProfitPct)
                 .divide(HUNDRED, 8, RoundingMode.HALF_UP);
-        BigDecimal volume = available.multiply(fraction);
+        BigDecimal volume = normalizeVolume(available.multiply(fraction));
         if (volume.compareTo(BigDecimal.ZERO) <= 0) {
             return null;
         }

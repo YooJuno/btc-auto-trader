@@ -108,10 +108,13 @@ function ManualTradeModal({
                 <input
                   type="number"
                   min="0"
-                  step="0.1"
+                  step="any"
                   value={price}
                   onChange={(event) => setPrice(event.target.value)}
                 />
+                {/* step="0.1" implied any price was valid. Upbit only accepts prices on its tick grid,
+                    which varies by price band, so the server snaps it and we say so up front. */}
+                <span className="field-hint">업비트 호가 단위로 자동 조정됩니다</span>
               </label>
               <label className="form-field">
                 <span>수량</span>
