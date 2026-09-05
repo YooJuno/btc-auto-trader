@@ -80,6 +80,10 @@ class AutoTradeServiceTest {
     @Mock
     private TradeDecisionService tradeDecisionService;
 
+    // Default mock returns isEnabled() == false, so these fixtures keep the pre-universe behaviour.
+    @Mock
+    private UniverseSelectionService universeSelectionService;
+
     private AutoTradeService service;
 
     @BeforeEach
@@ -94,6 +98,7 @@ class AutoTradeServiceTest {
                 orderRepository,
                 tradeDecisionRepository,
                 tradeDecisionService,
+                universeSelectionService,
                 new BigDecimal("5000"),
                 BigDecimal.ZERO,
                 BigDecimal.ZERO,

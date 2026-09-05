@@ -59,6 +59,7 @@ public class AutoTradeService {
     private final OrderRepository orderRepository;
     private final TradeDecisionRepository tradeDecisionRepository;
     private final TradeDecisionService tradeDecisionService;
+    private final UniverseSelectionService universeSelectionService;
     private final TradeSignalModel tradeSignalModel = new UnifiedTrendSignalModel();
 
     private final BigDecimal minOrderKrw;
@@ -165,6 +166,7 @@ public class AutoTradeService {
             OrderRepository orderRepository,
             TradeDecisionRepository tradeDecisionRepository,
             TradeDecisionService tradeDecisionService,
+            UniverseSelectionService universeSelectionService,
             @Value("${trading.min-krw:5000}") BigDecimal minOrderKrw,
             @Value("${trading.fee-rate:0.0005}") BigDecimal feeRate,
             @Value("${trading.slippage-pct:0.001}") BigDecimal slippagePct,
@@ -252,6 +254,7 @@ public class AutoTradeService {
         this.orderRepository = orderRepository;
         this.tradeDecisionRepository = tradeDecisionRepository;
         this.tradeDecisionService = tradeDecisionService;
+        this.universeSelectionService = universeSelectionService;
         this.minOrderKrw = minOrderKrw;
         this.feeRate = normalizeRate(feeRate);
         this.slippagePct = normalizeRate(slippagePct);
@@ -542,6 +545,19 @@ public class AutoTradeService {
                 recordDecision(SYSTEM_KEY, action, null, null, null, null, null, null);
                 return new AutoTradeResult(now.toString(), List.of(action));
             }
+            // Cross-sectional momentum selection, when enabled, decides which markets may take NEW
+            // positions. Held markets are unioned back in so a name that drops out of the universe keeps
+            // its stop-loss evaluated instead of being orphaned.
+            if (universeSelectionService.isEnabled()) {
+                markets = universeSelectionService.resolveTradableMarkets(markets, heldMarkets(accounts));
+                if (markets.isEmpty()) {
+                    AutoTradeAction action = new AutoTradeAction(
+                            SYSTEM_KEY, "SKIP", "universe_empty", null, null, null, null, null);
+                    recordDecision(SYSTEM_KEY, action, config, StrategyProfile.from(config.profile()), null, null, null, null);
+                    return new AutoTradeResult(now.toString(), List.of(action));
+                }
+            }
+
             Map<String, RegimeSnapshot> regimeByMarket = new HashMap<>();
             DailyLossStatus dailyLossStatus = evaluateDailyLossStatus(accounts);
             BigDecimal totalAssetKrw = dailyLossStatus.currentAssetKrw() != null
@@ -863,6 +879,25 @@ public class AutoTradeService {
         lastPartialTakeProfitAt.remove(key);
         lastEntryAtByMarket.remove(key);
         entryAtrPctByMarket.remove(key);
+    }
+
+    /** Markets with a non-zero balance right now, as KRW pair codes. */
+    private List<String> heldMarkets(Map<String, AccountSnapshot> accounts) {
+        List<String> held = new ArrayList<>();
+        if (accounts == null) {
+            return held;
+        }
+        for (Map.Entry<String, AccountSnapshot> entry : accounts.entrySet()) {
+            String currency = entry.getKey();
+            if (currency == null || "KRW".equalsIgnoreCase(currency)) {
+                continue;
+            }
+            AccountSnapshot snapshot = entry.getValue();
+            if (snapshot != null && snapshot.total().compareTo(BigDecimal.ZERO) > 0) {
+                held.add("KRW-" + currency.toUpperCase());
+            }
+        }
+        return held;
     }
 
     private StrategyConfig resolveConfigForMarket(

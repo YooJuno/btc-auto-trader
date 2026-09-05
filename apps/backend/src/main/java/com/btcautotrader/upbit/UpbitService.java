@@ -35,6 +35,7 @@ public class UpbitService {
     private static final String UPBIT_TICKER_URL = "https://api.upbit.com/v1/ticker";
     private static final String UPBIT_MARKETS_URL = "https://api.upbit.com/v1/market/all";
     private static final String UPBIT_CANDLES_MINUTE_URL = "https://api.upbit.com/v1/candles/minutes";
+    private static final String UPBIT_CANDLES_DAY_URL = "https://api.upbit.com/v1/candles/days";
     private static final String UPBIT_ORDER_URL = "https://api.upbit.com/v1/orders";
     private static final String UPBIT_ORDER_CHANCE_URL = "https://api.upbit.com/v1/orders/chance";
     private static final String UPBIT_ORDER_DETAIL_URL = "https://api.upbit.com/v1/order";
@@ -129,6 +130,23 @@ public class UpbitService {
         rateLimiter.acquire("candles");
         int safeCount = Math.max(1, Math.min(count, 200));
         String url = UriComponentsBuilder.fromHttpUrl(UPBIT_CANDLES_MINUTE_URL + "/" + unit)
+                .queryParam("market", market)
+                .queryParam("count", safeCount)
+                .toUriString();
+
+        ResponseEntity<List> response = restTemplate.getForEntity(url, List.class);
+        List<Map<String, Object>> body = response.getBody();
+        return body == null ? List.of() : body;
+    }
+
+    /**
+     * Daily candles. Needed for horizons the minute endpoint cannot reach: Upbit minute units stop at
+     * 240, so a 30-day momentum lookback or a 100-day regime MA has to come from here.
+     */
+    public List<Map<String, Object>> fetchDayCandles(String market, int count) {
+        rateLimiter.acquire("candles-day");
+        int safeCount = Math.max(1, Math.min(count, 200));
+        String url = UriComponentsBuilder.fromHttpUrl(UPBIT_CANDLES_DAY_URL)
                 .queryParam("market", market)
                 .queryParam("count", safeCount)
                 .toUriString();

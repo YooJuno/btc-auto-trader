@@ -80,6 +80,38 @@ minutes. At 15m the ATR and the transaction cost are the same order of magnitude
 Note that `STOP_EXIT` and friends are **position fractions**, not price levels. A value of 0 disables
 that exit; stop-loss and trailing stop ignore 0 and always liquidate in full.
 
+## 2-0) Universe Selection (Cross-Sectional Momentum, opt-in)
+
+`signal.universe.enabled=false` by default. When enabled, the engine no longer trades a fixed
+hand-typed market list; it ranks the KRW universe and opens new positions only in the leaders.
+
+**Why this exists.** Cross-sectional momentum — hold the strongest names, drop the rest — is the
+best-documented edge available to a long-only spot account, and it was entirely missing. It is also
+orthogonal to the per-market signal: selection decides *which* markets are eligible, the
+trend/breakout model still decides *when* to enter.
+
+**Pipeline**
+1. **Risk-off gate.** If `signal.universe.risk-off-market` closes below its
+   `signal.universe.risk-off-ma-days` MA, the universe is **empty** — no new entries anywhere.
+   Holding the strongest alt through a broad decline is how this strategy family loses money.
+2. **Liquidity floor.** One batched ticker call ranks every KRW market by 24h traded value;
+   anything under `signal.universe.min-daily-value-krw` is dropped, as is anything Upbit has flagged
+   유의종목 (`market_warning`). Only the top `max-candidates` survivors go to step 3, so the daily-candle
+   fetch costs ~40 calls, not ~200.
+3. **Momentum rank.** Trailing return over `lookback-days`, measured to `skip-days` ago. The most recent
+   week is deliberately excluded: short-horizon crypto returns mean-revert, so including it inverts the
+   signal. Markets with negative absolute momentum are dropped regardless of rank.
+4. **Top-K.** The best `top-k` markets become the tradable universe, cached for `refresh-minutes`.
+
+**Safety property.** The selected universe is always unioned with markets currently held. A position
+whose market falls out of the ranking keeps being evaluated, so its stop-loss still runs. Dropping it
+from the list would orphan the position. `UniverseSelectionServiceTest` pins this in both the normal and
+the risk-off path.
+
+**Known limitation.** This is a momentum *screen* feeding a trend engine, not a periodic portfolio
+rebalance with volatility weighting. A true rebalance needs a different execution model than this tick
+loop, and is better done deliberately than bolted on.
+
 ## 2-1) Profile Selection (Aggressive/Balanced/Conservative)
 Profiles adjust confirmation strictness without changing your core MA settings.
 
