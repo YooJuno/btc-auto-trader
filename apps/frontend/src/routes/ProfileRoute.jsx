@@ -16,7 +16,7 @@ function ProfileRoute({
             <ExchangeCredentialsCard {...exchangeCredentials} />
           </>
         ) : (
-          <article className="control-card card--elevated">
+          <article className="control-card">
             <div className="card-head">
               <div>
                 <h2>개인 정보</h2>

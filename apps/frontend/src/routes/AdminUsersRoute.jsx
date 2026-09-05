@@ -24,7 +24,7 @@ function AdminUsersRoute({
   return (
     <section className="workspace-grid workspace-grid--settings">
       <aside className="workspace-side">
-        <article className="table-card card--elevated">
+        <article className="table-card">
           <div className="card-head">
             <div>
               <h2>관리자 사용자 승인</h2>

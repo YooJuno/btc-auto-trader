@@ -527,13 +527,13 @@ function App() {
   if (authenticated && (bootstrapLoading || !bootstrapLoaded)) {
     return (
       <div className={`app ${tableDensityClass}`}>
-        <section className="page-context">
-          <div>
+        <section className="control-card">
+          <div className="card-head">
             <h2>초기화 중</h2>
-            <p className="sub">사용자 설정을 확인하고 있습니다.</p>
-            {bootstrapError && <p className="status-error">{bootstrapError}</p>}
+            <span className="pill">LOADING</span>
           </div>
-          <span className="pill">LOADING</span>
+          <p className="sub">사용자 설정을 확인하고 있습니다.</p>
+          {bootstrapError && <p className="status-error">{bootstrapError}</p>}
         </section>
       </div>
     )

@@ -17,7 +17,7 @@ function ExchangeCredentialsCard({
   handleDeleteExchangeCredentials,
 }) {
   return (
-    <article className="control-card card--elevated auth-settings-card">
+    <article className="control-card">
       <div className="card-head">
         <div>
           <h2>거래소 API 키</h2>

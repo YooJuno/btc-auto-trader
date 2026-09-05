@@ -56,7 +56,7 @@ function MarketOverridesCard({
   readOnly = false,
 }) {
   return (
-    <article className="control-card card--elevated market-card">
+    <article className="control-card market-card">
       <div className="card-head">
         <div>
           <h2>마켓별 설정</h2>

@@ -24,6 +24,8 @@ import {
 import { ApiError, requestJson } from '../utils/apiClient.js'
 
 const INVENTORY_EPSILON = 1e-12
+const FEED_POLL_MIN_MS = 6000
+const DECISION_FEED_LIMIT = 60
 const isServerReachable = (error) => error instanceof ApiError
 
 const toPositiveNumber = (value) => {
@@ -326,7 +328,7 @@ export function useTradingWorkspace({
       // happened for two hours". They were being discarded server-side by the query parameter and
       // again client-side by the BUY/SELL filter below.
       const data = await requestJson(
-        '/api/engine/decisions?limit=120&includeSkips=true',
+        `/api/engine/decisions?limit=${DECISION_FEED_LIMIT}&includeSkips=true`,
         {},
         '의사결정 로그 조회 실패'
       )
@@ -424,11 +426,13 @@ export function useTradingWorkspace({
 
     const summaryTimer = setInterval(() => fetchSummary(true), pollingIntervalMs)
     const engineTimer = setInterval(() => fetchEngineStatus(), pollingIntervalMs)
+    // The feed is history, not live state: at the 2s floor a 120-row decision payload every tick would
+    // hammer the backend and re-render the list for nothing. Poll it on its own slower cadence.
     const feedTimer = isDashboardRoute
       ? setInterval(() => {
         fetchOrderHistory()
         fetchDecisionHistory()
-      }, pollingIntervalMs)
+      }, Math.max(pollingIntervalMs, FEED_POLL_MIN_MS))
       : null
 
     return () => {

@@ -26,7 +26,7 @@ function ProfileIdentityCard({
   const nicknameLabel = displayNameInput.trim() || authUser?.displayName?.trim() || authUser?.email || '미설정'
 
   return (
-    <article className="control-card card--elevated profile-card">
+    <article className="control-card profile-card">
       <div className="card-head">
         <div>
           <h2>내 프로필</h2>

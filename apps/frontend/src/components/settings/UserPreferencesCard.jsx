@@ -42,7 +42,7 @@ function UserPreferencesCard({
   const configuredMarkets = Array.isArray(userSettings?.markets) ? userSettings.markets.filter(Boolean) : []
 
   return (
-    <article className="control-card card--elevated auth-settings-card">
+    <article className="control-card">
       <div className="card-head">
         <div>
           <h2>개인 화면 옵션</h2>
