@@ -614,7 +614,9 @@ def resolve_signal_tuning(params):
         "min_adx": clamp(min_adx, 5.0, 60.0),
         "min_volume_ratio": clamp(min_volume_ratio, 0.1, 3.0),
         "breakout_pct": clamp(breakout_pct, 0.05, 3.0),
-        "max_extension_pct": clamp(max_extension_pct, 0.2, 5.0),
+        # Parity with AutoTradeService.resolveSignalTuning: 0 disables the overextension filter, and the
+        # 0.2 floor previously made it impossible to switch off.
+        "max_extension_pct": 0.0 if max_extension_pct <= 0 else clamp(max_extension_pct, 0.2, 5.0),
         "min_ma_long_slope_pct": clamp(min_ma_long_slope_pct, -0.5, 1.0),
         "min_confirmations": int(clamp(min_confirmations, 1, 3)),
     }
@@ -1145,6 +1147,11 @@ def choose_sell_intent(index, state, indicators, params, tuning):
     atr_arm_multiplier = max(0.0, to_float(params.get("atr_trailing_arm_multiplier"), 0.0))
     if atr_pct is not None and atr_arm_multiplier > 0:
         trailing_arm_pct = clamp(atr_pct * atr_arm_multiplier, 0.2, 20.0)
+    # Parity with AutoTradeService.resolveConfiguredTrailingArmPct: arming must be able to lock a gain.
+    # If arm < trail the stop sits below entry the instant it arms and no winner can ever be banked.
+    if trailing_stop_pct > 0:
+        round_trip_cost_pct = to_float(params.get("trade_cost_rate"), 0.0) * 2.0 * 100.0
+        trailing_arm_pct = max(trailing_arm_pct, trailing_stop_pct + round_trip_cost_pct)
 
     stop_loss_threshold = avg_buy * percent_factor(-stop_loss_pct)
 
@@ -1158,10 +1165,14 @@ def choose_sell_intent(index, state, indicators, params, tuning):
     ):
         trailing_stop_threshold = trailing_high * percent_factor(-trailing_stop_pct)
 
+    # Protective exits always liquidate; stop_exit_pct is a position fraction and 0 must not disarm
+    # the stop. Mirrors protectiveExitPct in AutoTradeService.handleSell.
+    stop_exit_pct = params["stop_exit_pct"] if params["stop_exit_pct"] > 0 else 100.0
+
     if current_price <= stop_loss_threshold:
         return {
             "type": "SELL_PCT",
-            "pct": params["stop_exit_pct"],
+            "pct": stop_exit_pct,
             "reason": "stop_loss",
             "allow_full_fallback": True,
         }
@@ -1169,9 +1180,24 @@ def choose_sell_intent(index, state, indicators, params, tuning):
     if trailing_stop_threshold is not None and current_price <= trailing_stop_threshold:
         return {
             "type": "SELL_PCT",
-            "pct": params["stop_exit_pct"],
+            "pct": stop_exit_pct,
             "reason": "trailing_stop",
             "allow_full_fallback": True,
+        }
+
+    take_profit_pct = to_float(params.get("take_profit_pct"), 0.0)
+    partial_take_profit_pct = to_float(params.get("partial_take_profit_pct"), 0.0)
+    if (
+        take_profit_pct > 0
+        and 0 < partial_take_profit_pct < 100
+        and current_price >= avg_buy * percent_factor(take_profit_pct)
+        and can_take_partial_profit(index, state, params)
+    ):
+        return {
+            "type": "SELL_PCT",
+            "pct": partial_take_profit_pct,
+            "reason": "take_profit_partial",
+            "allow_full_fallback": False,
         }
 
     breakdown_level = indicators.get("breakdown_level")
@@ -1180,6 +1206,33 @@ def choose_sell_intent(index, state, indicators, params, tuning):
             "type": "SELL_PCT",
             "pct": 100.0,
             "reason": "donchian_exit",
+            "allow_full_fallback": False,
+        }
+
+    trend_exit_pct = to_float(params.get("trend_exit_pct"), 0.0)
+    ma_long = indicators.get("ma_long")
+    if trend_exit_pct > 0 and ma_long is not None and current_price < ma_long:
+        return {
+            "type": "SELL_PCT",
+            "pct": trend_exit_pct,
+            "reason": "trend_break",
+            "allow_full_fallback": False,
+        }
+
+    momentum_exit_pct = to_float(params.get("momentum_exit_pct"), 0.0)
+    rsi = indicators.get("rsi")
+    macd_hist = indicators.get("macd_hist")
+    if (
+        momentum_exit_pct > 0
+        and rsi is not None
+        and macd_hist is not None
+        and rsi < tuning["rsi_sell"]
+        and macd_hist < 0
+    ):
+        return {
+            "type": "SELL_PCT",
+            "pct": momentum_exit_pct,
+            "reason": "momentum_reversal",
             "allow_full_fallback": False,
         }
 
@@ -1608,7 +1661,8 @@ def summarize_result(result):
 
 def make_params(timeframe_unit, profile="BALANCED"):
     normalized_profile = str(profile or "BALANCED").upper()
-    htf_confirm_unit = 15 if timeframe_unit <= 3 else 60
+    # Higher-timeframe confirmation must be strictly above the signal timeframe.
+    htf_confirm_unit = 15 if timeframe_unit <= 3 else (240 if timeframe_unit >= 60 else 60)
     return {
         "profile": normalized_profile,
         "initial_cash": 1_000_000.0,
@@ -1625,9 +1679,9 @@ def make_params(timeframe_unit, profile="BALANCED"):
         "macd_slow": 26,
         "macd_signal": 9,
         "adx_period": 14,
-        "min_adx": 8.0,
+        "min_adx": 20.0,
         "volume_lookback": 20,
-        "min_volume_ratio": 0.4,
+        "min_volume_ratio": 1.2,
         "boll_window": 20,
         "boll_stddev": 2.0,
         "boll_min_bandwidth_pct": 0.8,
@@ -1635,14 +1689,14 @@ def make_params(timeframe_unit, profile="BALANCED"):
         "breakout_lookback": 20,
         "breakdown_lookback": 10,
         "breakout_pct": 0.05,
-        "max_extension_pct": 1.5,
+        "max_extension_pct": 0.0,
         "ma_long_slope_lookback": 5,
         "min_confirmations": 2,
         "trailing_window": 20,
         "atr_period": 20,
         "atr_stop_loss_multiplier": 2.6,
-        "atr_trailing_stop_multiplier": 1.8,
-        "atr_trailing_arm_multiplier": 1.5,
+        "atr_trailing_stop_multiplier": 3.0,
+        "atr_trailing_arm_multiplier": 3.5,
         "atr_risk_sizing_enabled": True,
         "stop_loss_pct": 1.024,
         "take_profit_pct": 1.44,
