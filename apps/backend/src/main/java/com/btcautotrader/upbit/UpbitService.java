@@ -3,6 +3,8 @@ package com.btcautotrader.upbit;
 import com.auth0.jwt.JWT;
 import com.auth0.jwt.algorithms.Algorithm;
 import com.btcautotrader.auth.UserExchangeCredentialService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -28,6 +30,7 @@ import java.util.UUID;
 
 @Service
 public class UpbitService {
+    private static final Logger log = LoggerFactory.getLogger(UpbitService.class);
     private static final String UPBIT_ACCOUNTS_URL = "https://api.upbit.com/v1/accounts";
     private static final String UPBIT_TICKER_URL = "https://api.upbit.com/v1/ticker";
     private static final String UPBIT_MARKETS_URL = "https://api.upbit.com/v1/market/all";
@@ -145,8 +148,18 @@ public class UpbitService {
                 .queryParam("markets", String.join(",", markets))
                 .toUriString();
 
-        ResponseEntity<List> response = restTemplate.getForEntity(url, List.class);
-        List<Map<String, Object>> body = response.getBody();
+        List<Map<String, Object>> body;
+        try {
+            ResponseEntity<List> response = restTemplate.getForEntity(url, List.class);
+            body = response.getBody();
+        } catch (RestClientException ex) {
+            // Upbit rejects the ENTIRE batch when any one market code is unknown (delisted coin, a holding
+            // with no KRW pair, an airdropped token). Falling back per market keeps the portfolio readable
+            // instead of 500-ing the whole summary because of one untradeable balance.
+            log.warn("Batch ticker fetch failed for {} markets, falling back per market: {}",
+                    markets.size(), ex.getMessage());
+            return fetchTickersIndividually(markets);
+        }
 
         if (body == null || body.isEmpty()) {
             return Map.of();
@@ -160,6 +173,21 @@ public class UpbitService {
             }
         }
 
+        return byMarket;
+    }
+
+    private Map<String, Map<String, Object>> fetchTickersIndividually(List<String> markets) {
+        Map<String, Map<String, Object>> byMarket = new HashMap<>();
+        for (String market : markets) {
+            try {
+                Map<String, Object> ticker = fetchTicker(market);
+                if (ticker != null) {
+                    byMarket.put(market, ticker);
+                }
+            } catch (RestClientException ex) {
+                log.warn("Ticker unavailable for {}: {}", market, ex.getMessage());
+            }
+        }
         return byMarket;
     }
 

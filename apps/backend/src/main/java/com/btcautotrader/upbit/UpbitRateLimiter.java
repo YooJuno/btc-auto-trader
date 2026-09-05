@@ -30,40 +30,46 @@ public class UpbitRateLimiter {
         this.maxRequestsPerMinute = Math.max(1, maxRequestsPerMinute);
     }
 
+    /**
+     * Reserves a request slot, blocking the CALLING thread only.
+     *
+     * The previous implementation slept inside synchronized(monitor). Because a saturated minute window
+     * can compute a wait of tens of seconds, one thread could hold the monitor for that long and stall
+     * every other Upbit call in the JVM — including the fetchCurrentPrice a stop-loss depends on and
+     * order submission itself. Compute the wait under the lock, sleep outside it, then re-check.
+     */
     public void acquire(String endpoint) {
         if (!enabled) {
             return;
         }
 
-        synchronized (monitor) {
-            waitForMinInterval(endpoint);
-
-            while (true) {
+        while (true) {
+            long waitMs;
+            synchronized (monitor) {
                 long now = System.currentTimeMillis();
                 trim(now);
-                long waitMs = computeWaitMs(now);
+                waitMs = computeWaitMs(now);
                 if (waitMs <= 0) {
-                    break;
+                    waitMs = remainingMinIntervalMs(now);
                 }
-                sleep(waitMs, endpoint);
+                if (waitMs <= 0) {
+                    // Slot taken atomically under the lock, so concurrent callers cannot double-book it.
+                    secondWindow.addLast(now);
+                    minuteWindow.addLast(now);
+                    lastRequestAtMs = now;
+                    return;
+                }
             }
-
-            long now = System.currentTimeMillis();
-            secondWindow.addLast(now);
-            minuteWindow.addLast(now);
-            lastRequestAtMs = now;
+            sleep(waitMs, endpoint);
         }
     }
 
-    private void waitForMinInterval(String endpoint) {
+    private long remainingMinIntervalMs(long now) {
         if (minIntervalMs <= 0 || lastRequestAtMs <= 0) {
-            return;
+            return 0;
         }
-        long elapsed = System.currentTimeMillis() - lastRequestAtMs;
-        long waitMs = minIntervalMs - elapsed;
-        if (waitMs > 0) {
-            sleep(waitMs, endpoint);
-        }
+        long elapsed = now - lastRequestAtMs;
+        return elapsed >= minIntervalMs ? 0 : minIntervalMs - elapsed;
     }
 
     private long computeWaitMs(long now) {
