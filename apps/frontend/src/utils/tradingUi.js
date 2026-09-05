@@ -189,6 +189,7 @@ export const addMarketRow = (
     market,
     maxOrderKrw: defaultMaxOrderKrw,
     profile: defaultProfile,
+    signalModel: '',
     tradePaused: false,
     ...createEmptyRatioFields(),
   }])
@@ -359,10 +360,25 @@ export const buildMarketSuggestions = (input, catalog, rows, limit = 8) => {
     .slice(0, Math.max(1, limit))
 }
 
+// Entry models the engine registers. '' means inherit signal.model rather than pick a model.
+export const SIGNAL_MODEL_OPTIONS = [
+  { value: '', label: '기본값 사용' },
+  { value: 'trend_breakout', label: '추세 돌파' },
+  { value: 'squeeze_breakout', label: '변동성 수축 돌파' },
+]
+
+const SIGNAL_MODEL_VALUES = new Set(SIGNAL_MODEL_OPTIONS.map((option) => option.value))
+
+export const normalizeSignalModelValue = (value) => {
+  const normalized = `${value ?? ''}`.trim().toLowerCase()
+  return SIGNAL_MODEL_VALUES.has(normalized) ? normalized : ''
+}
+
 export const buildMarketOverrideRows = (payload) => {
   const configuredMarkets = Array.isArray(payload?.markets) ? payload.markets : []
   const maxOrderKrwByMarket = payload?.maxOrderKrwByMarket ?? {}
   const profileByMarket = payload?.profileByMarket ?? {}
+  const signalModelByMarket = payload?.signalModelByMarket ?? {}
   const tradePausedByMarket = payload?.tradePausedByMarket ?? {}
   const ratiosByMarket = payload?.ratiosByMarket ?? {}
 
@@ -413,6 +429,8 @@ export const buildMarketOverrideRows = (payload) => {
     market,
     maxOrderKrw: toInputValue(maxOrderKrwByMarket?.[market] ?? DEFAULT_MARKET_MAX_ORDER_KRW),
     profile: normalizeProfileValue(profileByMarket?.[market]) || DEFAULT_MARKET_PROFILE,
+    // '' means inherit the server-side signal.model default.
+    signalModel: normalizeSignalModelValue(signalModelByMarket?.[market]),
     tradePaused: Boolean(tradePausedByMarket?.[market]),
     takeProfitPct: toInputValue(ratiosByMarket?.[market]?.takeProfitPct),
     stopLossPct: toInputValue(ratiosByMarket?.[market]?.stopLossPct),
@@ -429,6 +447,7 @@ export const buildMarketOverridePayload = (rows) => {
     markets: [],
     maxOrderKrwByMarket: {},
     profileByMarket: {},
+    signalModelByMarket: {},
     tradePausedByMarket: {},
     ratiosByMarket: {},
   }
@@ -458,6 +477,9 @@ export const buildMarketOverridePayload = (rows) => {
     if (profile !== '') {
       payload.profileByMarket[market] = profile
     }
+
+    // Always sent, including '' — that is how a market is returned to the default.
+    payload.signalModelByMarket[market] = normalizeSignalModelValue(row?.signalModel)
 
     payload.tradePausedByMarket[market] = Boolean(row?.tradePaused)
 
@@ -514,6 +536,7 @@ export const buildMarketOverrideSignature = (rows) => {
         market,
         maxOrderKrw: normalizeCapForSignature(row?.maxOrderKrw),
         profile: normalizeProfileValue(row?.profile),
+        signalModel: normalizeSignalModelValue(row?.signalModel),
         tradePaused: Boolean(row?.tradePaused),
         takeProfitPct: normalizeCapForSignature(row?.takeProfitPct),
         stopLossPct: normalizeCapForSignature(row?.stopLossPct),

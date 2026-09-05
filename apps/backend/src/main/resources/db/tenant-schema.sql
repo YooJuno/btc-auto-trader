@@ -70,6 +70,7 @@ CREATE TABLE strategy_market_overrides (
   market                  VARCHAR(20) PRIMARY KEY,
   max_order_krw           DOUBLE PRECISION,
   profile                 VARCHAR(20),
+  signal_model            VARCHAR(40),
   trade_paused            BOOLEAN DEFAULT false,
   take_profit_pct         DOUBLE PRECISION,
   stop_loss_pct           DOUBLE PRECISION,

@@ -1055,7 +1055,7 @@ tbody tr:hover {
 
 .market-grid-header {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(160px, 1.1fr) minmax(150px, 1fr) minmax(110px, 0.7fr) auto;
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) minmax(120px, 0.9fr) minmax(150px, 1fr) minmax(110px, 0.7fr) auto;
   gap: var(--s2);
   padding: 0 var(--s2);
   color: var(--muted);
@@ -1075,7 +1075,7 @@ tbody tr:hover {
 
 .market-override-main {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(160px, 1.1fr) minmax(150px, 1fr) minmax(110px, 0.7fr) auto;
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) minmax(120px, 0.9fr) minmax(150px, 1fr) minmax(110px, 0.7fr) auto;
   gap: var(--s2);
   align-items: center;
 }

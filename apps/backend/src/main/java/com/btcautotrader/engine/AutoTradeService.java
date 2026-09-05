@@ -160,6 +160,10 @@ public class AutoTradeService {
     private final Map<String, Deque<OffsetDateTime>> stopLossEventsByMarket = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> stopLossGuardUntilByMarket = new ConcurrentHashMap<>();
     private final Map<String, DailyLossBaseline> dailyLossBaselinesByTenant = new ConcurrentHashMap<>();
+    // The tick's market overrides, per tenant, so entry-model resolution is reachable from handleBuy and
+    // recordDecision without threading the overrides through 15 call sites. Keyed by tenant because
+    // tenants tick concurrently on the scheduler pool.
+    private final Map<String, StrategyMarketOverrides> tickOverridesByTenant = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> trailingHighByMarket = new ConcurrentHashMap<>();
     private final Map<String, OffsetDateTime> lastEntryAtByMarket = new ConcurrentHashMap<>();
     private final Map<String, BigDecimal> entryAtrPctByMarket = new ConcurrentHashMap<>();
@@ -600,6 +604,7 @@ public class AutoTradeService {
                 return new AutoTradeResult(now.toString(), List.of());
             }
             StrategyMarketOverrides runtimeOverrides = strategyService.getMarketOverridesSnapshot(userId);
+            tickOverridesByTenant.put(currentTenantKey(), runtimeOverrides);
 
             Map<String, AccountSnapshot> accounts;
             try {
@@ -1356,7 +1361,7 @@ public class AutoTradeService {
         if (orderFunds.compareTo(minTotal) < 0) {
             return new AutoTradeAction(market, "SKIP", "insufficient cash", null, null, orderFunds, null, null);
         }
-        BuySignalDecision buySignalDecision = resolveSignalModel(config).evaluateBuy(new BuySignalContext(
+        BuySignalDecision buySignalDecision = resolveSignalModelForCurrentTenant(market).evaluateBuy(new BuySignalContext(
                 indicators,
                 tuning,
                 bollingerWindow > 1 ? squeezeMaxBandwidthPct : 0.0
@@ -1691,10 +1696,28 @@ public class AutoTradeService {
         return value * multiplier;
     }
 
-    private TradeSignalModel resolveSignalModel(StrategyConfig config) {
-        TradeSignalModel model = signalModels.get(defaultSignalModel);
+    /**
+     * Per-market entry model, falling back to the signal.model default.
+     *
+     * A multi-market bot wants different models on different markets — a large-cap in a steady trend and
+     * a thin alt breaking out of a squeeze are not the same problem — so the choice is a per-market
+     * override rather than one global switch.
+     */
+    private TradeSignalModel resolveSignalModelForCurrentTenant(String market) {
+        return resolveSignalModel(market, tickOverridesByTenant.get(currentTenantKey()));
+    }
+
+    private TradeSignalModel resolveSignalModel(String market, StrategyMarketOverrides runtimeOverrides) {
+        String requested = null;
+        if (market != null && runtimeOverrides != null && runtimeOverrides.signalModelByMarket() != null) {
+            requested = runtimeOverrides.signalModelByMarket().get(market);
+        }
+        if (requested == null || requested.isBlank()) {
+            requested = defaultSignalModel;
+        }
+        TradeSignalModel model = signalModels.get(requested);
         if (model == null) {
-            log.warn("Unknown signal.model '{}', falling back to {}", defaultSignalModel, UnifiedTrendSignalModel.NAME);
+            log.warn("Unknown signal model '{}', falling back to {}", requested, UnifiedTrendSignalModel.NAME);
             return signalModels.get(UnifiedTrendSignalModel.NAME);
         }
         return model;
@@ -3191,7 +3214,7 @@ public class AutoTradeService {
             }
 
             Map<String, Object> details = new HashMap<>();
-            details.put("signalModel", resolveSignalModel(config).name());
+            details.put("signalModel", resolveSignalModelForCurrentTenant(market).name());
             if (trailingKey != null) {
                 // Persisted so a restart restores the stop geometry an open position was opened with.
                 BigDecimal storedEntryAtrPct = entryAtrPctByMarket.get(trailingKey);

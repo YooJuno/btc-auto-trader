@@ -96,7 +96,7 @@ class AutoTradeServiceTest {
         lenient().when(strategyService.getConfig()).thenReturn(TEST_CONFIG);
         lenient().when(strategyService.configuredMarkets(null)).thenReturn(List.of("KRW-BTC"));
         lenient().when(strategyService.getMarketOverridesSnapshot(any())).thenReturn(
-                new StrategyMarketOverrides(Map.of(), Map.of(), Map.of(), Map.of())
+                new StrategyMarketOverrides(Map.of(), Map.of(), Map.of(), Map.of(), Map.of())
         );
         lenient().when(upbitService.fetchMinuteCandles(eq("KRW-BTC"), eq(1), anyInt())).thenReturn(bullishCandles());
         lenient().when(upbitService.fetchOrderChance("KRW-BTC")).thenReturn(Map.of());
@@ -150,6 +150,7 @@ class AutoTradeServiceTest {
         when(strategyService.configuredMarkets(7L)).thenReturn(List.of("KRW-BTC"));
         when(strategyService.getMarketOverridesSnapshot(7L)).thenReturn(
                 new StrategyMarketOverrides(
+                        Map.of(),
                         Map.of(),
                         Map.of(),
                         Map.of("KRW-BTC", true),

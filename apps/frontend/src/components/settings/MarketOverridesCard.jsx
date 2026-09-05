@@ -5,9 +5,11 @@ import {
   PROFILE_VALUES,
 } from '../../constants/tradingUi.js'
 import {
+  SIGNAL_MODEL_OPTIONS,
   applyRatioPresetToMarket,
   clearMarketRatioOverrides,
   normalizeProfileValue,
+  normalizeSignalModelValue,
   removeMarketRow,
   resolvePresetDisplayName,
   toInputValue,
@@ -160,6 +162,7 @@ function MarketOverridesCard({
             <span>마켓</span>
             <span>최대 매수 KRW</span>
             <span>프로필</span>
+            <span>진입 모델</span>
             <span>자동매매</span>
             <span>관리</span>
           </div>
@@ -200,6 +203,19 @@ function MarketOverridesCard({
                       {PROFILE_VALUES.map((profile) => (
                         <option key={profile} value={profile}>
                           {profile}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="market-inline-field">
+                    <select
+                      value={normalizeSignalModelValue(row.signalModel)}
+                      disabled={readOnly}
+                      onChange={(event) => updateMarketOverrideInput(setMarketRows, row.market, 'signalModel', event.target.value)}
+                    >
+                      {SIGNAL_MODEL_OPTIONS.map((option) => (
+                        <option key={option.value || 'default'} value={option.value}>
+                          {option.label}
                         </option>
                       ))}
                     </select>

@@ -106,8 +106,14 @@ Its squeeze test compares current Bollinger bandwidth to a fixed threshold
 (`signal.squeeze.max-bandwidth-pct`) rather than to its own trailing percentile. A percentile would adapt
 per market and is the textbook form; it needs bandwidth history `MarketIndicators` does not yet carry.
 
-**Adding a model:** implement `TradeSignalModel` (`name()` + `evaluateBuy`) and add it to the registry in
-`AutoTradeService`. Per-market selection is not wired yet — `signal.model` is currently a global setting.
+**Per-market selection.** `signal.model` is the default; each market can override it from the 매매 설정
+screen (진입 모델). A blank override inherits the default, and an unrecognised value degrades to it
+rather than refusing to trade. A multi-market bot wants this: a large-cap grinding out a trend and a
+thin alt breaking out of a squeeze are not the same problem.
+
+**Adding a model:** implement `TradeSignalModel` (`name()` + `evaluateBuy`), register it in
+`AutoTradeService`, add its name to `StrategyService.SIGNAL_MODELS` and to `SIGNAL_MODEL_OPTIONS` in
+the frontend, and mirror it in `backtest.py`'s `SIGNAL_MODELS` so backtest/live parity holds.
 
 ## 2-0) Universe Selection (Cross-Sectional Momentum, opt-in)
 

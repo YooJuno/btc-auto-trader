@@ -136,6 +136,11 @@ public class StrategyController {
                 configuredMarkets,
                 errors
         );
+        Map<String, String> signalModelByMarket = normalizeSignalModelMap(
+                request.signalModelByMarket(),
+                configuredMarkets,
+                errors
+        );
         Map<String, String> profileByMarket = normalizeProfileMap(
                 request.profileByMarket(),
                 configuredMarkets,
@@ -162,6 +167,7 @@ public class StrategyController {
                 markets,
                 maxOrderKrwByMarket,
                 profileByMarket,
+                signalModelByMarket,
                 tradePausedByMarket,
                 ratiosByMarket
         );
@@ -281,6 +287,41 @@ public class StrategyController {
                 continue;
             }
             normalized.put(market, profile.name());
+        }
+        return normalized;
+    }
+
+    private static Map<String, String> normalizeSignalModelMap(
+            Map<String, String> source,
+            Set<String> configuredMarkets,
+            Map<String, String> errors
+    ) {
+        Map<String, String> normalized = new HashMap<>();
+        if (source == null) {
+            return normalized;
+        }
+        for (Map.Entry<String, String> entry : source.entrySet()) {
+            String market = normalizeMarket(entry.getKey());
+            if (market == null) {
+                errors.put("signalModelByMarket", "market key is required");
+                continue;
+            }
+            if (!configuredMarkets.contains(market)) {
+                errors.put("signalModelByMarket." + market, "market is not configured");
+                continue;
+            }
+            String value = entry.getValue();
+            if (value == null || value.isBlank()) {
+                // Explicitly blank means "inherit the signal.model default".
+                normalized.put(market, "");
+                continue;
+            }
+            String model = StrategyService.normalizeSignalModel(value);
+            if (model == null) {
+                errors.put("signalModelByMarket." + market, "must be trend_breakout or squeeze_breakout");
+                continue;
+            }
+            normalized.put(market, model);
         }
         return normalized;
     }
