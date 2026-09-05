@@ -68,7 +68,9 @@ class UniverseSelectionServiceTest {
         stubDailyCandles("KRW-BBB", momentumSeries(100, 180));
         stubDailyCandles("KRW-CCC", momentumSeries(100, 150));
 
-        List<String> universe = service(true, 2).selectUniverse(List.of("KRW-BTC"));
+        UniverseSelectionService service = service(true, 2);
+        service.refreshUniverseIfStale();
+        List<String> universe = service.selectUniverse(List.of("KRW-BTC"));
 
         assertThat(universe).containsExactly("KRW-BBB", "KRW-CCC");
     }
@@ -84,7 +86,9 @@ class UniverseSelectionServiceTest {
         stubDailyCandles("KRW-AAA", momentumSeries(100, 150));
         stubDailyCandles("KRW-THIN", momentumSeries(100, 900));
 
-        assertThat(service(true, 5).selectUniverse(List.of())).containsExactly("KRW-AAA");
+        UniverseSelectionService service = service(true, 5);
+        service.refreshUniverseIfStale();
+        assertThat(service.selectUniverse(List.of())).containsExactly("KRW-AAA");
     }
 
     @Test
@@ -95,7 +99,9 @@ class UniverseSelectionServiceTest {
         stubDailyCandles("KRW-UP", momentumSeries(100, 130));
         stubDailyCandles("KRW-DOWN", momentumSeries(100, 70));
 
-        assertThat(service(true, 5).selectUniverse(List.of())).containsExactly("KRW-UP");
+        UniverseSelectionService service = service(true, 5);
+        service.refreshUniverseIfStale();
+        assertThat(service.selectUniverse(List.of())).containsExactly("KRW-UP");
     }
 
     @Test
@@ -104,7 +110,9 @@ class UniverseSelectionServiceTest {
         // cross-sectional momentum screen loses money.
         when(upbitService.fetchDayCandles(eq("KRW-BTC"), anyInt())).thenReturn(newestFirst(flat(100, 100, 40)));
 
-        assertThat(service(true, 5).selectUniverse(List.of("KRW-ETH"))).isEmpty();
+        UniverseSelectionService service = service(true, 5);
+        service.refreshUniverseIfStale();
+        assertThat(service.selectUniverse(List.of("KRW-ETH"))).isEmpty();
     }
 
     @Test
@@ -116,8 +124,9 @@ class UniverseSelectionServiceTest {
         stubLiquidity(Map.of("KRW-AAA", "9000000000"));
         stubDailyCandles("KRW-AAA", momentumSeries(100, 150));
 
-        List<String> tradable = service(true, 5)
-                .resolveTradableMarkets(List.of(), List.of("KRW-DROPPED"));
+        UniverseSelectionService service = service(true, 5);
+        service.refreshUniverseIfStale();
+        List<String> tradable = service.resolveTradableMarkets(List.of(), List.of("KRW-DROPPED"));
 
         assertThat(tradable).containsExactlyInAnyOrder("KRW-AAA", "KRW-DROPPED");
     }
@@ -126,8 +135,38 @@ class UniverseSelectionServiceTest {
     void heldMarketsSurviveARiskOffUniverse() {
         when(upbitService.fetchDayCandles(eq("KRW-BTC"), anyInt())).thenReturn(newestFirst(flat(100, 100, 40)));
 
-        assertThat(service(true, 5).resolveTradableMarkets(List.of(), List.of("KRW-ETH")))
+        UniverseSelectionService service = service(true, 5);
+        service.refreshUniverseIfStale();
+        assertThat(service.resolveTradableMarkets(List.of(), List.of("KRW-ETH")))
                 .containsExactly("KRW-ETH");
+    }
+
+    @Test
+    void selectionNeverFetchesOnTheTradingPath() {
+        // The trading tick holds a per-tenant lock, so a ~43-call ranking must never run inside it.
+        // With no snapshot yet, selection falls back to the configured list without touching Upbit.
+        UniverseSelectionService service = service(true, 5);
+
+        assertThat(service.selectUniverse(List.of("KRW-BTC"))).containsExactly("KRW-BTC");
+        org.mockito.Mockito.verifyNoInteractions(upbitService);
+    }
+
+    @Test
+    void aFailedRefreshKeepsThePreviousSnapshot() {
+        stubRiskOn();
+        stubMarkets("KRW-AAA");
+        stubLiquidity(Map.of("KRW-AAA", "9000000000"));
+        stubDailyCandles("KRW-AAA", momentumSeries(100, 150));
+
+        UniverseSelectionService service = service(true, 5);
+        service.refreshUniverseIfStale();
+        assertThat(service.selectUniverse(List.of())).containsExactly("KRW-AAA");
+
+        // A stale ranking beats an empty one: a transient Upbit failure must not flatten the universe.
+        when(upbitService.fetchMarkets()).thenThrow(new IllegalStateException("upbit down"));
+        service.refreshUniverseIfStale();
+
+        assertThat(service.selectUniverse(List.of())).containsExactly("KRW-AAA");
     }
 
     @Test

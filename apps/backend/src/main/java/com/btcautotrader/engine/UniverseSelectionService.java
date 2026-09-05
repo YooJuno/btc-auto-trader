@@ -4,6 +4,7 @@ import com.btcautotrader.upbit.UpbitService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -105,9 +106,33 @@ public class UniverseSelectionService {
             return configuredMarkets == null ? List.of() : configuredMarkets;
         }
 
+        // Read-only: never compute here. Ranking costs ~43 rate-limited Upbit calls (>= 5s, and more with
+        // real latency), and this runs inside the trading tick, which holds the per-tenant lock. Blocking
+        // it would stop stop-loss evaluation for the duration - the same failure mode as a backoff that
+        // gates exits. The refresh runs on its own schedule instead.
+        UniverseSnapshot cached = cache.get();
+        if (cached != null) {
+            return cached.markets();
+        }
+        // No snapshot yet (startup, or every refresh so far has failed): fall back to the configured list
+        // rather than silently trading nothing.
+        return configuredMarkets == null ? List.of() : configuredMarkets;
+    }
+
+    /**
+     * Refreshes the ranking off the trading path.
+     *
+     * Runs frequently but only does work once a snapshot has aged past {@code refreshMinutes}, so the
+     * expensive fetch happens at most once per window regardless of how often this fires.
+     */
+    @Scheduled(fixedDelayString = "${signal.universe.refresh-check-ms:60000}")
+    public void refreshUniverseIfStale() {
+        if (!enabled) {
+            return;
+        }
         UniverseSnapshot cached = cache.get();
         if (cached != null && !cached.isStale(refreshMinutes)) {
-            return cached.markets();
+            return;
         }
 
         try {
@@ -119,12 +144,10 @@ public class UniverseSelectionService {
                     snapshot.markets(),
                     snapshot.riskOff()
             );
-            return snapshot.markets();
         } catch (RuntimeException ex) {
-            log.warn("Universe selection failed, falling back to the configured list: {}", ex.getMessage());
-            // Fall back rather than trade nothing on a transient data failure, but keep any previous
-            // snapshot so a recovery does not have to wait for the next refresh window.
-            return cached != null ? cached.markets() : (configuredMarkets == null ? List.of() : configuredMarkets);
+            // Keep the previous snapshot. A stale ranking is far better than an empty one, and the next
+            // tick retries in a minute.
+            log.warn("Universe refresh failed, keeping the previous snapshot: {}", ex.getMessage());
         }
     }
 
