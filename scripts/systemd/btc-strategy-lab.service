@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=juno
 WorkingDirectory=/home/juno/Workspace/btc-auto-trader
-ExecStart=/usr/bin/env python3 /home/juno/Workspace/btc-auto-trader/scripts/research/strategy_lab_daemon.py --workdir /home/juno/Workspace/btc-auto-trader --market KRW-BTC --days 7 --split-ratio 0.5 --min-sell-trades 1 --interval-minutes 60 --max-combos 60 --output-dir /home/juno/Workspace/btc-auto-trader/data/strategy-lab
+ExecStart=/usr/bin/env python3 /home/juno/Workspace/btc-auto-trader/scripts/research/strategy_lab_daemon.py --workdir /home/juno/Workspace/btc-auto-trader --market KRW-BTC --days 180 --split-ratio 0.7 --min-sell-trades 20 --interval-minutes 1440 --max-combos 60 --output-dir /home/juno/Workspace/btc-auto-trader/data/strategy-lab
 Restart=always
 RestartSec=10
 
