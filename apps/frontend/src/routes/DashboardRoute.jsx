@@ -64,6 +64,8 @@ function DashboardRoute({
               market={chartMarket}
               orders={mergedOrderHistory}
               avgBuyPrice={chartAvgBuyPrice}
+              onOpenManualTrade={onOpenManualTrade}
+              tradeDisabled={authRequired}
             />
           </Suspense>
 

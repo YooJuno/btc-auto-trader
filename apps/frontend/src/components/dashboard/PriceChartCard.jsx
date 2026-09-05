@@ -52,7 +52,7 @@ const seoulTime = (epochSeconds, withDate) => {
   })
 }
 
-function PriceChartCard({ market, unitDefault = 60, orders, avgBuyPrice }) {
+function PriceChartCard({ market, unitDefault = 60, orders, avgBuyPrice, onOpenManualTrade, tradeDisabled }) {
   const hostRef = useRef(null)
   const chartRef = useRef(null)
   const seriesRef = useRef(null)
@@ -233,6 +233,16 @@ function PriceChartCard({ market, unitDefault = 60, orders, avgBuyPrice }) {
       <div className="table-header">
         <h2>{market || '마켓 미선택'}</h2>
         <div className="chart-toolbar">
+          {onOpenManualTrade && (
+            <button
+              type="button"
+              className="table-action-button"
+              disabled={tradeDisabled || !market}
+              onClick={() => onOpenManualTrade(market, 'BUY')}
+            >
+              수동 주문
+            </button>
+          )}
           {TIMEFRAMES.map((tf) => (
             <button
               key={tf.unit}
