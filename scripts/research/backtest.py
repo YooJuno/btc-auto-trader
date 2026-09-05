@@ -2043,13 +2043,16 @@ def recommendation_score(run):
 def main():
     parser = argparse.ArgumentParser(description="Backtest auto-trading strategy with train/test validation")
     parser.add_argument("--market", default="KRW-BTC")
-    parser.add_argument("--days", type=int, default=7)
+    # Matched to the Strategy Lab and to docs/BACKTEST_GUIDE.md. 7 days at the 1h signal timeframe is
+    # ~168 bars and a handful of trades.
+    parser.add_argument("--days", type=int, default=180)
     parser.add_argument("--sleep", type=float, default=0.12)
     parser.add_argument("--cache-dir", default="data/backtest")
-    parser.add_argument("--short-unit", type=int, default=3)
-    parser.add_argument("--mid-unit", type=int, default=15)
+    # Engine timeframes: 60m signal, 240m higher-timeframe confirm.
+    parser.add_argument("--short-unit", type=int, default=60)
+    parser.add_argument("--mid-unit", type=int, default=240)
     parser.add_argument("--profile", default="BALANCED", choices=["AGGRESSIVE", "BALANCED", "CONSERVATIVE"])
-    parser.add_argument("--split-ratio", type=float, default=0.5)
+    parser.add_argument("--split-ratio", type=float, default=0.7)
     parser.add_argument("--optimize", action="store_true")
     parser.add_argument("--max-combos", type=int, default=120)
     parser.add_argument("--refresh-cache", action="store_true")
