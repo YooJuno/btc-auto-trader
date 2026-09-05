@@ -108,18 +108,23 @@ APP_EXCHANGE_KEY_ENCRYPTION_KEY=change-this-to-a-long-random-secret
 ### 백테스트 가이드
 - 실행/검증 문서: `docs/BACKTEST_GUIDE.md`
 - 기본 실행:
-  - `python3 scripts/research/backtest.py --days 30`
+  - `python3 scripts/research/backtest.py --days 180`
 - 파라미터 탐색 포함:
-  - `python3 scripts/research/backtest.py --days 30 --optimize --max-combos 120`
+  - `python3 scripts/research/backtest.py --days 180 --optimize --max-combos 120`
+- 횡단면 모멘텀(측정 결과 손실, 문서 참고):
+  - `python3 scripts/research/backtest_cross_sectional.py --days 800`
 
-### Strategy Lab (지속 테스트 루프)
+### Strategy Research Loop (워크포워드 검증 루프)
 - 실행 문서: `docs/STRATEGY_LAB.md`
 - 역할:
-  - 실시간 자동매매와 별개로 백테스트를 주기적으로 반복
-  - 결과를 `data/strategy-lab/`에 누적 저장
-  - 다음 Codex 요청 시 누적 데이터 기반으로 전략 코드/설정 반영
+  - 전체 이력에 대해 **앵커드 워크포워드**로 후보를 검증 (학습 구간과 검증 구간 분리)
+  - **다중검정 보정**(deflated Sharpe)으로 "많이 시도해서 얻은 우연"을 걸러냄
+  - 7개 조건을 모두 통과해야 채택. **기본 판정은 거부**이고, 대부분의 실행은 거부가 정상
+  - 결과를 `data/strategy-research/`에 누적 (`history.jsonl` append-only)
+  - `--auto-promote` 를 켜도 `champion.json` 기록만 하고 **설정 파일은 건드리지 않음**
 - 설치/시작:
   - `./scripts/systemd/install_services.sh --strategy-only`
+- 이전 `strategy_lab_daemon.py` 는 과적합 루프였고 더 이상 사용하지 않습니다 (문서 참고)
 
 ### Tenant 분리 확인 체크리스트
 1. 계정 A/B 각각 로그인 후 `/api/me`의 `tenantDatabase`가 다른지 확인
