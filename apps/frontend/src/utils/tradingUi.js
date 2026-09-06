@@ -811,10 +811,18 @@ export const formatDateTime = (value) => {
   if (Number.isNaN(date.getTime())) {
     return '-'
   }
-  return date.toLocaleString('ko-KR', { hour12: false })
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${formatTime(value)}`
 }
 
-// Time-only form for the decision feed, where the date is almost always today and the column is narrow.
+const pad = (n) => String(n).padStart(2, '0')
+
+/*
+ * Fixed-width 24h clock for data columns.
+ *
+ * ko-KR renders a time as "11시 20분 5초" — variable width, and long enough to wrap the decision feed's
+ * timestamp onto two lines. Numeric time is also what every other value in these tables is: monospace
+ * and alignable. Dates keep their Korean form in prose; only tabular time uses this.
+ */
 export const formatTime = (value) => {
   if (!value) {
     return '-'
@@ -823,7 +831,19 @@ export const formatTime = (value) => {
   if (Number.isNaN(date.getTime())) {
     return '-'
   }
-  return date.toLocaleTimeString('ko-KR', { hour12: false })
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+/** Date and time for the status bar, where the day matters but the year does not. */
+export const formatStamp = (value) => {
+  if (!value) {
+    return '-'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return '-'
+  }
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${formatTime(value)}`
 }
 
 

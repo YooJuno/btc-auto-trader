@@ -32,7 +32,6 @@ function ProfileIdentityCard({
           <h2>내 프로필</h2>
           <p className="sub">닉네임과 계정 정보를 관리하고, 아래에서 거래소 API 키를 별도로 등록합니다.</p>
         </div>
-        <span className="pill">{authUser?.owner ? 'ADMIN' : 'PROFILE'}</span>
       </div>
       {profileError && <p className="status-error">{profileError}</p>}
       {profileNotice && <p className="status-success">{profileNotice}</p>}
@@ -58,7 +57,7 @@ function ProfileIdentityCard({
           />
         </label>
       </div>
-      <p className="sub compact profile-card__hint">
+      <p className="sub compact">
         현재 표시 이름: {nicknameLabel}
       </p>
       <div className="profile-meta-grid">

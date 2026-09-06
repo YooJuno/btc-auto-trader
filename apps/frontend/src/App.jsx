@@ -2,6 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import './App.css'
 import DashboardRoute from './routes/DashboardRoute.jsx'
 import AppHeader from './components/layout/AppHeader.jsx'
+import AppNav from './components/layout/AppNav.jsx'
+import AppStatusBar from './components/layout/AppStatusBar.jsx'
 import ManualTradeModal from './components/trade/ManualTradeModal.jsx'
 import { useDeviceUiPreferences } from './hooks/useDeviceUiPreferences.js'
 import { useAuthSession } from './hooks/useAuthSession.js'
@@ -27,6 +29,9 @@ import {
   toInputValue,
 } from './utils/tradingUi.js'
 import { requestJson } from './utils/apiClient.js'
+
+import PerformanceCard from './components/dashboard/PerformanceCard.jsx'
+import DecisionFeedCard from './components/dashboard/DecisionFeedCard.jsx'
 
 const SettingsRoute = lazy(() => import('./routes/SettingsRoute.jsx'))
 const ProfileRoute = lazy(() => import('./routes/ProfileRoute.jsx'))
@@ -271,7 +276,6 @@ function App() {
     updatedAt,
     connectionClass,
     connectionLabel,
-    engineClass,
     marketRowsDirty,
     marketSuggestions,
     manualTradePosition,
@@ -541,6 +545,7 @@ function App() {
     : activeRoute === SETTINGS_ROUTE
     ? SETTINGS_ROUTE
     : DASHBOARD_ROUTE
+  const isDashboard = effectiveRoute === DASHBOARD_ROUTE
   const routeLoadingFallback = (
     <section className="table-card">
       <div className="empty-state">화면을 불러오는 중입니다…</div>
@@ -549,11 +554,10 @@ function App() {
 
   if (authenticated && (bootstrapLoading || !bootstrapLoaded)) {
     return (
-      <div className={`app ${tableDensityClass}`}>
-        <section className="control-card">
+      <div className="boot">
+        <section className="panel boot__panel">
           <div className="card-head">
             <h2>초기화 중</h2>
-            <span className="pill">LOADING</span>
           </div>
           <p className="sub">사용자 설정을 확인하고 있습니다.</p>
           {bootstrapError && <p className="status-error">{bootstrapError}</p>}
@@ -563,32 +567,38 @@ function App() {
   }
 
   return (
-    <div className={`app ${tableDensityClass}`}>
-      <AppHeader
-        activeRoute={effectiveRoute}
-        onNavigateRoute={navigateRoute}
-        authChecking={authChecking}
-        authProviders={authProviders}
-        authError={authError}
-        onProviderLogin={handleProviderLogin}
-        engineClass={engineClass}
-        engineError={engineError}
-        engineBusy={engineBusy}
-        engineStatus={engineStatus}
-        engineKnown={engineKnown}
-        tradingMode={tradingMode}
-        onEngineToggle={handleEngineToggle}
-        onPanic={handlePanicConfirm}
-        panicBusy={panicBusy}
-        hasOpenPositions={positions.length > 0}
-        updatedAt={updatedAt}
-        authUser={authUser}
-        connectionClass={connectionClass}
-        connectionLabel={connectionLabel}
-        approvalStatus={approvalStatus}
-        canAccessAdmin={authenticated && canAccessAdmin}
-        onLogout={handleLogout}
-      />
+    <div className={`shell ${tableDensityClass}`}>
+      <div className="shell__header">
+        <AppHeader
+          authChecking={authChecking}
+          authProviders={authProviders}
+          authError={authError}
+          onProviderLogin={handleProviderLogin}
+          engineError={engineError}
+          engineBusy={engineBusy}
+          engineStatus={engineStatus}
+          engineKnown={engineKnown}
+          tradingMode={tradingMode}
+          onEngineToggle={handleEngineToggle}
+          onPanic={handlePanicConfirm}
+          panicBusy={panicBusy}
+          hasOpenPositions={positions.length > 0}
+          authUser={authUser}
+          approvalStatus={approvalStatus}
+          onLogout={handleLogout}
+        />
+      </div>
+
+      <div className="shell__nav">
+        <AppNav
+          activeRoute={effectiveRoute}
+          onNavigateRoute={navigateRoute}
+          authenticated={authenticated}
+          canAccessAdmin={authenticated && canAccessAdmin}
+        />
+      </div>
+
+      <main className="shell__main" id="main">
 
       {effectiveRoute === ADMIN_USERS_ROUTE && authenticated && canAccessAdmin ? (
         <Suspense fallback={routeLoadingFallback}>
@@ -642,13 +652,34 @@ function App() {
           manualTradeNotice={manualTradeNotice}
           mergedOrderHistory={mergedOrderHistory}
           feedError={feedError}
-          decisionFeed={decisionFeed}
           chartMarket={chartMarket}
           chartAvgBuyPrice={chartPosition?.avgBuyPrice}
           onOpenManualTrade={openManualTrade}
           formatters={DASHBOARD_FORMATTERS}
         />
       )}
+      </main>
+
+      {/* Right rail is contextual, not decorative: it carries the two panels that answer "is the engine
+          working and is it working well". Only the dashboard has that context, so other routes let the
+          main column take the full width rather than showing an empty column. */}
+      {isDashboard && authenticated && (
+        <aside className="shell__aside" aria-label="엔진 컨텍스트">
+          <PerformanceCard orders={mergedOrderHistory} formatKRW={formatKRW} />
+          <DecisionFeedCard decisions={decisionFeed} decisionError={null} formatTime={formatTime} />
+        </aside>
+      )}
+
+      <div className="shell__footer">
+        <AppStatusBar
+          connectionClass={connectionClass}
+          connectionLabel={connectionLabel}
+          updatedAt={updatedAt}
+          tradingMode={tradingMode}
+          marketCount={positions.length}
+          authenticated={authenticated}
+        />
+      </div>
 
       <ManualTradeModal
         open={authenticated && manualTradeOpen}
