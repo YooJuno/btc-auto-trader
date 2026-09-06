@@ -68,6 +68,10 @@
   --r2: 4px;
   --r3: 6px;
 
+  /* Shell rails. */
+  --nav-w: 168px;
+  --aside-w: 380px;
+
   /* Type scale. */
   --t-label: 11px;
   --t-small: 12px;

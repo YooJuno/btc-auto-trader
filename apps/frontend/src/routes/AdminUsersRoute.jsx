@@ -22,15 +22,13 @@ function AdminUsersRoute({
   const pageLabel = totalElements > 0 ? `${page + 1} / ${Math.max(totalPages, 1)}` : '0 / 0'
 
   return (
-    <section className="workspace-grid workspace-grid--settings">
-      <aside className="workspace-side">
+    <>
         <article className="table-card">
           <div className="card-head">
             <div>
               <h2>관리자 사용자 승인</h2>
               <p className="sub">승인 상태(PENDING/APPROVED/SUSPENDED)와 키 등록 상태를 관리합니다.</p>
             </div>
-            <span className="pill">ADMIN</span>
           </div>
 
           <div className="form-grid">
@@ -123,8 +121,7 @@ function AdminUsersRoute({
             </div>
           </div>
         </article>
-      </aside>
-    </section>
+      </>
   )
 }
 

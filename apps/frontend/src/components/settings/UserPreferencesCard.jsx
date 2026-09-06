@@ -54,7 +54,6 @@ function UserPreferencesCard({
           <h2>개인 화면 옵션</h2>
           <p className="sub">자주 바꾸지 않는 개인용 기본값과 화면 표시 옵션입니다.</p>
         </div>
-        <span className="pill">OPTION</span>
       </div>
       {userSettingsError && <p className="status-error">{userSettingsError}</p>}
       {userSettingsNotice && <p className="status-success">{userSettingsNotice}</p>}

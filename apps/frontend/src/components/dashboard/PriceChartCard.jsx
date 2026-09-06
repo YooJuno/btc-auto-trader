@@ -103,6 +103,8 @@ function PriceChartCard({ market, unitDefault = 60, orders, avgBuyPrice, onOpenM
         timeFormatter: (time) => seoulTime(time, true),
       },
       autoSize: true,
+      // The library's attribution mark sits over the price action in the bottom-left corner.
+      attributionLogo: false,
     })
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -262,7 +264,7 @@ function PriceChartCard({ market, unitDefault = 60, orders, avgBuyPrice, onOpenM
         <div className="empty-state">캔들을 불러오는 중…</div>
       )}
 
-      <div className="chart-host" ref={hostRef} style={{ display: market && !error ? 'block' : 'none' }} />
+      <div className="chart-host" ref={hostRef} hidden={!market || Boolean(error)} />
     </section>
   )
 }

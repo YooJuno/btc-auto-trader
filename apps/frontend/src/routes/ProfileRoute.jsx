@@ -8,8 +8,7 @@ function ProfileRoute({
   authenticated = true,
 }) {
   return (
-    <section className="workspace-grid workspace-grid--settings">
-      <aside className="workspace-side">
+    <>
         {authenticated ? (
           <>
             <ProfileIdentityCard {...profile} />
@@ -22,12 +21,10 @@ function ProfileRoute({
                 <h2>개인 정보</h2>
                 <p className="sub">닉네임과 거래소 API 키는 로그인 후 관리할 수 있습니다.</p>
               </div>
-              <span className="pill">LOGIN</span>
             </div>
           </article>
         )}
-      </aside>
-    </section>
+      </>
   )
 }
 

@@ -10,6 +10,7 @@ import {
   buildMarketOverrideRows,
   buildMarketOverrideSignature,
   buildMarketSuggestions,
+  formatStamp,
   isFilledOrder,
   isValidMarketCode,
   normalizeMarket,
@@ -505,9 +506,7 @@ export function useTradingWorkspace({
 
   const cash = summary?.cash
   const totals = summary?.totals
-  const updatedAt = summary?.queriedAt
-    ? new Date(summary.queriedAt).toLocaleString('ko-KR', { hour12: false })
-    : '—'
+  const updatedAt = summary?.queriedAt ? formatStamp(summary.queriedAt) : '—'
 
   const connectionClass = serverConnected === null ? 'checking' : serverConnected ? 'connected' : 'disconnected'
   const connectionLabel = serverConnected === null ? '확인중' : serverConnected ? '연결됨' : '끊김'

@@ -9,8 +9,7 @@ function SettingsRoute({
   readOnly = false,
 }) {
   return (
-    <section className="workspace-grid workspace-grid--settings">
-      <aside className="workspace-side">
+    <>
         {authenticated ? (
           <>
             <MarketOverridesCard {...marketOverrides} readOnly={readOnly} />
@@ -23,12 +22,10 @@ function SettingsRoute({
                 <h2>조회 전용 모드</h2>
                 <p className="sub">로그인 전에는 매매 세팅 조회만 가능하고, 저장/조작은 비활성화됩니다.</p>
               </div>
-              <span className="pill">READ ONLY</span>
             </div>
           </article>
         )}
-      </aside>
-    </section>
+      </>
   )
 }
 
